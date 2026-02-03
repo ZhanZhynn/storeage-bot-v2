@@ -1,6 +1,8 @@
 <script lang="ts">
     import { goto } from "$app/navigation";
+    import { onMount } from "svelte";
     import ThemeToggle from "$lib/components/ThemeToggle.svelte";
+    import { defaultDashboardConfig } from "$lib/localConfig";
     import { Settings, ChevronDown, RefreshCw, Plus } from "lucide-svelte";
 
     type Workspace = {
@@ -44,7 +46,7 @@
         workspaces: Workspace[];
     };
 
-    export let data: { config: DashboardConfig };
+    export let data: { config: DashboardConfig } | undefined;
     export let initialSection: "profile" | "dev" | "slack" = "profile";
     export let initialSlug: string | null = null;
 
@@ -72,7 +74,7 @@
         };
     };
 
-    const initialConfig = normalizeConfig(data.config as DashboardConfig);
+    const initialConfig = normalizeConfig(data?.config ?? defaultDashboardConfig);
     let user: UserProfile = { ...initialConfig.user };
     let devServers: DevServer[] = initialConfig.devServers;
     let workspaces: Workspace[] = initialConfig.workspaces;
@@ -112,6 +114,7 @@
     let isSaving = false;
     let isSyncingModels = false;
     let isSyncingSlack = false;
+    let isConfigLoading = false;
     let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
     let routeUpdateTimer: ReturnType<typeof setTimeout> | null = null;
     let confirmDelete: {
@@ -236,6 +239,7 @@
     const applyConfig = (config: DashboardConfig) => {
         const normalized = normalizeConfig(config);
         user = normalized.user;
+        messageFrequency = normalized.user.defaultMessageFrequency;
         devServers = normalized.devServers;
         workspaces = normalized.workspaces;
         defaultDevServerId = normalized.defaultDevServerId;
@@ -249,6 +253,35 @@
             normalized.workspaces.find((workspace) => workspace.id === selectedWorkspaceId)
                 ?.id ?? normalized.workspaces[0]?.id ?? null;
         selectedWorkspaceId = nextWorkspaceId;
+    };
+
+    const loadConfig = async () => {
+        if (isConfigLoading) return;
+        isConfigLoading = true;
+        try {
+            const response = await fetch("/local-setting/config");
+            if (!response.ok) {
+                pushToast({
+                    title: "Load failed",
+                    description: "Please try again.",
+                    variant: "destructive",
+                });
+                return;
+            }
+            const payload = await response.json();
+            if (payload?.config) {
+                applyConfig(payload.config as DashboardConfig);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : "Please try again.";
+            pushToast({
+                title: "Load failed",
+                description: message,
+                variant: "destructive",
+            });
+        } finally {
+            isConfigLoading = false;
+        }
     };
 
     const openAddSlackBot = () => {
@@ -346,6 +379,10 @@
             });
         }
     };
+
+    onMount(() => {
+        void loadConfig();
+    });
 
     const scheduleAutoSave = () => {
         if (autoSaveTimer) {

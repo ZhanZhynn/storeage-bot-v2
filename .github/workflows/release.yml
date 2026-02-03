@@ -38,6 +38,12 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Build web UI
+        run: bun run build:web
+
+      - name: Bundle web UI assets
+        run: bun run build:web-assets
+
       - name: Build CLI
         run: bun build src/cli.ts --compile --target ${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
 

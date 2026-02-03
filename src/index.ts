@@ -11,7 +11,7 @@ import {
   resetSlackState,
 } from "./slack";
 import { spawn, type ChildProcess } from "child_process";
-import { watchFile, unwatchFile } from "fs";
+import { existsSync, watchFile, unwatchFile } from "fs";
 import { stopServer } from "./agents";
 import {
   getDefaultCwd,
@@ -22,6 +22,7 @@ import {
   ODE_CONFIG_FILE,
 } from "./config";
 import { log } from "./logger";
+import { hasEmbeddedWebAssets, startLocalWebServer, stopLocalWebServer } from "./web/server";
 
 const DEFAULT_WEB_HOST = "127.0.0.1";
 const DEFAULT_WEB_PORT = 9293;
@@ -154,6 +155,7 @@ function startLocalConfigWatcher(): void {
 
 function startWebDevServer(): void {
   if (webDevServer) return;
+  if (!existsSync("web")) return;
   const args = ["--cwd", "web", "dev"];
   webDevServer = spawn("bun", args, {
     stdio: "inherit",
@@ -186,7 +188,10 @@ async function main(): Promise<void> {
   loadOdeConfig();
 
   if (isLocalMode()) {
-    startWebDevServer();
+    startLocalWebServer();
+    if (!hasEmbeddedWebAssets()) {
+      log.info("Web UI unavailable; configure via ~/.config/ode/ode.json");
+    }
     startLocalConfigWatcher();
   }
 
@@ -209,6 +214,7 @@ async function main(): Promise<void> {
         webDevServer.kill();
         webDevServer = null;
       }
+      stopLocalWebServer();
       if (stopConfigWatcher) {
         stopConfigWatcher();
       }
