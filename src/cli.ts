@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { basename, join } from "path";
-import { mkdtemp, chmod, copyFile, rm } from "fs/promises";
+import { basename, dirname, join } from "path";
+import { mkdtemp, chmod, copyFile, rm, rename } from "fs/promises";
 import { tmpdir } from "os";
 import packageJson from "../package.json" with { type: "json" };
 
@@ -84,9 +84,26 @@ async function upgrade(): Promise<void> {
   }
 
   try {
-    await copyFile(tempPath, process.execPath);
+    const execPath = process.execPath;
+    try {
+      await copyFile(tempPath, execPath);
+    } catch (error) {
+      if (process.platform === "win32") throw error;
+      const code = error && typeof error === "object" && "code" in error
+        ? (error as { code?: string }).code
+        : undefined;
+      if (code !== "ETXTBSY" && code !== "EBUSY") throw error;
+
+      const execDir = dirname(execPath);
+      const swapPath = join(execDir, `${basename(execPath)}.new`);
+      await rm(swapPath, { force: true });
+      await copyFile(tempPath, swapPath);
+      await chmod(swapPath, 0o755);
+      await rename(swapPath, execPath);
+    }
+
     if (process.platform !== "win32") {
-      await chmod(process.execPath, 0o755);
+      await chmod(execPath, 0o755);
     }
   } catch (error) {
     console.error("Failed to replace the existing ode binary.");
