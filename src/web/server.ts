@@ -44,9 +44,10 @@ function decodeAsset(asset: { body: string; encoding: "base64" | "utf-8" }): Uin
 }
 
 function resolveAssetPath(pathname: string): string {
-  if (pathname === "/") return "/local-setting/index.html";
-  if (pathname === "/local-setting") return "/local-setting/index.html";
-  if (pathname.endsWith("/")) return `${pathname}index.html`;
+  if (pathname === "/") return "/index.html";
+  if (pathname === "/local-setting") return "/local-setting.html";
+  if (pathname.startsWith("/local-setting/")) return "/local-setting.html";
+  if (pathname.endsWith("/")) return `${pathname.slice(0, -1)}.html`;
   return pathname;
 }
 
@@ -103,10 +104,15 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   const resolvedPath = resolveAssetPath(pathname);
-  const asset = webAssets[resolvedPath];
+  let asset = webAssets[resolvedPath];
   if (!asset) {
-    return new Response("Not found", { status: 404 });
+    const acceptsHtml = request.headers.get("accept")?.includes("text/html");
+    if (acceptsHtml && webAssets["/index.html"]) {
+      asset = webAssets["/index.html"];
+    }
   }
+
+  if (!asset) return new Response("Not found", { status: 404 });
 
   return new Response(decodeAsset(asset), {
     status: 200,
