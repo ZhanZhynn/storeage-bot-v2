@@ -499,8 +499,13 @@
         }
         isSyncingModels = true;
         try {
-            const endpoint = new URL("/config/providers", baseUrl).toString();
-            const response = await fetch(endpoint);
+            const response = await fetch("/local-setting/opencode-sync", {
+                method: "POST",
+                headers: {
+                    "content-type": "application/json",
+                },
+                body: JSON.stringify({ serverUrl: baseUrl }),
+            });
             if (!response.ok) {
                 pushToast({
                     title: "Sync failed",
@@ -511,7 +516,16 @@
                 return;
             }
             const payload = await response.json();
-            const models = Array.from(new Set(extractModels(payload))).sort();
+            if (!payload?.ok) {
+                const message = payload?.error ?? "Please try again.";
+                pushToast({
+                    title: "Sync failed",
+                    description: message,
+                    variant: "destructive",
+                });
+                return;
+            }
+            const models = Array.from(new Set(extractModels(payload.providers))).sort();
             if (!models.length) {
                 pushToast({
                     title: "No models found",
