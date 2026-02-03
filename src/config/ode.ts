@@ -9,12 +9,18 @@ const ODE_CONFIG_DIR = join(XDG_CONFIG_HOME, "ode");
 export const ODE_CONFIG_FILE = join(ODE_CONFIG_DIR, "ode.json");
 
 const userSchema = z.object({
-  name: z.string(),
-  email: z.string(),
-  initials: z.string(),
-  avatar: z.string().optional(),
-  githubToken: z.string().optional(),
-  defaultMessageFrequency: z.enum(["low", "medium", "high"]).optional(),
+  name: z.string().optional().default(""),
+  email: z.string().optional().default(""),
+  initials: z.string().optional().default(""),
+  avatar: z.string().optional().default(""),
+  githubToken: z.string().optional().default(""),
+  defaultMessageFrequency: z.enum([
+    "minimum",
+    "medium",
+    "aggressive",
+    "low",
+    "high",
+  ]).optional().default("medium"),
 });
 
 const devServerSchema = z.object({
@@ -28,21 +34,21 @@ const channelDetailSchema = z.object({
   id: z.string(),
   name: z.string(),
   model: z.string(),
-  workingDirectory: z.string().optional(),
-  devServerId: z.string(),
+  workingDirectory: z.string().optional().default(""),
+  devServerId: z.string().nullable().optional(),
 });
 
 const workspaceSchema = z.object({
   id: z.string(),
-  name: z.string(),
-  domain: z.string(),
-  status: z.string(),
-  channels: z.number(),
-  members: z.number(),
-  lastSync: z.string(),
-  slackAppToken: z.string().startsWith("xapp-"),
-  slackBotToken: z.string().startsWith("xoxb-"),
-  channelDetails: z.array(channelDetailSchema),
+  name: z.string().optional().default(""),
+  domain: z.string().optional().default(""),
+  status: z.enum(["active", "paused"]).optional().default("active"),
+  channels: z.number().optional().default(0),
+  members: z.number().optional().default(0),
+  lastSync: z.string().optional().default(""),
+  slackAppToken: z.string().optional().default(""),
+  slackBotToken: z.string().optional().default(""),
+  channelDetails: z.array(channelDetailSchema).optional().default([]),
 });
 
 const odeConfigSchema = z.object({
@@ -85,7 +91,20 @@ function ensureConfigFile(): void {
 }
 
 function normalizeConfig(config: OdeConfig): OdeConfig {
-  return config;
+  const frequency = config.user.defaultMessageFrequency;
+  const normalizedFrequency =
+    frequency === "low"
+      ? "minimum"
+      : frequency === "high"
+        ? "aggressive"
+        : frequency;
+  return {
+    ...config,
+    user: {
+      ...config.user,
+      defaultMessageFrequency: normalizedFrequency,
+    },
+  };
 }
 
 export function loadOdeConfig(): OdeConfig {
@@ -203,7 +222,7 @@ export function setChannelCwd(channelId: string, cwd: string): void {
 export function setChannelWorkingDirectory(channelId: string, workingDirectory: string | null): void {
   const normalized = workingDirectory && workingDirectory.trim().length > 0
     ? normalizeCwd(workingDirectory)
-    : undefined;
+    : "";
   updateChannel(channelId, (channel) => ({
     ...channel,
     workingDirectory: normalized,
