@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import { statusFromEvent, type ProgressEvent } from "../opencode/client";
+import { getDefaultCwd, getDefaultOpenCodeServerUrl } from "../../config";
 
-const baseUrl = process.env.OPENCODE_SERVER_URL || "http://127.0.0.1:4096";
-const testDir = process.env.OPENCODE_TEST_DIR || process.cwd();
+const baseUrl = getDefaultOpenCodeServerUrl();
+const testDir = getDefaultCwd();
 
 const promptText =
   "Please inspect this repository and explain the top-level structure, main entry points, and any agent-related folders.";
@@ -47,9 +48,8 @@ describe("opencode event stream", () => {
         if (next.done) break;
 
         const rawEvent = next.value as any;
-        if (process.env.OPENCODE_EVENT_DUMP === "true") {
-          console.log("opencode event", rawEvent);
-        }
+        // Uncomment for debugging if needed
+        // console.log("opencode event", rawEvent);
 
         const event = rawEvent?.payload ?? rawEvent;
         const part = event?.properties?.part;

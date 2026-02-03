@@ -1,4 +1,3 @@
-import { loadEnv } from "../config";
 import * as claude from "./claude";
 import * as opencode from "./opencode";
 
@@ -10,12 +9,10 @@ export type {
   OpenCodeSessionInfo,
 } from "./types";
 
-const env = loadEnv();
-const agentName = env.CODING_AGENT === "claude" ? "claude" : "opencode";
-const agent = agentName === "claude" ? claude : opencode;
+const agent = opencode;
 
-export const selectedAgent = agentName;
-export const supportsEventStream = agentName === "opencode";
+export const selectedAgent = "opencode";
+export const supportsEventStream = true;
 
 export const startServer = agent.startServer;
 export const stopServer = agent.stopServer;

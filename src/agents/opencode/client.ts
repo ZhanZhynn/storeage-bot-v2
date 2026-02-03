@@ -9,8 +9,8 @@ import {
 import {
   getOpenCodeSession,
   setOpenCodeSession,
-  getChannelSettings,
 } from "../../storage/settings";
+import { getChannelModel, isLocalMode } from "../../config";
 import { log } from "../../logger";
 import { buildPromptParts, buildSlackSystemPrompt } from "../shared";
 import type {
@@ -174,16 +174,24 @@ export async function sendMessage(
     return await withSessionLock(sessionKey, async () => {
       const client = await getSessionClient(activeSessionId);
 
-      // Get channel overrides
-      const channelSettings = getChannelSettings(channelId);
-      const overrides = channelSettings.agentOverrides;
-
-      // Determine agent and model
-      const agent = overrides?.agent || options?.agent;
-      const model =
-        overrides?.provider && overrides?.model
-          ? { providerID: overrides.provider, modelID: overrides.model }
-          : { providerID: 'openai', modelID: 'gpt-5.2-codex' };
+      const agent = options?.agent;
+      const model = isLocalMode()
+        ? (() => {
+            const configured = getChannelModel(channelId);
+            if (!configured) {
+              throw new Error("Model missing for channel in ~/.config/ode/ode.json");
+            }
+            const parts = configured.split("/", 2);
+            const providerRaw = parts.length > 1 ? (parts[0] ?? "openai") : "openai";
+            const modelRaw = parts.length > 1 ? (parts[1] ?? "") : configured;
+            const providerID = providerRaw.trim().toLowerCase().replace(/\s+/g, "-");
+            const modelID = modelRaw.trim();
+            if (!modelID) {
+              throw new Error("Invalid model for channel in ~/.config/ode/ode.json");
+            }
+            return { providerID, modelID };
+          })()
+        : undefined;
 
       // Build message parts
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
@@ -476,10 +484,6 @@ export function watchSessionProgress(
 
       for await (const globalEvent of events.stream) {
         if (!running) break;
-
-        if (process.env.OPENCODE_EVENT_DUMP === "true") {
-          log.info("OpenCode event", { sessionId, event: globalEvent });
-        }
 
         const event: ProgressEvent = {
           directory: (globalEvent as any).directory,

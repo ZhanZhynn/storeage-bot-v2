@@ -1,8 +1,20 @@
 import { App, type AllMiddlewareArgs } from "@slack/bolt";
 import { WebClient } from "@slack/web-api";
 import type { QuestionInfo } from "@opencode-ai/sdk/v2";
+import { existsSync } from "fs";
 import { join } from "path";
-import { loadEnv, getTargetChannels } from "../config";
+import {
+  getSlackTargetChannels,
+  getSlackAppToken,
+  getSlackBotTokens,
+  getChannelDevServerId,
+  getChannelModel,
+  getChannelOpenCodeServerUrl,
+  getChannelWorkingDirectory,
+  getDevServers,
+  getDefaultOpenCodeServerUrl,
+  isLocalMode,
+} from "../config";
 import { markdownToSlack, splitForSlack } from "./formatter";
 import {
   markThreadActive,
@@ -50,7 +62,7 @@ import {
 } from "../agents";
 import { getSessionClient, statusFromEvent, type ProgressEvent } from "../agents/opencode";
 import { log } from "../logger";
-import { getAllBotTokens, getProfileBySlackUserId } from "../db";
+import { getAllBotTokens, getProfileBySlackUserId, getSlackAppTokenFromServer } from "../db";
 
 export interface MessageContext {
   channelId: string;
@@ -102,6 +114,12 @@ let globalLastUpdate = 0;
 const GLOBAL_UPDATE_INTERVAL_MS = 1000;
 let globalUpdateQueue: Array<{ channelId: string; messageTs: string; text: string; asMarkdown: boolean; resolve: () => void }> = [];
 let globalQueueProcessing = false;
+
+const DEFAULT_ACTION_API_URL = "http://127.0.0.1:3030";
+
+function getOdeSlackApiUrl(): string | undefined {
+  return DEFAULT_ACTION_API_URL;
+}
 
 function buildGitEnvironmentForUser(userId: string): Record<string, string> {
   const env: Record<string, string> = {};
@@ -165,13 +183,18 @@ async function processGlobalUpdateQueue(): Promise<void> {
   globalQueueProcessing = false;
 }
 
-export function createSlackApp(): App {
-  const env = loadEnv();
+export async function createSlackApp(): Promise<App> {
+  const appToken = isLocalMode()
+    ? getSlackAppToken().trim()
+    : (await getSlackAppTokenFromServer()).trim();
+
+  if (!appToken) {
+    throw new Error("Slack app token missing");
+  }
 
   app = new App({
-    signingSecret: env.SLACK_SIGNING_SECRET,
     socketMode: true,
-    appToken: env.SLACK_APP_TOKEN,
+    appToken,
     authorize: async ({ teamId, enterpriseId }) => {
       const auth = resolveWorkspaceAuth(teamId, enterpriseId);
       if (!auth) {
@@ -196,7 +219,8 @@ export function getApp(): App {
 }
 
 function isAuthorizedChannel(channelId: string): boolean {
-  const targetChannels = getTargetChannels();
+  if (!isLocalMode()) return true;
+  const targetChannels = getSlackTargetChannels();
   if (!targetChannels) return true;
   return targetChannels.includes(channelId);
 }
@@ -226,12 +250,6 @@ function registerChannelBotToken(channelId: string, botToken: string | undefined
   channelBotTokenMap.set(channelId, botToken);
 }
 
-function getOdeSlackApiUrl(): string | undefined {
-  const env = loadEnv();
-  const explicitUrl = env.ODE_ACTION_API_URL?.trim();
-  return explicitUrl || undefined;
-}
-
 async function hasOdeSlackTool(workingPath: string): Promise<boolean> {
   const basePath = join(workingPath, ".opencode", "tools");
   const candidates = [
@@ -252,6 +270,73 @@ async function hasOdeSlackTool(workingPath: string): Promise<boolean> {
 function truncateToken(token: string): string {
   if (token.length <= 12) return token;
   return `${token.slice(0, 6)}...${token.slice(-4)}`;
+}
+
+function describeSettingsIssues(channelId: string): string[] {
+  const issues: string[] = [];
+  const devServers = getDevServers();
+  const devServerId = getChannelDevServerId(channelId);
+  const model = getChannelModel(channelId);
+  const workingDirectory = getChannelWorkingDirectory(channelId);
+
+  if (!devServerId) {
+    issues.push("Dev server not configured.");
+  }
+
+  const server = devServerId
+    ? devServers.find((entry) => entry.id === devServerId)
+    : undefined;
+
+  if (devServerId && !server) {
+    issues.push("Dev server not found in config.");
+  }
+
+  if (!model) {
+    issues.push("Model not configured.");
+  } else if (server && !server.models.includes(model)) {
+    issues.push("Model not available on the selected dev server.");
+  }
+
+  if (!workingDirectory) {
+    issues.push("Working directory not configured.");
+  } else if (!existsSync(workingDirectory)) {
+    issues.push(`Working directory not found: ${workingDirectory}`);
+  }
+
+  return issues;
+}
+
+function isSettingsCommand(text: string): boolean {
+  return /^\/setting\b/i.test(text.trim());
+}
+
+async function postSettingsLauncher(
+  channelId: string,
+  userId: string,
+  client: WebClient
+): Promise<void> {
+  await client.chat.postEphemeral({
+    channel: channelId,
+    user: userId,
+    text: "Open channel settings",
+    blocks: [
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: "Open channel settings for dev server, model, and working directory." },
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: "open_settings_modal",
+            text: { type: "plain_text", text: "Open settings" },
+            value: channelId,
+          },
+        ],
+      },
+    ],
+  });
 }
 
 async function fetchWorkspaceAuth(botToken: string, workspaceName: string): Promise<WorkspaceAuth | null> {
@@ -287,16 +372,25 @@ function registerWorkspaceAuth(auth: WorkspaceAuth): void {
 }
 
 export async function initializeWorkspaceAuth(): Promise<void> {
-  const env = loadEnv();
+  const localMode = isLocalMode();
 
-  const tokens = await getAllBotTokens();
   const combined = new Map<string, string | null>();
-  combined.set(env.SLACK_BOT_TOKEN, "env");
 
-  for (const record of tokens) {
-    if (record.botToken) {
-      combined.set(record.botToken, record.workspaceName ?? "db");
+  if (localMode) {
+    for (const record of getSlackBotTokens()) {
+      combined.set(record.token, record.workspaceName ?? "config");
     }
+  } else {
+    const tokens = await getAllBotTokens();
+    for (const record of tokens) {
+      if (record.botToken) {
+        combined.set(record.botToken, record.workspaceName ?? "db");
+      }
+    }
+  }
+
+  if (combined.size === 0) {
+    log.warn("No Slack bot tokens configured", { mode: localMode ? "local" : "cloud" });
   }
 
   for (const [botToken, workspaceName] of combined.entries()) {
@@ -760,7 +854,13 @@ function categorizeError(
     errorStr.includes("ENOTFOUND") ||
     errorStr.includes("network")
   ) {
-    const serverUrl = serverUrlOverride || loadEnv().OPENCODE_SERVER_URL;
+    let defaultUrl: string | undefined;
+    try {
+      defaultUrl = getDefaultOpenCodeServerUrl();
+    } catch {
+      defaultUrl = undefined;
+    }
+    const serverUrl = serverUrlOverride || defaultUrl;
     const message = serverUrl
       ? `OpenCode server not accessible on ${serverUrl}`
       : "OpenCode server not accessible";
@@ -1253,10 +1353,14 @@ async function handleUserMessageInternal(
   text: string,
   client: SlackClient
 ): Promise<void> {
-  const env = loadEnv();
   const { channelId, threadId, messageId } = context;
-
-  const cwd = getChannelCwd(channelId, env.DEFAULT_CWD);
+  let cwd: string;
+  try {
+    cwd = getChannelCwd(channelId);
+  } catch (err) {
+    await sendMessage(channelId, threadId, `Error: ${String(err)}`, false);
+    return;
+  }
 
   let session = loadSession(channelId, threadId);
   const threadOwnerUserId = session?.threadOwnerUserId ?? context.userId;
@@ -1311,15 +1415,15 @@ async function handleUserMessageInternal(
 
   const messageContext: OpenCodeMessageContext = {
     threadHistory: threadHistory || undefined,
-    slack: {
-      channelId,
-      threadId,
-      userId: threadOwnerUserId,
-      threadHistory: threadHistory || undefined,
-      hasCustomSlackTool: await hasOdeSlackTool(cwd),
-      odeSlackApiUrl: getOdeSlackApiUrl(),
-    },
-  };
+      slack: {
+        channelId,
+        threadId,
+        userId: threadOwnerUserId,
+        threadHistory: threadHistory || undefined,
+        hasCustomSlackTool: await hasOdeSlackTool(cwd),
+        odeSlackApiUrl: getOdeSlackApiUrl(),
+      },
+    };
 
   const onTodosUpdated = async (todos: TrackedTodo[]) => {
     await upsertPlanMessage(session, channelId, threadId, todos);
@@ -1554,8 +1658,13 @@ export async function handleButtonSelection(
   messageTs: string,
   client: SlackClient
 ): Promise<void> {
-  const env = loadEnv();
-  const cwd = getChannelCwd(channelId, env.DEFAULT_CWD);
+  let cwd: string;
+  try {
+    cwd = getChannelCwd(channelId);
+  } catch (err) {
+    await sendMessage(channelId, threadId, `Error: ${String(err)}`, false);
+    return;
+  }
 
   // Get existing session
   const sessionId = getOpenCodeSession(channelId, threadId);
@@ -1672,6 +1781,14 @@ export function setupMessageHandlers(): void {
 
   // Handle messages
   slackApp.message(async ({ message, say, client }) => {
+    log.info("[RECV] Slack message event", {
+      channel: message.channel,
+      subtype: (message as any).subtype ?? null,
+      hasText: "text" in message,
+      hasUser: "user" in message,
+      threadTs: "thread_ts" in message ? (message as any).thread_ts ?? null : null,
+      ts: (message as any).ts ?? null,
+    });
     // Ignore all message subtypes (edits, deletes, etc) - only process new messages
     if (message.subtype !== undefined) return;
     if (!("text" in message) || !message.text) return;
@@ -1682,7 +1799,10 @@ export function setupMessageHandlers(): void {
     const text = message.text;
     const threadId = message.thread_ts || message.ts;
 
-    if (!isAuthorizedChannel(channelId)) return;
+    if (!isAuthorizedChannel(channelId)) {
+      log.info("[DROP] Unauthorized channel", { channelId });
+      return;
+    }
     registerChannelBotToken(channelId, client.token);
 
     // Get bot user ID for this workspace
@@ -1696,7 +1816,10 @@ export function setupMessageHandlers(): void {
       registerChannelBotToken(channelId, auth?.botToken);
     }
 
-    if (userId === currentBotUserId) return;
+    if (userId === currentBotUserId) {
+      log.debug("[DROP] Message from bot user", { channelId, userId });
+      return;
+    }
 
     // Check for stop command
     if (/\bstop\b/i.test(text)) {
@@ -1729,17 +1852,40 @@ export function setupMessageHandlers(): void {
     const isMention = currentBotUserId ? text.includes(`<@${currentBotUserId}>`) : false;
     const threadActive = isThreadActive(channelId, threadId);
 
-    if (!isMention && !threadActive) return;
+    if (!isMention && !threadActive) {
+      log.info("[DROP] Not mentioned and thread inactive", { channelId, threadId });
+      return;
+    }
 
     // If message mentions someone else (but not us), ignore it - it's not for us
     const mentionsOthers = /<@U[A-Z0-9]+>/g.test(text) && !isMention;
-    if (mentionsOthers) return;
+    if (mentionsOthers) {
+      log.info("[DROP] Mentions other user", { channelId, threadId });
+      return;
+    }
 
     markThreadActive(channelId, threadId);
 
     const cleanText = currentBotUserId
       ? text.replace(new RegExp(`<@${currentBotUserId}>`, "g"), "").trim()
       : text.trim();
+
+    if (isSettingsCommand(cleanText)) {
+      if (isMention) {
+        await postSettingsLauncher(channelId, userId, client);
+      }
+      return;
+    }
+
+    const settingsIssues = describeSettingsIssues(channelId);
+    if (settingsIssues.length > 0) {
+      await say({
+        text: `Channel settings need attention:\n- ${settingsIssues.join("\n- ")}`,
+        thread_ts: threadId,
+      });
+      await postSettingsLauncher(channelId, userId, client);
+      return;
+    }
 
     const workspaceName = channelWorkspaceMap.get(channelId) || "unknown";
 
@@ -1752,14 +1898,46 @@ export function setupMessageHandlers(): void {
     });
 
     log.info("[RECV] Slack user id", { workspace: workspaceName, userId });
-    const profile = await getProfileBySlackUserId(userId);
-    log.info("[RECV] Supabase profile lookup", {
-      workspace: workspaceName,
-      userId,
-      found: Boolean(profile),
-      profile,
-      opencodeServerUrl: profile?.opencode_server_url ?? null,
-    });
+    const localMode = isLocalMode();
+    const channelServerUrl = getChannelOpenCodeServerUrl(channelId);
+    let profile = null;
+    if (!localMode) {
+      try {
+        profile = await getProfileBySlackUserId(userId);
+      } catch (err) {
+        log.error("Supabase profile lookup failed", { error: String(err) });
+        await say({
+          text: "Failed to load your OpenCode server settings. Please contact your administrator.",
+          thread_ts: threadId,
+        });
+        return;
+      }
+    }
+    if (!localMode) {
+      log.info("[RECV] Supabase profile lookup", {
+        workspace: workspaceName,
+        userId,
+        found: Boolean(profile),
+        profile,
+        opencodeServerUrl: profile?.opencode_server_url ?? null,
+      });
+    }
+
+    if (localMode && !channelServerUrl) {
+      await say({
+        text: "OpenCode server URL missing for this channel. Set it in ~/.config/ode/ode.json.",
+        thread_ts: threadId,
+      });
+      return;
+    }
+
+    if (!localMode && !profile?.opencode_server_url) {
+      await say({
+        text: "OpenCode server URL missing for your account. Please contact your administrator.",
+        thread_ts: threadId,
+      });
+      return;
+    }
 
     if (!cleanText) {
       await say({
@@ -1774,76 +1952,11 @@ export function setupMessageHandlers(): void {
       threadId,
       userId,
       messageId: message.ts,
-      opencodeServerUrl: profile?.opencode_server_url ?? undefined,
+      opencodeServerUrl: localMode ? channelServerUrl : profile?.opencode_server_url || undefined,
       workspaceName,
     };
 
     await handleUserMessage(context, cleanText, client);
   });
 
-  // Handle app mentions
-  slackApp.event("app_mention", async ({ event, say, client }) => {
-    const channelId = event.channel;
-    const userId = event.user;
-    const text = event.text;
-    const threadId = event.thread_ts || event.ts;
-
-    if (!isAuthorizedChannel(channelId)) return;
-    if (!userId) return;
-    registerChannelBotToken(channelId, client.token);
-
-    const authResult = await client.auth.test();
-    const currentBotUserId = authResult.user_id as string;
-    if (authResult.team_id) {
-      const auth = resolveWorkspaceAuth(authResult.team_id, authResult.enterprise_id ?? undefined);
-      if (auth?.workspaceName && !channelWorkspaceMap.has(channelId)) {
-        channelWorkspaceMap.set(channelId, auth.workspaceName);
-      }
-      registerChannelBotToken(channelId, auth?.botToken);
-    }
-
-    const workspaceName = channelWorkspaceMap.get(channelId) || "unknown";
-
-    markThreadActive(channelId, threadId);
-
-    const cleanText = currentBotUserId
-      ? text.replace(new RegExp(`<@${currentBotUserId}>`, "g"), "").trim()
-      : text.trim();
-
-    log.info("[RECV] Slack app_mention", {
-      workspace: workspaceName,
-      channel: channelId,
-      thread: threadId,
-      user: userId,
-      text: cleanText.slice(0, 100) + (cleanText.length > 100 ? "..." : ""),
-    });
-
-    log.info("[RECV] Slack user id", { workspace: workspaceName, userId });
-    const profile = await getProfileBySlackUserId(userId);
-    log.info("[RECV] Supabase profile lookup", {
-      workspace: workspaceName,
-      userId,
-      found: Boolean(profile),
-      opencodeServerUrl: profile?.opencode_server_url ?? null,
-    });
-
-    if (!cleanText) {
-      await say({
-        text: "Hi! How can I help you? Just ask me anything.",
-        thread_ts: threadId,
-      });
-      return;
-    }
-
-    const context: MessageContext = {
-      channelId,
-      threadId,
-      userId,
-      messageId: event.ts,
-      opencodeServerUrl: profile?.opencode_server_url ?? undefined,
-      workspaceName,
-    };
-
-    await handleUserMessage(context, cleanText, client);
-  });
 }

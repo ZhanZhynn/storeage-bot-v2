@@ -11,7 +11,7 @@ export {
 
 export { startSlackApiServer, stopSlackApiServer } from "./api";
 
-export { setupSlashCommands, setupInteractiveHandlers } from "./commands";
+export { setupInteractiveHandlers } from "./commands";
 
 export { startOAuthFlow, stopOAuthServer, processOAuthCallback } from "./oauth";
 

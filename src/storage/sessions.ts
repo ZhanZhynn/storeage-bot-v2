@@ -3,7 +3,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { log } from "../logger";
 
-const XDG_STATE_HOME = process.env.XDG_STATE_HOME || join(homedir(), ".local", "state");
+const XDG_STATE_HOME = join(homedir(), ".local", "state");
 const SESSIONS_DIR = join(XDG_STATE_HOME, "ode", "sessions");
 
 export interface TrackedTool {

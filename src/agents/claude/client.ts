@@ -1,6 +1,5 @@
 import { spawn, type ChildProcess } from "child_process";
 import {
-  getChannelSettings,
   getOpenCodeSession,
   setOpenCodeSession,
 } from "../../storage/settings";
@@ -307,9 +306,7 @@ export async function sendMessage(
 
   try {
     return await withSessionLock(sessionKey, async () => {
-      const channelSettings = getChannelSettings(channelId);
-      const overrides = channelSettings.agentOverrides;
-      const agent = overrides?.agent || options?.agent;
+      const agent = options?.agent;
 
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);

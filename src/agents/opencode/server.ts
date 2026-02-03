@@ -4,7 +4,7 @@ import {
   type EventPermissionAsked,
 } from "@opencode-ai/sdk/v2";
 import { log } from "../../logger";
-import { loadEnv } from "../../config";
+import { getDefaultOpenCodeServerUrl } from "../../config";
 
 // Per-session OpenCode instances
 export type SessionEnvironment = Record<string, string>;
@@ -25,7 +25,7 @@ const sessionEnvironments = new Map<string, SessionEnvironment>();
 const clientByBaseUrl = new Map<string, OpencodeClient>();
 
 function resolveServerUrl(): string {
-  return loadEnv().OPENCODE_SERVER_URL;
+  return getDefaultOpenCodeServerUrl();
 }
 
 function resolveServerUrlForEnv(env?: SessionEnvironment): string {

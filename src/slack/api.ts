@@ -1,5 +1,5 @@
 import { basename } from "path";
-import { loadEnv } from "../config";
+const DEFAULT_ACTION_API_URL = "http://127.0.0.1:3030";
 import { log } from "../logger";
 import { getApp, getChannelBotToken } from "./client";
 
@@ -43,12 +43,8 @@ function jsonResponse(status: number, payload: SlackApiResponse): Response {
   });
 }
 
-function isAuthorized(request: Request): boolean {
-  const env = loadEnv();
-  const token = env.ODE_ACTION_API_TOKEN;
-  if (!token) return true;
-  const authHeader = request.headers.get("authorization");
-  return authHeader === `Bearer ${token}`;
+function isAuthorized(_request: Request): boolean {
+  return true;
 }
 
 function requireString(value: unknown, label: string): string {
@@ -56,6 +52,15 @@ function requireString(value: unknown, label: string): string {
     throw new Error(`${label} is required`);
   }
   return value;
+}
+
+function normalizeEmojiName(emoji: string): string {
+  const trimmed = emoji.trim();
+  if (!trimmed) {
+    throw new Error("emoji is required");
+  }
+  const stripped = trimmed.replace(/^:+|:+$/g, "").replace(/:/g, "");
+  return stripped || trimmed;
 }
 
 function normalizeOptionLabel(option: unknown): string {
@@ -220,12 +225,12 @@ async function handleSlackAction(payload: SlackActionRequest): Promise<unknown> 
     case "add_reaction": {
       const messageId = requireString(payload.messageId, "messageId");
       const emoji = requireString(payload.emoji, "emoji");
-      await client.reactions.add({
+      const name = normalizeEmojiName(emoji);
+      await slackApiCall("reactions.add", {
         channel: channelId,
         timestamp: messageId,
-        name: emoji.replace(/:/g, ""),
-        token,
-      });
+        name,
+      }, token);
       return { status: "reaction_added" };
     }
 
@@ -267,8 +272,7 @@ async function handleSlackAction(payload: SlackActionRequest): Promise<unknown> 
 
 export function startSlackApiServer(): void {
   if (slackApiServer) return;
-  const env = loadEnv();
-  const url = new URL(env.ODE_ACTION_API_URL);
+  const url = new URL(DEFAULT_ACTION_API_URL);
   const port = url.port
     ? Number(url.port)
     : url.protocol === "https:"

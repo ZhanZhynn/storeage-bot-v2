@@ -1,7 +1,6 @@
 import {
   createSlackApp,
   setupMessageHandlers,
-  setupSlashCommands,
   setupInteractiveHandlers,
   startSlackApiServer,
   stopSlackApiServer,
@@ -11,29 +10,30 @@ import {
 } from "./slack";
 import { spawn } from "child_process";
 import { stopServer } from "./agents";
-import { loadEnv } from "./config";
+import { getDefaultCwd, isLocalMode } from "./config";
 import { log } from "./logger";
 
 async function main(): Promise<void> {
   log.info("Starting Ode...");
 
-  // Load and validate environment
-  const env = loadEnv();
-  log.info("Config loaded", { logLevel: env.LOG_LEVEL, defaultCwd: env.DEFAULT_CWD });
+  let defaultCwd: string | null = null;
+  try {
+    defaultCwd = getDefaultCwd();
+  } catch {
+    defaultCwd = null;
+  }
+  log.info("Config loaded", { defaultCwd, mode: isLocalMode() ? "local" : "cloud" });
 
   // Load workspace auth mappings (env + DB bot tokens)
   await initializeWorkspaceAuth();
 
   // Create Slack app (single Socket Mode connection)
-  const app = createSlackApp();
+  const app = await createSlackApp();
   log.info("Slack app created");
 
   // Setup handlers
   setupMessageHandlers();
   log.info("Message handlers registered");
-
-  setupSlashCommands();
-  log.info("Slash commands registered");
 
   setupInteractiveHandlers();
   log.info("Interactive handlers registered");

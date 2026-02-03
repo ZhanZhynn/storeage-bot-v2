@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "fs";
 import { join, dirname } from "path";
+import { homedir } from "os";
 import { log } from "../../logger";
 
 // OAuth constants from OpenCode's codex plugin
@@ -8,7 +9,7 @@ const ISSUER = "https://auth.openai.com";
 const OAUTH_PORT = 1455;
 
 // XDG data directory for OpenCode
-const XDG_DATA_HOME = process.env.XDG_DATA_HOME || join(process.env.HOME || "/root", ".local/share");
+const XDG_DATA_HOME = join(homedir(), ".local/share");
 const OPENCODE_AUTH_PATH = join(XDG_DATA_HOME, "opencode", "auth.json");
 
 interface PkceCodes {

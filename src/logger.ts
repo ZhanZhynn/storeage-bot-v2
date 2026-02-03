@@ -1,10 +1,8 @@
 import pino from "pino";
-import { loadEnv } from "./config";
-
-const env = loadEnv();
+const level = "info";
 
 export const logger = pino({
-  level: env.LOG_LEVEL,
+  level,
   transport: {
     target: "pino-pretty",
     options: {
