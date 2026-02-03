@@ -22,6 +22,20 @@ Ode is a Slack bot that bridges chat messages to OpenCode, enabling AI-assisted 
 
 ### Installation
 
+One-line install (macOS/Linux):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/odefun/ode/main/scripts/install.sh | bash
+```
+
+Upgrade:
+
+```bash
+ode upgrade
+```
+
+From source:
+
 ```bash
 bun install
 ```
