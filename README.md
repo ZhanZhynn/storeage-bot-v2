@@ -8,9 +8,7 @@ Ode is a Slack bot that bridges chat messages to OpenCode, enabling AI-assisted 
 - **OpenCode Integration**: Execute AI coding tasks via OpenCode's HTTP API
 - **Per-Channel Agents.md**: Custom system instructions per Slack channel
 - **Thread Tracking**: Maintains context within conversation threads
-- **OAuth Flow**: Connect OpenAI Codex for provider authentication
 - **Local Settings UI**: Web interface to manage Ode config in local mode
-- **CLI App**: Run the bot with `ode --local` or `ode --cloud`
 
 ## Setup
 
@@ -32,20 +30,6 @@ Upgrade:
 
 ```bash
 ode upgrade
-```
-
-From source:
-
-```bash
-bun install
-```
-
-This also installs the settings UI dependencies under `web/`.
-
-Optional: make the CLI available on your PATH:
-
-```bash
-bun link
 ```
 
 ### Configuration
@@ -71,13 +55,7 @@ Local settings UI:
 Local mode (starts the settings UI automatically):
 
 ```bash
-ode --local
-```
-
-or
-
-```bash
-bun dev
+ode
 ```
 
 Settings UI:
