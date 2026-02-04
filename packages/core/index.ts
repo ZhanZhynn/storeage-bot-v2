@@ -8,8 +8,8 @@ import {
   clearSlackAuthState,
   resetSlackState,
 } from "@ode/ims";
-import { spawn, type ChildProcess } from "child_process";
-import { existsSync, watchFile, unwatchFile } from "fs";
+import { type ChildProcess } from "child_process";
+import { watchFile, unwatchFile } from "fs";
 import { stopServer } from "@ode/agents";
 import {
   getDefaultCwd,
@@ -149,27 +149,6 @@ function startLocalConfigWatcher(): void {
   };
 }
 
-function startWebDevServer(): void {
-  if (webDevServer) return;
-  if (!existsSync("packages/web-ui")) return;
-  const args = ["--cwd", "packages/web-ui", "dev"];
-  webDevServer = spawn("bun", args, {
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      ODE_WEB_HOST: process.env.ODE_WEB_HOST || DEFAULT_WEB_HOST,
-      ODE_WEB_PORT: process.env.ODE_WEB_PORT || String(DEFAULT_WEB_PORT),
-    },
-  });
-  webDevServer.on("exit", (code, signal) => {
-    log.info("Web UI server stopped", { code, signal });
-    webDevServer = null;
-  });
-  webDevServer.on("error", (error) => {
-    log.error("Failed to start web UI server", { error: String(error) });
-  });
-}
-
 async function main(): Promise<void> {
   log.info("Starting Ode...");
 
@@ -223,28 +202,8 @@ async function main(): Promise<void> {
     }
   };
 
-  let restartScheduled = false;
-  const scheduleRestart = (signal: string) => {
-    if (restartScheduled) return;
-    restartScheduled = true;
-
-    const delayMs = 3000;
-    log.info("Restart signal received", { signal, delayMs });
-
-    setTimeout(async () => {
-      log.info("Restarting Ode process", { delayMs });
-      const child = spawn("bash", ["/root/ode/restart.sh"], {
-        detached: true,
-        stdio: "ignore",
-      });
-      child.unref();
-      await shutdown("restart");
-    }, delayMs);
-  };
-
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
-  process.on("SIGUSR2", () => scheduleRestart("SIGUSR2"));
 
   if (slackApp) {
     // Give socket connection time to fully establish before recovery

@@ -41,8 +41,6 @@ cp .env.example .env
 ```
 
 Optional:
-- `ODE_SLACK_API_HOST` - Slack action API host (default: 127.0.0.1)
-- `ODE_SLACK_API_PORT` - Slack action API port (default: 9292)
 - `ODE_WEB_HOST` - Settings UI host (default: 127.0.0.1)
 - `ODE_WEB_PORT` - Settings UI port (default: 9293)
 - `ODE_REDIS_ENABLED` - Enable session inspector storage in local mode (default: false)

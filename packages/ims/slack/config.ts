@@ -9,9 +9,9 @@ function parsePort(value: string | undefined, fallback: number): number {
 }
 
 export function getSlackActionApiUrl(): string {
-  const host = process.env.ODE_WEB_HOST?.trim() || process.env.ODE_SLACK_API_HOST?.trim() || DEFAULT_SLACK_API_HOST;
+  const host = process.env.ODE_WEB_HOST?.trim() || DEFAULT_SLACK_API_HOST;
   const port = parsePort(
-    process.env.ODE_WEB_PORT?.trim() || process.env.ODE_SLACK_API_PORT?.trim(),
+    process.env.ODE_WEB_PORT?.trim(),
     DEFAULT_SLACK_API_PORT
   );
   return `http://${host}:${port}/api`;

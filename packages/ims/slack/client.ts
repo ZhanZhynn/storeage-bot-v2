@@ -523,13 +523,14 @@ async function updateMessageThrottled(
   channelId: string,
   messageTs: string,
   text: string,
-  asMarkdown = true
+  asMarkdown = true,
+  force = false
 ): Promise<void> {
   const key = `${channelId}:${messageTs}`;
   const now = Date.now();
   const lastUpdate = lastUpdateTime.get(key) || 0;
 
-  if (now - lastUpdate < UPDATE_THROTTLE_MS) {
+  if (!force && now - lastUpdate < UPDATE_THROTTLE_MS) {
     pendingUpdates.set(key, true);
     return;
   }
@@ -1217,7 +1218,7 @@ async function runOpenCodeRequest(
     if (result.type === "stop") {
       const fallbackText = request.currentText?.trim();
       const finalText = fallbackText || "_Done_";
-      await updateMessageThrottled(channelId, statusTs, finalText, true);
+      await updateMessageThrottled(channelId, statusTs, finalText, true, true);
       void promptPromise.catch((err) => {
         log.debug("OpenCode prompt rejected after stop", { error: String(err) });
       });
@@ -1231,7 +1232,7 @@ async function runOpenCodeRequest(
     }
 
     const finalText = buildFinalResponseText(result.responses) ?? "_Done_";
-    await updateMessageThrottled(channelId, statusTs, finalText, true);
+    await updateMessageThrottled(channelId, statusTs, finalText, true, true);
 
     return result.responses;
   } catch (err) {
@@ -1602,7 +1603,7 @@ export async function handleButtonSelection(
     if (result.type === "stop") {
       const fallbackText = request.currentText?.trim();
       const finalText = fallbackText || "_Done_";
-      await updateMessageThrottled(channelId, statusTs, finalText, true);
+      await updateMessageThrottled(channelId, statusTs, finalText, true, true);
       completeActiveRequest(channelId, threadId);
       void promptPromise.catch((err) => {
         log.debug("OpenCode prompt rejected after stop", { error: String(err) });
@@ -1611,7 +1612,7 @@ export async function handleButtonSelection(
     }
 
     const finalText = buildFinalResponseText(result.responses) ?? "_Done_";
-    await updateMessageThrottled(channelId, statusTs, finalText, true);
+    await updateMessageThrottled(channelId, statusTs, finalText, true, true);
 
     completeActiveRequest(channelId, threadId);
 
