@@ -33,8 +33,6 @@ export type SessionTodo = {
 export type SessionMessageState = {
   sessionTitle?: string;
   tokenUsage?: SessionTokenUsage;
-  currentStatus: string;
-  currentStep?: string;
   currentText: string;
   tools: SessionTool[];
   todos: SessionTodo[];
@@ -47,10 +45,6 @@ export type SessionStateOptions = {
   baseState?: Partial<SessionMessageState>;
 };
 
-const SEARCH_TOOL_NAMES = new Set(["glob", "grep", "rg", "ripgrep", "search"]);
-const EDIT_TOOL_NAMES = new Set(["edit", "write"]);
-const READ_TOOL_NAMES = new Set(["read"]);
-
 export function buildSessionMessageState(
   events: SessionEvent[],
   options: SessionStateOptions = {}
@@ -60,8 +54,6 @@ export function buildSessionMessageState(
   const state: SessionMessageState = {
     sessionTitle: baseState?.sessionTitle,
     tokenUsage: baseState?.tokenUsage,
-    currentStatus: baseState?.currentStatus ?? "Starting",
-    currentStep: baseState?.currentStep,
     currentText: baseState?.currentText ?? "",
     tools: baseState?.tools ? [...baseState.tools] : [],
     todos: baseState?.todos ? [...baseState.todos] : [],
@@ -131,22 +123,8 @@ export function buildSessionMessageState(
         } else {
           state.tools.push(toolInfo);
         }
-
-        if (toolState.status === "running") {
-          const label = formatToolLabel(toolInfo, workingDirectory);
-          state.currentStatus = label ? `Running: ${label}` : "Running";
-        }
       } else if (part.type === "text" && part.text) {
         state.currentText = part.text;
-        state.currentStatus = "Writing response";
-      } else if (part.type === "step-start") {
-        state.currentStep = part.metadata?.title || "Thinking";
-        state.currentStatus = "Thinking";
-      } else if (part.type === "step-finish") {
-        state.currentStep = undefined;
-      } else if (part.type === "reasoning") {
-        state.currentStatus = "Reasoning";
-        state.currentStep = "Thinking deeply...";
       }
     } else if (type === "todo.updated") {
       const todos = (eventData?.properties?.todos as any[]) || [];
@@ -154,50 +132,8 @@ export function buildSessionMessageState(
         content: t.content || t.text || "",
         status: t.status || "pending",
       }));
-    } else if (type === "session.status") {
-      const status = eventData?.properties?.status as any;
-      if (status?.type === "busy") {
-        state.currentStatus = "Working";
-      } else if (status?.type === "retry") {
-        state.currentStatus = "Retrying...";
-      }
     }
   }
 
   return state;
-}
-
-function formatToolLabel(tool: SessionTool, workingDirectory?: string): string | null {
-  const title = tool.title?.trim() ?? "";
-  const name = tool.name?.trim() ?? "";
-  if (!title && !name) return null;
-
-  const normalizedTitle = title ? trimToolPath(title, workingDirectory) : "";
-  const toolName = name.toLowerCase();
-
-  if (READ_TOOL_NAMES.has(toolName)) return null;
-
-  if (SEARCH_TOOL_NAMES.has(toolName)) {
-    return "Searching files";
-  }
-
-  if (EDIT_TOOL_NAMES.has(toolName)) {
-    if (!normalizedTitle) return "Editing files";
-    return `Editing ${normalizedTitle}`;
-  }
-
-  return normalizedTitle || name;
-}
-
-function trimToolPath(label: string, workingDirectory?: string): string {
-  let trimmed = label.trim();
-  if (!trimmed) return trimmed;
-
-  if (workingDirectory && trimmed.startsWith(`${workingDirectory}/`)) {
-    trimmed = trimmed.slice(workingDirectory.length + 1);
-  }
-
-  trimmed = trimmed.replace(/(^|\/)\.worktrees\/[^/]+\//, "");
-  trimmed = trimmed.replace(/^\//, "");
-  return trimmed;
 }

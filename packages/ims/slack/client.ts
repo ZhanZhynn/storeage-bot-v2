@@ -636,11 +636,6 @@ function formatTodoLines(todos: TrackedTodo[], limit = PLAN_TODO_LIMIT): string[
   return lines;
 }
 
-function buildPlanMessage(todos: TrackedTodo[]): string {
-  if (todos.length === 0) return "Plan\n_(No tasks yet)_";
-  return ["Plan", ...formatTodoLines(todos)].join("\n");
-}
-
 function buildToolDetails(tool: SessionMessageState["tools"][number], workingPath: string): string {
   const name = tool.name?.toLowerCase?.() ?? "";
   const input = tool.input || {};
@@ -686,7 +681,7 @@ function buildToolDetails(tool: SessionMessageState["tools"][number], workingPat
   return title ? trimToolPath(title, workingPath) : "";
 }
 
-const TOOL_DETAIL_LIMIT = 30;
+const TOOL_DETAIL_LIMIT = 40;
 
 function truncateToolDetail(detail: string): string {
   if (detail.length <= TOOL_DETAIL_LIMIT) return detail;
@@ -713,27 +708,32 @@ function buildToolLines(state: SessionMessageState, workingPath: string): string
   return lines;
 }
 
+function buildFinalResponseText(responses: OpenCodeMessage[]): string | null {
+  const texts = responses
+    .map((response) => response.text?.trim())
+    .filter((text): text is string => Boolean(text));
+  if (texts.length === 0) return null;
+  return texts.join("\n\n");
+}
+
 function buildLiveStatusMessage(request: ActiveRequest, workingPath: string): string {
   const state = liveParsedState.get(getStatusMessageKey(request));
   if (!state) {
-    if (request.currentStatus === "Awaiting response" && request.currentText) {
+    if (request.statusFrozen && request.currentText) {
       return request.currentText;
     }
-    const statusText = request.currentStep
-      ? `${request.currentStatus} → ${request.currentStep}`
-      : request.currentStatus || "Working";
-    return `_${statusText}_ (${formatElapsedTime(request.startedAt)})`;
+    return `_Working_ (${formatElapsedTime(request.startedAt)})`;
   }
 
-  if (request.currentStatus === "Awaiting response" && request.currentText) {
+  if (request.statusFrozen && request.currentText) {
     return request.currentText;
   }
 
   const lines: string[] = [];
 
   if (state.sessionTitle) {
-    const trimmedTitle = state.sessionTitle.length > 30
-      ? `${state.sessionTitle.slice(0, 30)}...`
+    const trimmedTitle = state.sessionTitle.length > 40
+      ? `${state.sessionTitle.slice(0, 40)}...`
       : state.sessionTitle;
     lines.push(`*${trimmedTitle}* (${formatElapsedTime(state.startedAt)})`);
   } else {
@@ -756,35 +756,6 @@ function buildLiveStatusMessage(request: ActiveRequest, workingPath: string): st
   return lines.join("\n");
 }
 
-function buildTodoPrompt(todos: TrackedTodo[]): string {
-  if (todos.length === 0) return "";
-  const lines = todos.map((todo) => `- [${todo.status}] ${todo.content}`);
-  return ["Todos:", ...lines].join("\n");
-}
-
-async function upsertPlanMessage(
-  session: PersistedSession,
-  channelId: string,
-  threadId: string,
-  todos: TrackedTodo[]
-): Promise<void> {
-  if (todos.length === 0) return;
-  if (!session.plan) {
-    session.plan = { status: "planning", todos };
-  }
-  session.plan.todos = todos;
-
-  const planText = buildPlanMessage(todos);
-  if (session.plan.messageTs) {
-    await updateMessageThrottled(channelId, session.plan.messageTs, planText, false);
-  } else {
-    const messageTs = await sendMessage(channelId, threadId, planText, false);
-    if (messageTs) {
-      session.plan.messageTs = messageTs;
-    }
-  }
-  saveSession(session);
-}
 
 function formatThreadAuthor(message: SlackThreadMessage): string {
   if (message.user) return `<@${message.user}>`;
@@ -1007,8 +978,7 @@ async function handlePendingQuestionReply(
 async function startEventStreamWatcher(
   request: ActiveRequest,
   workingPath: string,
-  onUpdate: () => void,
-  onTodoUpdate?: (todos: TrackedTodo[]) => Promise<void>
+  onUpdate: () => void
 ): Promise<() => void> {
   if (!supportsEventStream) {
     return () => { };
@@ -1031,8 +1001,6 @@ async function startEventStreamWatcher(
       baseState: { startedAt: request.startedAt },
     });
     liveParsedState.set(messageKey, state);
-    request.currentStatus = state.currentStatus;
-    request.currentStep = state.currentStep;
     request.currentText = state.currentText;
     request.tools = state.tools.map((tool) => ({
       id: tool.id,
@@ -1092,42 +1060,7 @@ async function startEventStreamWatcher(
       }
     }
 
-    if (event.type === "message.updated") {
-      const info = event.properties?.info as { role?: string; sessionID?: string; agent?: unknown; mode?: unknown } | undefined;
-      if (!info || info.role !== "assistant" || info.sessionID !== request.sessionId) {
-        return;
-      }
-
-      const agent =
-        typeof info.agent === "string"
-          ? info.agent
-          : typeof info.mode === "string"
-            ? info.mode
-            : undefined;
-
-      if (agent === "plan") {
-        const session = loadSession(request.channelId, request.threadId);
-        if (session) {
-          session.plan = session.plan ?? { status: "planning", todos: [] };
-          if (session.plan.status !== "planning") {
-            session.plan.status = "planning";
-            saveSession(session);
-          }
-        }
-      } else if (agent) {
-        const session = loadSession(request.channelId, request.threadId);
-        if (session?.plan && (session.plan.status === "planning" || session.plan.status === "awaiting_input")) {
-          session.plan.status = "building";
-          saveSession(session);
-        }
-      }
-    }
-
     applyStateFromEvents();
-
-    if (event.type === "todo.updated") {
-      void onTodoUpdate?.(request.todos);
-    }
 
     if (event.type === "question.asked") {
       const properties = event.properties as {
@@ -1144,8 +1077,6 @@ async function startEventStreamWatcher(
       const normalized = normalizeQuestions(properties.questions);
       if (normalized.length === 0) return;
 
-      request.currentStatus = "Awaiting response";
-      request.currentStep = undefined;
       request.statusFrozen = true;
       const prompt = formatQuestionPrompt(normalized);
       request.currentText = prompt;
@@ -1175,30 +1106,6 @@ async function startEventStreamWatcher(
   return unsubscribe;
 }
 
-function responsesContainQuestion(responses: OpenCodeMessage[]): boolean {
-  return responses.some((response) => response.text?.includes("?"));
-}
-
-function buildBuildPrompt(
-  userMessage: string,
-  planText: string | undefined,
-  todos: TrackedTodo[],
-  hasPlan: boolean
-): string {
-  if (!hasPlan) {
-    return userMessage;
-  }
-
-  const sections = [
-    "Implement the plan below.",
-    `User request: ${userMessage}`,
-    planText ? `Plan notes:\n${planText}` : "",
-    buildTodoPrompt(todos),
-  ].filter((section) => section.length > 0);
-
-  return sections.join("\n\n");
-}
-
 async function runOpenCodeRequest(
   session: PersistedSession,
   channelId: string,
@@ -1209,7 +1116,6 @@ async function runOpenCodeRequest(
   phaseLabel: string,
   context: OpenCodeMessageContext,
   options?: OpenCodeOptions,
-  onTodosUpdated?: (todos: TrackedTodo[]) => Promise<void>,
   serverUrlOverride?: string
 ): Promise<OpenCodeMessage[] | null> {
   const statusTs = await sendMessage(
@@ -1225,7 +1131,6 @@ async function runOpenCodeRequest(
   }
 
   const request = createActiveRequest(sessionId, channelId, threadId, statusTs, message);
-  request.currentStatus = phaseLabel;
   session.activeRequest = request;
   saveSession(session);
 
@@ -1256,8 +1161,6 @@ async function runOpenCodeRequest(
       await updateMessageThrottled(channelId, statusTs, statusText, false);
     }
     updateActiveRequest(channelId, threadId, {
-      currentStatus: request.currentStatus,
-      currentStep: request.currentStep,
       currentText: request.currentText,
       tools: request.tools,
       todos: request.todos,
@@ -1265,15 +1168,9 @@ async function runOpenCodeRequest(
     });
   }, 2000);
 
-  const stopWatcher = await startEventStreamWatcher(request, cwd, () => { }, onTodosUpdated);
+  const stopWatcher = await startEventStreamWatcher(request, cwd, () => { });
 
   try {
-    request.currentStatus = "Connecting";
-    await updateMessageThrottled(channelId, statusTs, buildLiveStatusMessage(request, cwd), false);
-
-    request.currentStatus = phaseLabel;
-    await updateMessageThrottled(channelId, statusTs, buildLiveStatusMessage(request, cwd), false);
-
     const responses = await sendOpenCodeMessage(
       channelId,
       sessionId,
@@ -1294,6 +1191,9 @@ async function runOpenCodeRequest(
     if (responses.length === 0) {
       log.warn("No text responses from model - tool-only response");
     }
+
+    const finalText = buildFinalResponseText(responses) ?? "_Done_";
+    await updateMessageThrottled(channelId, statusTs, finalText, true);
 
     return responses;
   } catch (err) {
@@ -1428,10 +1328,6 @@ async function handleUserMessageInternal(
   }
   saveSession(session);
 
-  const awaitingInput = session.plan?.status === "awaiting_input";
-  const forceBuildAgent = /build/i.test(text);
-  const usePlanAgent = !forceBuildAgent && (awaitingInput || /plan/i.test(text));
-
   const threadHistory = created
     ? await fetchThreadHistory(client, channelId, threadId, messageId)
     : null;
@@ -1444,124 +1340,23 @@ async function handleUserMessageInternal(
     threadHistory
   );
 
-  const onTodosUpdated = async (todos: TrackedTodo[]) => {
-    await upsertPlanMessage(session, channelId, threadId, todos);
-  };
+  const trimmed = text.trim();
+  const agent = /^plan\b/i.test(trimmed) ? "plan" : undefined;
 
-  if (usePlanAgent) {
-    if (!awaitingInput) {
-      session.plan = { status: "planning", todos: [] };
-    } else if (session.plan) {
-      session.plan.status = "planning";
-    }
-    saveSession(session);
-
-    const plannerResponses = await runOpenCodeRequest(
-      session,
-      channelId,
-      threadId,
-      sessionId,
-      cwd,
-      text,
-      "Planning",
-      messageContext,
-      { agent: "plan" },
-      onTodosUpdated,
-      context.opencodeServerUrl
-    );
-
-    if (!plannerResponses) return;
-
-    const plannerText = plannerResponses
-      .map((response) => response.text)
-      .filter((response) => response && response.trim().length > 0)
-      .join("\n\n");
-
-    if (!session.plan) {
-      session.plan = { status: "planning", todos: [] };
-    }
-    if (plannerText) {
-      session.plan.text = plannerText;
-    }
-    saveSession(session);
-
-    for (const response of plannerResponses) {
-      if (response.text) {
-        await sendMessage(channelId, threadId, response.text, true);
-      }
-    }
-
-    const hasTodos = session.plan.todos.length > 0;
-    const needsInput = responsesContainQuestion(plannerResponses);
-    if (!hasTodos || needsInput) {
-      session.plan.status = "awaiting_input";
-      saveSession(session);
-      return;
-    }
-
-    const buildPrompt = buildBuildPrompt(
-      text,
-      session.plan.text,
-      session.plan.todos,
-      true
-    );
-    session.plan.status = "building";
-    saveSession(session);
-
-    const buildResponses = await runOpenCodeRequest(
-      session,
-      channelId,
-      threadId,
-      sessionId,
-      cwd,
-      buildPrompt,
-      "Building",
-      messageContext,
-      { agent: "build" },
-      onTodosUpdated,
-      context.opencodeServerUrl
-    );
-
-    if (!buildResponses) return;
-
-    for (const response of buildResponses) {
-      if (response.text) {
-        await sendMessage(channelId, threadId, response.text, true);
-      }
-    }
-
-    session.plan.status = "complete";
-    saveSession(session);
-    return;
-  }
-
-  session.plan = { status: "building", todos: session.plan?.todos ?? [] };
-  saveSession(session);
-
-  const buildResponses = await runOpenCodeRequest(
+  const responses = await runOpenCodeRequest(
     session,
     channelId,
     threadId,
     sessionId,
     cwd,
     text,
-    "Building",
+    "Working",
     messageContext,
-    { agent: "build" },
-    onTodosUpdated,
+    agent ? { agent } : undefined,
     context.opencodeServerUrl
   );
 
-  if (!buildResponses) return;
-
-  for (const response of buildResponses) {
-    if (response.text) {
-      await sendMessage(channelId, threadId, response.text, true);
-    }
-  }
-
-  session.plan.status = "complete";
-  saveSession(session);
+  if (!responses) return;
 }
 
 async function handleUserMessage(
@@ -1721,15 +1516,7 @@ export async function handleButtonSelection(
 
   const threadOwnerUserId = session?.threadOwnerUserId ?? userId;
 
-  const agent = session?.plan?.status === "planning"
-    ? "plan"
-    : session?.plan?.status === "building"
-      ? "build"
-      : undefined;
-
-  const onTodosUpdated = session
-    ? async (todos: TrackedTodo[]) => upsertPlanMessage(session, channelId, threadId, todos)
-    : undefined;
+  const agent = /^plan\b/i.test(selection.trim()) ? "plan" : undefined;
 
   // Progress timer
   const progressTimer = setInterval(async () => {
@@ -1739,7 +1526,7 @@ export async function handleButtonSelection(
   }, 2000); // 2 seconds to reduce Slack API load
 
   // Event watcher
-  const stopWatcher = await startEventStreamWatcher(request, cwd, () => { }, onTodosUpdated);
+  const stopWatcher = await startEventStreamWatcher(request, cwd, () => { });
 
   try {
     // Build context - the selection is the user's response
@@ -1767,12 +1554,8 @@ export async function handleButtonSelection(
     liveEventHistory.delete(getStatusMessageKey(request));
     liveParsedState.delete(getStatusMessageKey(request));
 
-    // Post responses directly
-    for (const response of responses) {
-      if (response.text) {
-        await sendMessage(channelId, threadId, response.text, true);
-      }
-    }
+    const finalText = buildFinalResponseText(responses) ?? "_Done_";
+    await updateMessageThrottled(channelId, statusTs, finalText, true);
 
     completeActiveRequest(channelId, threadId);
 

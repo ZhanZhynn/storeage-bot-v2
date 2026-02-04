@@ -28,8 +28,6 @@ export interface ActiveRequest {
   prompt: string;
   startedAt: number;
   lastUpdatedAt: number;
-  currentStatus: string;
-  currentStep?: string;
   currentText: string;
   tools: TrackedTool[];
   todos: TrackedTodo[];
@@ -37,13 +35,6 @@ export interface ActiveRequest {
   state: "processing" | "completed" | "failed";
   finalResponseTs?: string;
   error?: string;
-}
-
-export interface SessionPlan {
-  status: "planning" | "awaiting_input" | "ready" | "building" | "complete";
-  todos: TrackedTodo[];
-  messageTs?: string;
-  text?: string;
 }
 
 export interface PendingQuestion {
@@ -68,7 +59,6 @@ export interface PersistedSession {
   createdAt: number;
   lastActivityAt: number;
   activeRequest?: ActiveRequest;
-  plan?: SessionPlan;
   pendingQuestion?: PendingQuestion;
 }
 
@@ -159,7 +149,6 @@ export function createActiveRequest(
     prompt,
     startedAt: Date.now(),
     lastUpdatedAt: Date.now(),
-    currentStatus: "Starting",
     currentText: "",
     tools: [],
     todos: [],
