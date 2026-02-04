@@ -1,6 +1,6 @@
 <script lang="ts">
   import SlackMessage from "./SlackMessage.svelte";
-  import { buildSessionMessageState, type SessionMessageState } from "@ode/utils";
+  import { buildSessionMessageState, type SessionMessageState } from "@ode/utils/session-inspector";
 
   export let events: Array<{
     timestamp: number;
@@ -10,7 +10,12 @@
   export let selectedEventIndex: number;
   export let workingDirectory: string;
 
-  let state: SessionMessageState = {
+  type PreviewState = SessionMessageState & {
+    currentStatus: string;
+    currentStep?: string;
+  };
+
+  let state: PreviewState = {
     currentStatus: "Starting",
     currentText: "",
     tools: [],
@@ -18,10 +23,14 @@
     startedAt: Date.now(),
   };
 
-  $: state = buildSessionMessageState(events, {
-    endIndex: selectedEventIndex,
-    workingDirectory,
-  });
+  $: state = {
+    ...buildSessionMessageState(events, {
+      endIndex: selectedEventIndex,
+      workingDirectory,
+    }),
+    currentStatus: state.currentStatus,
+    currentStep: state.currentStep,
+  };
 </script>
 
 <div class="im-preview">
