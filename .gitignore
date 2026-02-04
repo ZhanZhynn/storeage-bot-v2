@@ -3,6 +3,10 @@ web/node_modules/
 web/.svelte-kit/
 web/build/
 web/.env
+packages/web-ui/node_modules/
+packages/web-ui/.svelte-kit/
+packages/web-ui/build/
+packages/web-ui/.env
 dist/
 .env
 data/

@@ -1,1 +1,0 @@
-import"../chunks/ChLsQDHE.js";import"../chunks/DBL6v4Mq.js";import{p as a}from"../chunks/BIiqL5z4.js";import{component as r}from"./5.CF4gLEV4.js";function c(t,o){let p=a(o,"data",8);r(t,{get data(){return p()},initialSection:"profile"})}export{c as component};
