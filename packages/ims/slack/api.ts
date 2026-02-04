@@ -39,13 +39,24 @@ function requireString(value: unknown, label: string): string {
   return value;
 }
 
+const ALLOWED_REACTIONS = new Set(["thumbsup", "eyes", "ok_hand"]);
+const REACTION_ALIASES: Record<string, string> = {
+  thumbup: "thumbsup",
+  ok: "ok_hand",
+};
+
 function normalizeEmojiName(emoji: string): string {
   const trimmed = emoji.trim();
   if (!trimmed) {
     throw new Error("emoji is required");
   }
   const stripped = trimmed.replace(/^:+|:+$/g, "").replace(/:/g, "");
-  return stripped || trimmed;
+  const normalized = stripped || trimmed;
+  const alias = REACTION_ALIASES[normalized] ?? normalized;
+  if (!ALLOWED_REACTIONS.has(alias)) {
+    throw new Error("emoji must be one of: thumbsup, eyes, ok_hand");
+  }
+  return alias;
 }
 
 function normalizeOptionLabel(option: unknown): string {

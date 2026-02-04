@@ -19,9 +19,7 @@ import { markdownToSlack, splitForSlack, truncateForSlack } from "./formatter";
 import {
   markThreadActive,
   isThreadActive,
-  getChannelSettings,
   getOpenCodeSession,
-  setOpenCodeSession,
   getGitHubAuthRecordForUser,
   getGitHubUserConfigDir,
   getPendingRestartMessages,
@@ -143,6 +141,26 @@ function isRedisTrackingEnabled(): boolean {
 
 function getOdeSlackApiUrl(): string | undefined {
   return getSlackActionApiUrl();
+}
+
+async function buildSlackContext(
+  cwd: string,
+  channelId: string,
+  threadId: string,
+  userId: string,
+  threadHistory?: string | null
+): Promise<OpenCodeMessageContext> {
+  return {
+    threadHistory: threadHistory || undefined,
+    slack: {
+      channelId,
+      threadId,
+      userId,
+      threadHistory: threadHistory || undefined,
+      hasCustomSlackTool: await hasOdeSlackTool(cwd),
+      odeSlackApiUrl: getOdeSlackApiUrl(),
+    },
+  };
 }
 
 function buildGitEnvironmentForUser(userId: string): Record<string, string> {
@@ -668,6 +686,13 @@ function buildToolDetails(tool: SessionMessageState["tools"][number], workingPat
   return title ? trimToolPath(title, workingPath) : "";
 }
 
+const TOOL_DETAIL_LIMIT = 30;
+
+function truncateToolDetail(detail: string): string {
+  if (detail.length <= TOOL_DETAIL_LIMIT) return detail;
+  return `${detail.slice(0, TOOL_DETAIL_LIMIT)}...`;
+}
+
 function buildToolLines(state: SessionMessageState, workingPath: string): string[] {
   const tools = state.tools || [];
   if (tools.length === 0) return [];
@@ -680,7 +705,8 @@ function buildToolLines(state: SessionMessageState, workingPath: string): string
   const lines = [header];
   for (const tool of items) {
     const details = buildToolDetails(tool, workingPath);
-    const suffix = details ? ` — ${details}` : "";
+    const truncated = details ? truncateToolDetail(details) : "";
+    const suffix = truncated ? ` — ${truncated}` : "";
     lines.push(`${getToolIcon(tool.status)} ${tool.name}${suffix}`);
   }
 
@@ -1410,17 +1436,13 @@ async function handleUserMessageInternal(
     ? await fetchThreadHistory(client, channelId, threadId, messageId)
     : null;
 
-  const messageContext: OpenCodeMessageContext = {
-    threadHistory: threadHistory || undefined,
-    slack: {
-      channelId,
-      threadId,
-      userId: threadOwnerUserId,
-      threadHistory: threadHistory || undefined,
-      hasCustomSlackTool: await hasOdeSlackTool(cwd),
-      odeSlackApiUrl: getOdeSlackApiUrl(),
-    },
-  };
+  const messageContext = await buildSlackContext(
+    cwd,
+    channelId,
+    threadId,
+    threadOwnerUserId,
+    threadHistory
+  );
 
   const onTodosUpdated = async (todos: TrackedTodo[]) => {
     await upsertPlanMessage(session, channelId, threadId, todos);
@@ -1721,15 +1743,12 @@ export async function handleButtonSelection(
 
   try {
     // Build context - the selection is the user's response
-    const messageContext = {
-      slack: {
-        channelId,
-        threadId,
-        userId: threadOwnerUserId,
-        hasCustomSlackTool: await hasOdeSlackTool(cwd),
-        odeSlackApiUrl: getOdeSlackApiUrl(),
-      },
-    };
+    const messageContext = await buildSlackContext(
+      cwd,
+      channelId,
+      threadId,
+      threadOwnerUserId
+    );
 
     // Send to OpenCode - the selection as the user's message
     const responses = await sendOpenCodeMessage(
@@ -1896,9 +1915,6 @@ export function setupMessageHandlers(): void {
         return;
       }
     }
-    if (!localMode) {
-    }
-
     if (localMode && !channelServerUrl) {
       await say({
         text: "OpenCode server URL missing for this channel. Set it in ~/.config/ode/ode.json.",

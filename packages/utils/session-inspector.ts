@@ -77,8 +77,11 @@ export function buildSessionMessageState(
 
     if (type === "session.updated") {
       const title = eventData?.properties?.info?.title;
-      if (typeof title === "string" && title.trim()) {
-        state.sessionTitle = title.trim();
+      if (typeof title === "string") {
+        const trimmedTitle = title.trim();
+        if (trimmedTitle && !trimmedTitle.startsWith("New session")) {
+          state.sessionTitle = trimmedTitle;
+        }
       }
     }
 

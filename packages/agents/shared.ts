@@ -42,7 +42,8 @@ export function buildSlackSystemPrompt(slack?: SlackContext): string {
     lines.push("- Payload: {\"action\":\"post_message\",\"channelId\":\"...\",\"threadId\":\"...\",\"messageId\":\"...\",\"text\":\"...\"}");
   }
   lines.push("- Supported actions: post_message, add_reaction, get_thread_messages, ask_user, get_user_info, upload_file.");
-  lines.push("- Required fields: channelId; threadId for thread actions; messageId for reactions; userId for get_user_info.");
+  lines.push("- Required fields: channelId; threadId for thread actions; messageId + emoji for reactions; userId for get_user_info.");
+  lines.push("- add_reaction schema: { action: \"add_reaction\", channelId: string, messageId: string, emoji: \"thumbsup\" | \"eyes\" | \"ok_hand\" }");
   lines.push("- You can use any tool available via bash, curl");
   lines.push("");
   lines.push("IMPORTANT: Your text output is automatically posted to Slack.");
