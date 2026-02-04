@@ -15,7 +15,7 @@ import {
   isLocalMode,
   resolveChannelCwd,
 } from "@ode/config";
-import { markdownToSlack, splitForSlack } from "./formatter";
+import { markdownToSlack, splitForSlack, truncateForSlack } from "./formatter";
 import {
   markThreadActive,
   isThreadActive,
@@ -61,7 +61,12 @@ import {
   type OpenCodeOptions,
 } from "@ode/agents";
 import { getSessionClient } from "@ode/agents/opencode";
-import { buildSessionMessageState, type SessionEvent, log } from "@ode/utils";
+import {
+  buildSessionMessageState,
+  type SessionEvent,
+  type SessionMessageState,
+  log,
+} from "@ode/utils";
 import { getSlackActionApiUrl } from "./config";
 import { getAllBotTokens, getProfileBySlackUserId, getSlackAppTokenFromServer } from "@ode/config/db";
 
@@ -119,6 +124,8 @@ type SlackThreadMessage = {
 // Throttling state
 const lastUpdateTime = new Map<string, number>();
 const pendingUpdates = new Map<string, boolean>();
+const liveEventHistory = new Map<string, SessionEvent[]>();
+const liveParsedState = new Map<string, SessionMessageState>();
 const UPDATE_THROTTLE_MS = 500;
 
 // Global rate limiter for chat.update calls across all messages
@@ -180,9 +187,7 @@ async function processGlobalUpdateQueue(): Promise<void> {
       });
       const slackApp = getApp();
       const formattedText = item.asMarkdown ? markdownToSlack(item.text) : item.text;
-      const truncatedText = formattedText.length > 3900
-        ? formattedText.slice(0, 3900) + "\n\n_(truncated)_"
-        : formattedText;
+      const truncatedText = truncateForSlack(formattedText);
 
       const botToken = getChannelBotToken(item.channelId);
       if (!botToken) {
@@ -548,10 +553,14 @@ function formatElapsedTime(startedAt: number): string {
 
 function getToolIcon(status: string): string {
   switch (status) {
-    case "completed": return "\u2705"; // green check
-    case "running": return "\u25b6\ufe0f"; // play button
-    case "error": return "\u274c"; // red x
-    default: return "\u2b1c"; // white square
+    case "running":
+    case "pending":
+      return "~";
+    case "error":
+      return "!";
+    case "completed":
+    default:
+      return "-";
   }
 }
 
@@ -564,19 +573,10 @@ function getTodoIcon(status: string): string {
 }
 
 const PLAN_TODO_LIMIT = 15;
-const SEARCH_TOOL_NAMES = new Set(["glob", "grep", "rg", "ripgrep", "search"]);
-const EDIT_TOOL_NAMES = new Set(["edit", "write"]);
-const READ_TOOL_NAMES = new Set(["read"]);
-const IGNORED_EDIT_REASONS = new Set([
-  "working",
-  "thinking",
-  "connecting",
-  "reasoning",
-  "writing response",
-  "planning",
-  "building",
-  "running",
-]);
+
+function getStatusMessageKey(request: ActiveRequest): string {
+  return `${request.channelId}:${request.threadId}:${request.statusMessageTs}`;
+}
 
 function getRepoRoot(workingPath: string): string {
   const marker = "/.worktrees/";
@@ -605,127 +605,6 @@ function trimToolPath(label: string, workingPath: string): string {
   return trimmed;
 }
 
-function formatToolLabel(tool: TrackedTool, workingPath: string): string | null {
-  const title = tool.title?.trim() ?? "";
-  const name = tool.name?.trim() ?? "";
-  if (!title && !name) return null;
-
-  const normalizedTitle = title ? trimToolPath(title, workingPath) : "";
-  const toolName = name.toLowerCase();
-
-  if (READ_TOOL_NAMES.has(toolName)) return null;
-
-  if (SEARCH_TOOL_NAMES.has(toolName)) {
-    return "Searching files";
-  }
-
-  if (EDIT_TOOL_NAMES.has(toolName)) {
-    if (!normalizedTitle) return "Editing files";
-    return `Editing ${normalizedTitle}`;
-  }
-
-  return normalizedTitle || name;
-}
-
-function parseSearchOutputCount(output: string): number | null {
-  const trimmed = output.trim();
-  if (!trimmed) return 0;
-  if (/no (files|matches|results) found/i.test(trimmed)) return 0;
-  if (trimmed === "[]") return 0;
-
-  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.length;
-    } catch {
-      // Ignore parse failures
-    }
-  }
-
-  const lines = trimmed.split("\n").filter((line) => line.trim().length > 0);
-  return lines.length;
-}
-
-function buildSearchSummary(tools: TrackedTool[]): { status: TrackedTool["status"]; label: string } | null {
-  for (let i = tools.length - 1; i >= 0; i--) {
-    const tool = tools[i];
-    if (!tool) continue;
-    const toolName = tool.name?.toLowerCase() ?? "";
-    if (!SEARCH_TOOL_NAMES.has(toolName)) continue;
-
-    if (tool.status === "error") {
-      return { status: tool.status, label: "Search failed" };
-    }
-
-    const count = tool.output ? parseSearchOutputCount(tool.output) : null;
-    const suffix = count === null
-      ? ""
-      : count === 0
-        ? " (no results)"
-        : ` (${count} results)`;
-
-    return { status: tool.status, label: `Searching files${suffix}` };
-  }
-
-  return null;
-}
-
-function getEditReason(request: ActiveRequest): string | null {
-  const rawReason = request.currentStep || request.currentStatus || "";
-  const cleaned = rawReason.replace(/^Running:\s*/i, "").trim();
-  if (!cleaned) return null;
-  const normalized = cleaned.toLowerCase();
-  if (IGNORED_EDIT_REASONS.has(normalized) || normalized.startsWith("retrying")) {
-    return null;
-  }
-  return cleaned;
-}
-
-function buildEditLines(
-  tools: TrackedTool[],
-  workingPath: string,
-  reason: string | null
-): Array<{ tool: TrackedTool; label: string }> {
-  const latestByFile = new Map<string, { tool: TrackedTool; title: string; index: number }>();
-  let latestEditIndex = -1;
-
-  tools.forEach((tool, index) => {
-    const toolName = tool.name?.toLowerCase() ?? "";
-    if (!EDIT_TOOL_NAMES.has(toolName)) return;
-
-    const title = tool.title?.trim() ?? "";
-    const normalizedTitle = title ? trimToolPath(title, workingPath) : "";
-    if (!normalizedTitle) return;
-
-    latestEditIndex = index;
-    latestByFile.set(normalizedTitle, { tool, title: normalizedTitle, index });
-  });
-
-  return Array.from(latestByFile.values())
-    .sort((a, b) => a.index - b.index)
-    .map(({ tool, title, index }) => {
-      const label = reason && index === latestEditIndex
-        ? `Edited ${title} — ${reason}`
-        : `Edited ${title}`;
-      return { tool, label };
-    });
-}
-
-function buildChecklistLines(request: ActiveRequest, workingPath: string): string[] {
-  const lines: string[] = [];
-  const searchSummary = buildSearchSummary(request.tools);
-  if (searchSummary) {
-    lines.push(`${getToolIcon(searchSummary.status)} ${searchSummary.label}`);
-  }
-
-  const reason = getEditReason(request);
-  const edits = buildEditLines(request.tools, workingPath, reason);
-  for (const { tool, label } of edits) {
-    lines.push(`${getToolIcon(tool.status)} ${label}`);
-  }
-
-  return lines;
-}
 
 function formatTodoLines(todos: TrackedTodo[], limit = PLAN_TODO_LIMIT): string[] {
   const lines: string[] = [];
@@ -744,30 +623,117 @@ function buildPlanMessage(todos: TrackedTodo[]): string {
   return ["Plan", ...formatTodoLines(todos)].join("\n");
 }
 
+function buildToolDetails(tool: SessionMessageState["tools"][number], workingPath: string): string {
+  const name = tool.name?.toLowerCase?.() ?? "";
+  const input = tool.input || {};
+  const title = tool.title?.trim() ?? "";
+
+  if (name === "grep" || name === "ripgrep" || name === "rg") {
+    const pattern = input.pattern || "";
+    const path = trimToolPath(String(input.path || "."), workingPath);
+    return `${pattern} in ${path}`.trim();
+  }
+
+  if (name === "glob") {
+    const pattern = input.pattern || "";
+    const path = trimToolPath(String(input.path || "."), workingPath);
+    return `${pattern} in ${path}`.trim();
+  }
+
+  if (name === "read") {
+    const filePath = input.filePath || input.file_path;
+    const offset = typeof input.offset === "number" ? input.offset : undefined;
+    const limit = typeof input.limit === "number" ? input.limit : undefined;
+    let details = filePath ? trimToolPath(String(filePath), workingPath) : "";
+    if (details && (offset !== undefined || limit !== undefined)) {
+      const offsetLabel = offset !== undefined ? `offset ${offset}` : "";
+      const limitLabel = limit !== undefined ? `limit ${limit}` : "";
+      const rangeLabel = [offsetLabel, limitLabel].filter(Boolean).join(", ");
+      details = `${details} (${rangeLabel})`;
+    }
+    return details;
+  }
+
+  if (name === "edit" || name === "write") {
+    const filePath = input.filePath || input.file_path;
+    if (filePath) {
+      return trimToolPath(String(filePath), workingPath);
+    }
+  }
+
+  if (name === "bash") {
+    return String(input.command || "");
+  }
+
+  return title ? trimToolPath(title, workingPath) : "";
+}
+
+function buildToolLines(state: SessionMessageState, workingPath: string): string[] {
+  const tools = state.tools || [];
+  if (tools.length === 0) return [];
+
+  const items = tools.length > 5 ? tools.slice(-5) : tools;
+  const header = tools.length > 5
+    ? `Tool execution (Last 5 items in ${tools.length})`
+    : "Tool execution";
+
+  const lines = [header];
+  for (const tool of items) {
+    const details = buildToolDetails(tool, workingPath);
+    const suffix = details ? ` — ${details}` : "";
+    lines.push(`${getToolIcon(tool.status)} ${tool.name}${suffix}`);
+  }
+
+  return lines;
+}
+
+function buildLiveStatusMessage(request: ActiveRequest, workingPath: string): string {
+  const state = liveParsedState.get(getStatusMessageKey(request));
+  if (!state) {
+    if (request.currentStatus === "Awaiting response" && request.currentText) {
+      return request.currentText;
+    }
+    const statusText = request.currentStep
+      ? `${request.currentStatus} → ${request.currentStep}`
+      : request.currentStatus || "Working";
+    return `_${statusText}_ (${formatElapsedTime(request.startedAt)})`;
+  }
+
+  if (request.currentStatus === "Awaiting response" && request.currentText) {
+    return request.currentText;
+  }
+
+  const lines: string[] = [];
+
+  if (state.sessionTitle) {
+    const trimmedTitle = state.sessionTitle.length > 30
+      ? `${state.sessionTitle.slice(0, 30)}...`
+      : state.sessionTitle;
+    lines.push(`*${trimmedTitle}* (${formatElapsedTime(state.startedAt)})`);
+  } else {
+    lines.push(`_${formatElapsedTime(state.startedAt)}_`);
+  }
+
+  if (state.todos.length > 0) {
+    const todos = state.todos.map((todo) => ({
+      content: todo.content,
+      status: todo.status as TrackedTodo["status"],
+    }));
+    lines.push("Tasks", ...formatTodoLines(todos));
+  }
+
+  const toolLines = buildToolLines(state, workingPath);
+  if (toolLines.length > 0) {
+    lines.push(...toolLines);
+  }
+
+  return lines.join("\n");
+}
+
 function buildTodoPrompt(todos: TrackedTodo[]): string {
   if (todos.length === 0) return "";
   const lines = todos.map((todo) => `- [${todo.status}] ${todo.content}`);
   return ["Todos:", ...lines].join("\n");
-}
-
-export function buildRichStatusMessage(request: ActiveRequest, workingPath: string): string {
-  const lines: string[] = [];
-
-  // Simple status with elapsed time
-  const statusText = request.currentStep || request.currentStatus || "Working";
-  if (request.currentStatus === "Awaiting response" && request.currentText) {
-    lines.push(request.currentText);
-    return lines.join("\n");
-  }
-
-  lines.push(`_${statusText}_ (${formatElapsedTime(request.startedAt)})`);
-
-  const checklistLines = buildChecklistLines(request, workingPath);
-  if (checklistLines.length > 0) {
-    lines.push(...checklistLines);
-  }
-
-  return lines.join("\n");
 }
 
 async function upsertPlanMessage(
@@ -1027,13 +993,18 @@ async function startEventStreamWatcher(
   // Ensure the session instance exists before subscribing
   await ensureSession(request.sessionId);
 
-  const eventHistory: SessionEvent[] = [];
+  const messageKey = getStatusMessageKey(request);
+  const eventHistory = liveEventHistory.get(messageKey) ?? [];
+  if (!liveEventHistory.has(messageKey)) {
+    liveEventHistory.set(messageKey, eventHistory);
+  }
 
   function applyStateFromEvents(): void {
     const state = buildSessionMessageState(eventHistory, {
       workingDirectory: workingPath,
       baseState: { startedAt: request.startedAt },
     });
+    liveParsedState.set(messageKey, state);
     request.currentStatus = state.currentStatus;
     request.currentStep = state.currentStep;
     request.currentText = state.currentText;
@@ -1158,7 +1129,7 @@ async function startEventStreamWatcher(
         await updateMessageThrottled(
           request.channelId,
           request.statusMessageTs,
-          buildRichStatusMessage(request, workingPath),
+          buildLiveStatusMessage(request, workingPath),
           false
         );
         setPendingQuestion(request.channelId, request.threadId, {
@@ -1254,7 +1225,7 @@ async function runOpenCodeRequest(
       request.lastUpdatedAt = now;
     }
 
-    const statusText = buildRichStatusMessage(request, cwd);
+    const statusText = buildLiveStatusMessage(request, cwd);
     if (!request.statusFrozen) {
       await updateMessageThrottled(channelId, statusTs, statusText, false);
     }
@@ -1272,10 +1243,10 @@ async function runOpenCodeRequest(
 
   try {
     request.currentStatus = "Connecting";
-    await updateMessageThrottled(channelId, statusTs, buildRichStatusMessage(request, cwd), false);
+    await updateMessageThrottled(channelId, statusTs, buildLiveStatusMessage(request, cwd), false);
 
     request.currentStatus = phaseLabel;
-    await updateMessageThrottled(channelId, statusTs, buildRichStatusMessage(request, cwd), false);
+    await updateMessageThrottled(channelId, statusTs, buildLiveStatusMessage(request, cwd), false);
 
     const responses = await sendOpenCodeMessage(
       channelId,
@@ -1290,9 +1261,8 @@ async function runOpenCodeRequest(
     stopWatcher();
     request.state = "completed";
 
-    if (!request.statusFrozen) {
-      await deleteMessage(channelId, statusTs);
-    }
+    liveEventHistory.delete(getStatusMessageKey(request));
+    liveParsedState.delete(getStatusMessageKey(request));
     completeActiveRequest(channelId, threadId);
 
     if (responses.length === 0) {
@@ -1309,6 +1279,9 @@ async function runOpenCodeRequest(
 
     request.state = "failed";
     request.error = errorMessage;
+
+    liveEventHistory.delete(getStatusMessageKey(request));
+    liveParsedState.delete(getStatusMessageKey(request));
 
     const errorStatus = `Error: ${errorMessage}\n_${suggestion}_`;
     await flushPendingUpdate(channelId, statusTs, errorStatus);
@@ -1439,15 +1412,15 @@ async function handleUserMessageInternal(
 
   const messageContext: OpenCodeMessageContext = {
     threadHistory: threadHistory || undefined,
-      slack: {
-        channelId,
-        threadId,
-        userId: threadOwnerUserId,
-        threadHistory: threadHistory || undefined,
-        hasCustomSlackTool: await hasOdeSlackTool(cwd),
-        odeSlackApiUrl: getOdeSlackApiUrl(),
-      },
-    };
+    slack: {
+      channelId,
+      threadId,
+      userId: threadOwnerUserId,
+      threadHistory: threadHistory || undefined,
+      hasCustomSlackTool: await hasOdeSlackTool(cwd),
+      odeSlackApiUrl: getOdeSlackApiUrl(),
+    },
+  };
 
   const onTodosUpdated = async (todos: TrackedTodo[]) => {
     await upsertPlanMessage(session, channelId, threadId, todos);
@@ -1739,7 +1712,7 @@ export async function handleButtonSelection(
   // Progress timer
   const progressTimer = setInterval(async () => {
     if (request.state !== "processing") return;
-    const statusText = buildRichStatusMessage(request, cwd);
+    const statusText = buildLiveStatusMessage(request, cwd);
     await updateMessageThrottled(channelId, statusTs, statusText, false);
   }, 2000); // 2 seconds to reduce Slack API load
 
@@ -1772,8 +1745,8 @@ export async function handleButtonSelection(
     stopWatcher();
     request.state = "completed";
 
-    // Delete status message
-    await deleteMessage(channelId, statusTs);
+    liveEventHistory.delete(getStatusMessageKey(request));
+    liveParsedState.delete(getStatusMessageKey(request));
 
     // Post responses directly
     for (const response of responses) {
@@ -1793,6 +1766,9 @@ export async function handleButtonSelection(
 
     request.state = "failed";
     request.error = message;
+
+    liveEventHistory.delete(getStatusMessageKey(request));
+    liveParsedState.delete(getStatusMessageKey(request));
 
     const errorStatus = `Error: ${message}\n_${suggestion}_`;
     await updateMessageThrottled(channelId, statusTs, errorStatus, false);

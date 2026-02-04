@@ -36,9 +36,10 @@ export function markdownToSlack(text: string): string {
 /**
  * Truncate text to Slack's message limit
  */
-export function truncateForSlack(text: string, maxLength = 3000): string {
+export function truncateForSlack(text: string, maxLength = 3000, suffix = "..."): string {
   if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength - 3) + "...";
+  const trimmedLength = Math.max(0, maxLength - suffix.length);
+  return text.slice(0, trimmedLength) + suffix;
 }
 
 /**
