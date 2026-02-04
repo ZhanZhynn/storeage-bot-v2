@@ -1,5 +1,15 @@
 <script lang="ts">
   export let state: {
+    sessionTitle?: string;
+    tokenUsage?: {
+      input: number;
+      output: number;
+      reasoning: number;
+      cacheRead: number;
+      cacheWrite: number;
+      total: number;
+      cost?: number;
+    };
     currentStatus: string;
     currentStep?: string;
     currentText: string;

@@ -10,6 +10,16 @@
   export let workingDirectory: string;
 
   interface MessageState {
+    sessionTitle?: string;
+    tokenUsage?: {
+      input: number;
+      output: number;
+      reasoning: number;
+      cacheRead: number;
+      cacheWrite: number;
+      total: number;
+      cost?: number;
+    };
     currentStatus: string;
     currentStep?: string;
     currentText: string;
@@ -40,6 +50,8 @@
 
   $: {
     const reconstructedState: MessageState = {
+      sessionTitle: undefined,
+      tokenUsage: undefined,
       currentStatus: "Starting",
       currentText: "",
       tools: [],
@@ -52,6 +64,36 @@
     for (const event of relevantEvents) {
       const eventData = event.data as any;
       const type = event.type;
+
+      if (type === "session.updated") {
+        const title = eventData?.properties?.info?.title;
+        if (typeof title === "string" && title.trim()) {
+          reconstructedState.sessionTitle = title.trim();
+        }
+      }
+
+      if (type === "message.updated") {
+        const info = eventData?.properties?.info;
+        const tokens = info?.tokens;
+        if (tokens && typeof tokens === "object") {
+          const input = Number(tokens.input ?? 0) || 0;
+          const output = Number(tokens.output ?? 0) || 0;
+          const reasoning = Number(tokens.reasoning ?? 0) || 0;
+          const cacheRead = Number(tokens.cache?.read ?? 0) || 0;
+          const cacheWrite = Number(tokens.cache?.write ?? 0) || 0;
+          const total = input + output + reasoning;
+          const cost = typeof info?.cost === "number" ? info.cost : undefined;
+          reconstructedState.tokenUsage = {
+            input,
+            output,
+            reasoning,
+            cacheRead,
+            cacheWrite,
+            total,
+            cost,
+          };
+        }
+      }
 
       if (type === "message.part.updated") {
         const part = eventData.properties?.part as any;
