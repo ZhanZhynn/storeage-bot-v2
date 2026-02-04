@@ -11,9 +11,9 @@ Ode is a Slack bot that bridges messages to OpenCode for AI-assisted coding.
 
 ## Runtime behavior
 - SDK event loop handles permission auto-approval
-- Per-channel agents stored in `~/.local/state/ode/agents/{channelId}.md`
-- Settings: `~/.local/state/ode/settings.json`
-- Sessions: `~/.local/state/ode/sessions/`
+- Per-channel agents stored in `~/.config/ode/agents/{channelId}.md`
+- Settings: `~/.config/ode/settings.json`
+- Sessions: `~/.config/ode/sessions/`
 - Bot replies in threads once mentioned
 - Status updates include phases, tool progress, and elapsed time
 - Status messages are preserved as an operation record

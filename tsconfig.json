@@ -1,5 +1,16 @@
 {
   "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@ode/config": ["packages/config/index.ts"],
+      "@ode/config/*": ["packages/config/*"],
+      "@ode/utils": ["packages/utils/index.ts"],
+      "@ode/utils/*": ["packages/utils/*"],
+      "@ode/ims": ["packages/ims/index.ts"],
+      "@ode/ims/*": ["packages/ims/*"],
+      "@ode/agents": ["packages/agents/index.ts"],
+      "@ode/agents/*": ["packages/agents/*"]
+    },
     // Environment setup & latest features
     "lib": ["ESNext"],
     "target": "ESNext",
