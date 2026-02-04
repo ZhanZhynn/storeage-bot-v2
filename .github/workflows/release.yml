@@ -41,6 +41,9 @@ jobs:
       - name: Build web UI
         run: bun run build:web
 
+      - name: Embed web UI assets
+        run: bun run embed:web
+
       - name: Build CLI
         run: bun build packages/core/cli.ts --compile --target ${{ matrix.target }} --outfile dist/${{ matrix.artifact }}
 

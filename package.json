@@ -1,6 +1,6 @@
 {
   "name": "ode",
-  "version": "0.0.14",
+  "version": "0.0.15",
   "description": "Ode - OpenCode chat controller for Slack",
   "module": "packages/core/index.ts",
   "type": "module",
@@ -10,6 +10,7 @@
     "dev": "bun --watch run packages/core/index.ts --local",
     "postinstall": "bun install --cwd packages/web-ui",
     "build:web": "bun --cwd packages/web-ui build",
+    "embed:web": "bun run scripts/embed-web-assets.ts",
     "typecheck": "tsc --noEmit"
   },
   "bin": {

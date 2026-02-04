@@ -1,5 +1,6 @@
 import { existsSync } from "fs";
 import { join, resolve, sep } from "path";
+import { EMBEDDED_ASSETS, HAS_EMBEDDED_ASSETS } from "./embedded-assets";
 import {
   readLocalSettings,
   syncSlackWorkspace,
@@ -71,7 +72,9 @@ function resolveAssetPath(pathname: string): string {
 }
 
 function getWebBuildDir(): string {
-  return process.env.ODE_WEB_BUILD_DIR?.trim() || DEFAULT_WEB_BUILD_DIR;
+  const envDir = process.env.ODE_WEB_BUILD_DIR?.trim();
+  if (envDir) return envDir;
+  return DEFAULT_WEB_BUILD_DIR;
 }
 
 function normalizePath(pathname: string): string {
@@ -86,6 +89,32 @@ function resolveFilePath(buildDir: string, pathname: string): string | null {
     return null;
   }
   return resolved;
+}
+
+function getEmbeddedAsset(pathname: string, request: Request): Response | null {
+  if (!HAS_EMBEDDED_ASSETS) return null;
+
+  const resolvedPath = resolveAssetPath(pathname);
+  const assetPath = normalizePath(resolvedPath);
+  let data = EMBEDDED_ASSETS[assetPath];
+
+  if (!data) {
+    const acceptsHtml = request.headers.get("accept")?.includes("text/html");
+    if (acceptsHtml) {
+      data = EMBEDDED_ASSETS["/index.html"];
+      if (!data) return null;
+      return new Response(Buffer.from(data, "base64"), {
+        status: 200,
+        headers: { "content-type": getContentType("/index.html") },
+      });
+    }
+    return null;
+  }
+
+  return new Response(Buffer.from(data, "base64"), {
+    status: 200,
+    headers: { "content-type": getContentType(assetPath) },
+  });
 }
 
 function getContentType(pathname: string): string {
@@ -297,6 +326,9 @@ async function handleRequest(request: Request): Promise<Response> {
     return jsonResponse(response.ok ? 200 : 400, response);
   }
 
+  const embedded = getEmbeddedAsset(pathname, request);
+  if (embedded) return embedded;
+
   const buildDir = getWebBuildDir();
   if (!existsSync(buildDir)) {
     return new Response("Web UI build not found", { status: 404 });
@@ -325,7 +357,7 @@ async function handleRequest(request: Request): Promise<Response> {
 }
 
 export function hasWebUiBuild(): boolean {
-  return existsSync(getWebBuildDir());
+  return HAS_EMBEDDED_ASSETS || existsSync(getWebBuildDir());
 }
 
 export function startLocalWebServer(): void {

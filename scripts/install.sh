@@ -36,6 +36,7 @@ echo "Downloading $URL"
 curl -fsSL "$URL" -o "$TMP_FILE"
 chmod +x "$TMP_FILE"
 mv "$TMP_FILE" "$INSTALL_DIR/$BIN_NAME"
+chmod +x "$INSTALL_DIR/$BIN_NAME"
 rm -rf "$TMP_DIR"
 
 echo "Installed ode to $INSTALL_DIR/$BIN_NAME"
