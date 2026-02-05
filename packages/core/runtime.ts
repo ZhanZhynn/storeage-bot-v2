@@ -2,7 +2,7 @@ import type { QuestionInfo } from "@opencode-ai/sdk/v2";
 import {
   getDefaultOpenCodeServerUrl,
   isLocalMode,
-  loadOdeConfig,
+  resolveMessageFrequency,
   TOOL_DISPLAY_CONFIG,
   type MessageFrequency,
   resolveChannelCwd,
@@ -180,18 +180,6 @@ function buildToolDetails(tool: SessionMessageState["tools"][number], workingPat
   }
 
   return title ? trimToolPath(title, workingPath) : "";
-}
-
-function resolveMessageFrequency(): MessageFrequency {
-  try {
-    const frequency = loadOdeConfig().user.defaultMessageFrequency;
-    if (frequency === "minimum" || frequency === "medium" || frequency === "aggressive") {
-      return frequency;
-    }
-  } catch {
-    // ignore, fall back to medium
-  }
-  return "medium";
 }
 
 function truncateToolDetail(detail: string, limit: number | null): string {
