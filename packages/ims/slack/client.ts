@@ -1434,9 +1434,15 @@ async function handleUserMessageInternal(
       ["user.name", githubInfo?.gitName],
       ["user.email", githubInfo?.gitEmail],
     ];
+    log.info("Setting git identity in worktree config", {
+      channelId,
+      threadId,
+      hasName: Boolean(githubInfo?.gitName),
+      hasEmail: Boolean(githubInfo?.gitEmail),
+    });
     for (const [key, value] of updates) {
       if (!value) continue;
-      const result = spawnSync("git", ["config", "--local", key, value], {
+      const result = spawnSync("git", ["config", "--worktree", key, value], {
         cwd,
         env: { ...process.env },
         encoding: "utf-8",
