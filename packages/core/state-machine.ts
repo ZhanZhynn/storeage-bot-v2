@@ -1,4 +1,4 @@
-import { log } from "@ode/utils";
+import { log } from "@/utils";
 
 export type CorePhase =
   | "idle"

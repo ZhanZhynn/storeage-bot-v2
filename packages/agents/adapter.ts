@@ -1,4 +1,4 @@
-import type { AgentAdapter, NormalizedQuestion } from "@ode/core/types";
+import type { AgentAdapter, NormalizedQuestion } from "@/core/types";
 import type { QuestionInfo } from "@opencode-ai/sdk/v2";
 import {
   getOrCreateSession,

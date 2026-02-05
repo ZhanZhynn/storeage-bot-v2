@@ -3,7 +3,7 @@ import {
   isLocalMode,
   resolveMessageFrequency,
   resolveChannelCwd,
-} from "@ode/config";
+} from "@/config";
 import {
   loadSession,
   saveSession,
@@ -23,8 +23,8 @@ import {
   type PersistedSession,
   type TrackedTool,
   type TrackedTodo,
-} from "@ode/config/local/sessions";
-import { storeSessionEvent, storeSessionMeta } from "@ode/config/local/redis";
+} from "@/config/local/sessions";
+import { storeSessionEvent, storeSessionMeta } from "@/config/local/redis";
 import {
   buildLiveStatusMessage,
   buildSessionMessageState,
@@ -32,10 +32,10 @@ import {
   type SessionEvent,
   type SessionMessageState,
   log,
-} from "@ode/utils";
-import { buildSessionEnvironment, prepareSessionWorkspace } from "@ode/core/session";
-import { CoreStateMachine } from "@ode/core/state-machine";
-import type { AgentAdapter, CoreMessageContext, IMAdapter, NormalizedQuestion } from "@ode/core/types";
+} from "@/utils";
+import { buildSessionEnvironment, prepareSessionWorkspace } from "@/core/session";
+import { CoreStateMachine } from "@/core/state-machine";
+import type { AgentAdapter, CoreMessageContext, IMAdapter, NormalizedQuestion } from "@/core/types";
 
 type RuntimeDeps = {
   im: IMAdapter;

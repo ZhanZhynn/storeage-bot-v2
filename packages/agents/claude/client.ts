@@ -2,8 +2,8 @@ import { spawn, type ChildProcess } from "child_process";
 import {
   getOpenCodeSession,
   setOpenCodeSession,
-} from "@ode/config/local/settings";
-import { log } from "@ode/utils";
+} from "@/config/local/settings";
+import { log } from "@/utils";
 import { buildPromptParts, buildPromptText, buildSlackSystemPrompt } from "../shared";
 import type {
   OpenCodeMessage,

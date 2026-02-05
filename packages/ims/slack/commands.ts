@@ -10,7 +10,7 @@ import {
   setChannelModel,
   setChannelWorkingDirectory,
   setGitHubInfoForUser,
-} from "@ode/config";
+} from "@/config";
 
 const SETTINGS_LAUNCH_ACTION = "open_settings_modal";
 const SETTINGS_MODAL_ID = "settings_modal";

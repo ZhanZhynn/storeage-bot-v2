@@ -1,11 +1,11 @@
 import { type WebClient } from "@slack/web-api";
-import { log } from "@ode/utils";
+import { log } from "@/utils";
 import {
   initiateCodexAuth,
   isCodexAuthenticated,
   completeCodexAuthManual,
   stopCodexOAuthServer,
-} from "@ode/agents/opencode/codex-auth";
+} from "@/agents/opencode/codex-auth";
 
 export async function startOAuthFlow(
   channelId: string,

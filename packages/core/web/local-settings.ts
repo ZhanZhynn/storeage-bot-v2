@@ -5,7 +5,7 @@ import {
   defaultDashboardConfig,
   sanitizeDashboardConfig,
   type DashboardConfig,
-} from "@ode/config";
+} from "@/config";
 
 const configDir = join(homedir(), ".config", "ode");
 const configPath = join(configDir, "ode.json");

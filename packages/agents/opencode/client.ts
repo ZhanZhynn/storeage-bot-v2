@@ -9,9 +9,9 @@ import {
 import {
   getOpenCodeSession,
   setOpenCodeSession,
-} from "@ode/config/local/settings";
-import { getChannelModel, isLocalMode } from "@ode/config";
-import { log } from "@ode/utils";
+} from "@/config/local/settings";
+import { getChannelModel, isLocalMode } from "@/config";
+import { log } from "@/utils";
 import { buildPromptParts, buildSlackSystemPrompt } from "../shared";
 import type {
   OpenCodeMessage,

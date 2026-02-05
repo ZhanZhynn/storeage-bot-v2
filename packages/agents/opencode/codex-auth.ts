@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "fs";
 import { join, dirname } from "path";
 import { homedir } from "os";
-import { log } from "@ode/utils";
+import { log } from "@/utils";
 
 // OAuth constants from OpenCode's codex plugin
 const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";

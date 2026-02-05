@@ -3,8 +3,8 @@ import {
   type OpencodeClient,
   type EventPermissionAsked,
 } from "@opencode-ai/sdk/v2";
-import { log } from "@ode/utils";
-import { getDefaultOpenCodeServerUrl } from "@ode/config";
+import { log } from "@/utils";
+import { getDefaultOpenCodeServerUrl } from "@/config";
 
 // Per-session OpenCode instances
 export type SessionEnvironment = Record<string, string>;

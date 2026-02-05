@@ -1,5 +1,5 @@
 import Redis from "ioredis";
-import { log } from "@ode/utils";
+import { log } from "@/utils";
 
 let redis: Redis | null = null;
 

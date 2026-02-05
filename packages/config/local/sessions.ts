@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import { log } from "@ode/utils";
+import { log } from "@/utils";
 
 const ODE_CONFIG_DIR = join(homedir(), ".config", "ode");
 const SESSIONS_DIR = join(ODE_CONFIG_DIR, "sessions");

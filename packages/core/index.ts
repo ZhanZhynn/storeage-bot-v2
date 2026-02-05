@@ -7,10 +7,10 @@ import {
   initializeWorkspaceAuth,
   clearSlackAuthState,
   resetSlackState,
-} from "@ode/ims";
+} from "@/ims";
 import { type ChildProcess } from "child_process";
 import { watchFile, unwatchFile } from "fs";
-import { stopServer } from "@ode/agents";
+import { stopServer } from "@/agents";
 import {
   getDefaultCwd,
   isLocalMode,
@@ -19,8 +19,8 @@ import {
   invalidateOdeConfigCache,
   ODE_CONFIG_FILE,
   getUpdateConfig,
-} from "@ode/config";
-import { log } from "@ode/utils";
+} from "@/config";
+import { log } from "@/utils";
 import { hasWebUiBuild, startLocalWebServer, stopLocalWebServer } from "./web/server";
 import { checkForUpdate, isInstalledBinary, performUpgrade } from "./upgrade";
 import packageJson from "../../package.json" with { type: "json" };

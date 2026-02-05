@@ -13,21 +13,21 @@ import {
   getGitHubInfoForUser,
   isLocalMode,
   resolveChannelCwd,
-} from "@ode/config";
+} from "@/config";
 import { markdownToSlack, splitForSlack, truncateForSlack } from "./formatter";
 import {
   markThreadActive,
   isThreadActive,
   getPendingRestartMessages,
   clearPendingRestartMessages,
-} from "@ode/config/local/settings";
-import { createCoreRuntime } from "@ode/core/runtime";
-import type { IMAdapter } from "@ode/core/types";
-import { createAgentAdapter } from "@ode/agents/adapter";
-import type { OpenCodeMessageContext } from "@ode/agents";
-import { log } from "@ode/utils";
+} from "@/config/local/settings";
+import { createCoreRuntime } from "@/core/runtime";
+import type { IMAdapter } from "@/core/types";
+import { createAgentAdapter } from "@/agents/adapter";
+import type { OpenCodeMessageContext } from "@/agents";
+import { log } from "@/utils";
 import { getSlackActionApiUrl } from "./config";
-import { getAllBotTokens, getProfileBySlackUserId, getSlackAppTokenFromServer } from "@ode/config/db";
+import { getAllBotTokens, getProfileBySlackUserId, getSlackAppTokenFromServer } from "@/config/db";
 
 export interface MessageContext {
   channelId: string;

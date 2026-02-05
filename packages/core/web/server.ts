@@ -10,15 +10,15 @@ import {
   defaultDashboardConfig,
   sanitizeDashboardConfig,
   isLocalMode,
-} from "@ode/config";
+} from "@/config";
 import {
   getAllSessions,
   getSessionEvents,
   getSessionMeta,
   type SessionEvent,
-} from "@ode/config/local/redis";
-import { handleSlackActionPayload } from "@ode/ims";
-import { log } from "@ode/utils";
+} from "@/config/local/redis";
+import { handleSlackActionPayload } from "@/ims";
+import { log } from "@/utils";
 
 const DEFAULT_WEB_HOST = "127.0.0.1";
 const DEFAULT_WEB_PORT = 9293;

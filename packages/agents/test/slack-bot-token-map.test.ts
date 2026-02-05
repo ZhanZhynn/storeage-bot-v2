@@ -1,8 +1,8 @@
 import { describe, it } from "bun:test";
 import { WebClient } from "@slack/web-api";
-import { getSlackAppToken } from "@ode/config";
-import { getAllBotTokens } from "@ode/config/db";
-import { log } from "@ode/utils";
+import { getSlackAppToken } from "@/config";
+import { getAllBotTokens } from "@/config/db";
+import { log } from "@/utils";
 
 function truncateToken(token: string): string {
   if (token.length <= 12) return token;

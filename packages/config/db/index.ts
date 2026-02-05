@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { isLocalMode } from "../runtime";
-import { log } from "@ode/utils";
+import { log } from "@/utils";
 
 type ProfileRecord = {
   id: string;

@@ -2,6 +2,6 @@ export {
   defaultDashboardConfig,
   sanitizeDashboardConfig,
   type DashboardConfig,
-} from "@ode/config/dashboard-config";
+} from "@/config/dashboard-config";
 
-export { type MessageFrequency, TOOL_DISPLAY_CONFIG } from "@ode/config";
+export { type MessageFrequency, TOOL_DISPLAY_CONFIG } from "@/config/web";

@@ -1,6 +1,6 @@
 import { spawnSync } from "child_process";
-import { getGitHubInfoForUser } from "@ode/config";
-import { ensureSessionWorktree, log } from "@ode/utils";
+import { getGitHubInfoForUser } from "@/config";
+import { ensureSessionWorktree, log } from "@/utils";
 
 export type SessionEnvironment = Record<string, string>;
 

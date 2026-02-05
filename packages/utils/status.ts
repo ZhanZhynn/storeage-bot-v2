@@ -2,8 +2,8 @@ import {
   resolveMessageFrequency,
   TOOL_DISPLAY_CONFIG,
   type MessageFrequency,
-} from "@ode/config";
-import type { ActiveRequest, TrackedTodo } from "@ode/config/local/sessions";
+} from "@/config";
+import type { ActiveRequest, TrackedTodo } from "@/config/local/sessions";
 import type { SessionMessageState } from "./session-inspector";
 
 const PLAN_TODO_LIMIT = 15;

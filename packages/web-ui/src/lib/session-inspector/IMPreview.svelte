@@ -1,6 +1,6 @@
 <script lang="ts">
   import SlackMessage from "./SlackMessage.svelte";
-  import { buildSessionMessageState, type SessionMessageState } from "@ode/utils/session-inspector";
+  import { buildSessionMessageState, type SessionMessageState } from "@/utils/session-inspector";
 
   export let events: Array<{
     timestamp: number;

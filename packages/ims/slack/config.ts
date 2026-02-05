@@ -1,1 +1,1 @@
-export { getSlackActionApiUrl } from "@ode/config";
+export { getSlackActionApiUrl } from "@/config";

@@ -2,8 +2,11 @@
     import { goto } from "$app/navigation";
     import { onMount } from "svelte";
     import ThemeToggle from "$lib/components/ThemeToggle.svelte";
-    import { defaultDashboardConfig } from "$lib/localConfig";
-    import { TOOL_DISPLAY_CONFIG, type MessageFrequency } from "@ode/config";
+    import {
+        defaultDashboardConfig,
+        TOOL_DISPLAY_CONFIG,
+        type MessageFrequency,
+    } from "$lib/localConfig";
     import { Settings, ChevronDown, RefreshCw, Plus } from "lucide-svelte";
 
     type Workspace = {

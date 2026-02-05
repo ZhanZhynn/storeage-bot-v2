@@ -3,7 +3,7 @@ import type {
   OpenCodeMessageContext,
   OpenCodeOptions,
   OpenCodeSessionInfo,
-} from "@ode/agents";
+} from "@/agents";
 
 export type CoreMessageContext = {
   channelId: string;
