@@ -750,7 +750,7 @@ function buildToolLines(
   for (const tool of items) {
     const details = buildToolDetails(tool, workingPath);
     const truncated = details ? truncateToolDetail(details, detailLimit) : "";
-    const suffix = truncated ? ` — ${truncated}` : "";
+    const suffix = truncated ? ` ${truncated}` : "";
     lines.push(`${getToolIcon(tool.status)} ${codeMark}${tool.name}${codeMark}${suffix}`);
   }
 
