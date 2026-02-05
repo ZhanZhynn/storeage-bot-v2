@@ -13,7 +13,6 @@ const userSchema = z.object({
   email: z.string().optional().default(""),
   initials: z.string().optional().default(""),
   avatar: z.string().optional().default(""),
-  githubToken: z.string().optional().default(""),
   defaultMessageFrequency: z.enum([
     "minimum",
     "medium",
@@ -61,6 +60,7 @@ const workspaceSchema = z.object({
 
 const odeConfigSchema = z.object({
   user: userSchema,
+  githubTokens: z.record(z.string(), z.string()).optional().default({}),
   devServers: z.array(devServerSchema),
   workspaces: z.array(workspaceSchema),
   updates: updateSchema.optional().default({
@@ -84,9 +84,9 @@ const EMPTY_TEMPLATE: OdeConfig = {
     email: "",
     initials: "",
     avatar: "",
-    githubToken: "",
     defaultMessageFrequency: "medium",
   },
+  githubTokens: {},
   devServers: [],
   workspaces: [],
   updates: {
@@ -229,6 +229,31 @@ export function getChannelDetails(channelId: string): ChannelDetail | null {
     if (match) return match;
   }
   return null;
+}
+
+export function getGitHubTokenForUser(userId: string): string | null {
+  const token = loadOdeConfig().githubTokens?.[userId]?.trim();
+  return token && token.length > 0 ? token : null;
+}
+
+export function setGitHubTokenForUser(userId: string, token: string): void {
+  const config = loadOdeConfig();
+  const githubTokens = { ...(config.githubTokens ?? {}) };
+  const trimmed = token.trim();
+  if (trimmed.length === 0) {
+    delete githubTokens[userId];
+  } else {
+    githubTokens[userId] = trimmed;
+  }
+  saveOdeConfig({ ...config, githubTokens });
+}
+
+export function clearGitHubTokenForUser(userId: string): void {
+  const config = loadOdeConfig();
+  const githubTokens = { ...(config.githubTokens ?? {}) };
+  if (!(userId in githubTokens)) return;
+  delete githubTokens[userId];
+  saveOdeConfig({ ...config, githubTokens });
 }
 
 export type ChannelCwdInfo = {

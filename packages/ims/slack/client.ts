@@ -12,6 +12,7 @@ import {
   getChannelOpenCodeServerUrl,
   getDevServers,
   getDefaultOpenCodeServerUrl,
+  getGitHubTokenForUser,
   loadOdeConfig,
   isLocalMode,
   resolveChannelCwd,
@@ -21,8 +22,6 @@ import {
   markThreadActive,
   isThreadActive,
   getOpenCodeSession,
-  getGitHubAuthRecordForUser,
-  getGitHubUserConfigDir,
   getPendingRestartMessages,
   clearPendingRestartMessages,
 } from "@ode/config/local/settings";
@@ -171,25 +170,9 @@ async function buildSlackContext(
       threadHistory: threadHistory || undefined,
       hasCustomSlackTool: await hasOdeSlackTool(cwd),
       odeSlackApiUrl: getOdeSlackApiUrl(),
+      hasGitHubToken: Boolean(getGitHubTokenForUser(userId)),
     },
   };
-}
-
-function buildGitEnvironmentForUser(userId: string): Record<string, string> {
-  const env: Record<string, string> = {};
-  const authRecord = getGitHubAuthRecordForUser(userId);
-  if (!authRecord) return env;
-
-  if (authRecord.user) {
-    const email = `${authRecord.user}@users.noreply.github.com`;
-    env.GIT_AUTHOR_NAME = authRecord.user;
-    env.GIT_AUTHOR_EMAIL = email;
-    env.GIT_COMMITTER_NAME = authRecord.user;
-    env.GIT_COMMITTER_EMAIL = email;
-  }
-
-  env.GH_CONFIG_DIR = getGitHubUserConfigDir(userId);
-  return env;
 }
 
 async function processGlobalUpdateQueue(): Promise<void> {
@@ -368,6 +351,10 @@ function isSettingsCommand(text: string): boolean {
   return /^\/setting\b/i.test(text.trim());
 }
 
+function isGitHubCommand(text: string): boolean {
+  return /^\/gh\b/i.test(text.trim());
+}
+
 async function postSettingsLauncher(
   channelId: string,
   userId: string,
@@ -389,6 +376,43 @@ async function postSettingsLauncher(
             type: "button",
             action_id: "open_settings_modal",
             text: { type: "plain_text", text: "Open settings" },
+            value: channelId,
+          },
+        ],
+      },
+    ],
+  });
+}
+
+async function postGitHubLauncher(
+  channelId: string,
+  userId: string,
+  client: WebClient
+): Promise<void> {
+  const hasToken = Boolean(getGitHubTokenForUser(userId));
+  const statusText = hasToken
+    ? "GitHub token is set for your account."
+    : "No GitHub token set yet.";
+
+  await client.chat.postEphemeral({
+    channel: channelId,
+    user: userId,
+    text: "Open GitHub token settings",
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `${statusText} Add or update your token to enable GitHub CLI actions.`,
+        },
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: "open_github_token_modal",
+            text: { type: "plain_text", text: "Set GitHub token" },
             value: channelId,
           },
         ],
@@ -1348,10 +1372,15 @@ async function handleUserMessageInternal(
 
   let session = loadSession(channelId, threadId);
   const threadOwnerUserId = session?.threadOwnerUserId ?? context.userId;
-  const gitEnv = buildGitEnvironmentForUser(threadOwnerUserId);
-  const sessionEnv = context.opencodeServerUrl
-    ? { ...gitEnv, OPENCODE_SERVER_URL: context.opencodeServerUrl }
-    : gitEnv;
+  const sessionEnv: Record<string, string> = {};
+  const githubToken = getGitHubTokenForUser(threadOwnerUserId);
+  if (githubToken) {
+    sessionEnv.GH_TOKEN = githubToken;
+    sessionEnv.GITHUB_TOKEN = githubToken;
+  }
+  if (context.opencodeServerUrl) {
+    sessionEnv.OPENCODE_SERVER_URL = context.opencodeServerUrl;
+  }
 
   let sessionId: string;
   let created: boolean;
@@ -1775,6 +1804,13 @@ export function setupMessageHandlers(): void {
     const cleanText = currentBotUserId
       ? text.replace(new RegExp(`<@${currentBotUserId}>`, "g"), "").trim()
       : text.trim();
+
+    if (isGitHubCommand(cleanText)) {
+      if (isMention) {
+        await postGitHubLauncher(channelId, userId, client);
+      }
+      return;
+    }
 
     if (isSettingsCommand(cleanText)) {
       if (isMention) {
