@@ -180,9 +180,7 @@ export async function ensureSessionWorktree(params: {
 
   const currentBranch = getCurrentBranch(repoRoot, env);
   const dirtyPaths = getDirtyPaths(repoRoot, env);
-  const hasOnlyWorktreeGitignore =
-    dirtyPaths.length === 1 && dirtyPaths[0] === ".gitignore";
-  if (currentBranch === "main" && dirtyPaths.length > 0 && !hasOnlyWorktreeGitignore) {
+  if (currentBranch === "main" && dirtyPaths.length > 0) {
     const message = "Main has uncommitted changes, skipping worktree and staying on main.";
     log.warn(message, { repoRoot });
     return {
