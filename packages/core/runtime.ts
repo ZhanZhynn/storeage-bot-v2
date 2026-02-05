@@ -3,6 +3,8 @@ import {
   getDefaultOpenCodeServerUrl,
   isLocalMode,
   loadOdeConfig,
+  TOOL_DISPLAY_CONFIG,
+  type MessageFrequency,
   resolveChannelCwd,
 } from "@ode/config";
 import {
@@ -179,14 +181,6 @@ function buildToolDetails(tool: SessionMessageState["tools"][number], workingPat
 
   return title ? trimToolPath(title, workingPath) : "";
 }
-
-type MessageFrequency = "minimum" | "medium" | "aggressive";
-
-const TOOL_DISPLAY_CONFIG: Record<MessageFrequency, { itemLimit: number; detailLimit: number | null }> = {
-  minimum: { itemLimit: 4, detailLimit: 30 },
-  medium: { itemLimit: 6, detailLimit: 100 },
-  aggressive: { itemLimit: 8, detailLimit: null },
-};
 
 function resolveMessageFrequency(): MessageFrequency {
   try {

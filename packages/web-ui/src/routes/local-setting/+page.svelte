@@ -3,6 +3,7 @@
     import { onMount } from "svelte";
     import ThemeToggle from "$lib/components/ThemeToggle.svelte";
     import { defaultDashboardConfig } from "$lib/localConfig";
+    import { TOOL_DISPLAY_CONFIG, type MessageFrequency } from "@ode/config";
     import { Settings, ChevronDown, RefreshCw, Plus } from "lucide-svelte";
 
     type Workspace = {
@@ -36,7 +37,7 @@
         email: string;
         initials?: string;
         avatar?: string;
-        defaultMessageFrequency: "aggressive" | "medium" | "minimum";
+        defaultMessageFrequency: MessageFrequency;
     };
 
     type DashboardConfig = {
@@ -100,8 +101,7 @@
     let preferredWorkspaceId: string | null = null;
     let isDevServersOpen = true;
     let isWorkspacesOpen = true;
-    let messageFrequency: "aggressive" | "medium" | "minimum" =
-        user.defaultMessageFrequency;
+    let messageFrequency: MessageFrequency = user.defaultMessageFrequency;
     let isAddServerOpen = false;
     let newServerName = "";
     let newServerUrl = "http://localhost:4096";
@@ -128,6 +128,9 @@
         variant?: "default" | "destructive";
     };
     let toasts: Toast[] = [];
+    const messageFrequencyOptions = Object.keys(
+        TOOL_DISPLAY_CONFIG,
+    ) as MessageFrequency[];
 
     $: if (initialSection === "dev" && initialSlug && devServers.length) {
         preferredDevServerId =
@@ -871,7 +874,7 @@
                                 >Message Update Frequency</span
                             >
                             <div class="message-freq-toggle">
-                                {#each ["minimum", "medium", "aggressive"] as option}
+                                {#each messageFrequencyOptions as option}
                                     <button
                                         class="message-freq-option {messageFrequency ===
                                         option
@@ -879,10 +882,7 @@
                                             : ''}"
                                         type="button"
                                         on:click={() => {
-                                            messageFrequency = option as
-                                                | "aggressive"
-                                                | "medium"
-                                                | "minimum";
+                                            messageFrequency = option;
                                             user = {
                                                 ...user,
                                                 defaultMessageFrequency:
