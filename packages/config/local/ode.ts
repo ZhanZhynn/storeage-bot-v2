@@ -60,7 +60,17 @@ const workspaceSchema = z.object({
 
 const odeConfigSchema = z.object({
   user: userSchema,
-  githubTokens: z.record(z.string(), z.string()).optional().default({}),
+  githubInfos: z
+    .record(
+      z.string(),
+      z.object({
+        token: z.string().optional().default(""),
+        gitName: z.string().optional().default(""),
+        gitEmail: z.string().optional().default(""),
+      })
+    )
+    .optional()
+    .default({}),
   devServers: z.array(devServerSchema),
   workspaces: z.array(workspaceSchema),
   updates: updateSchema.optional().default({
@@ -86,7 +96,7 @@ const EMPTY_TEMPLATE: OdeConfig = {
     avatar: "",
     defaultMessageFrequency: "medium",
   },
-  githubTokens: {},
+  githubInfos: {},
   devServers: [],
   workspaces: [],
   updates: {
@@ -231,29 +241,44 @@ export function getChannelDetails(channelId: string): ChannelDetail | null {
   return null;
 }
 
-export function getGitHubTokenForUser(userId: string): string | null {
-  const token = loadOdeConfig().githubTokens?.[userId]?.trim();
-  return token && token.length > 0 ? token : null;
+export type GitHubInfo = {
+  token: string;
+  gitName?: string;
+  gitEmail?: string;
+};
+
+export function getGitHubInfoForUser(userId: string): GitHubInfo | null {
+  const info = loadOdeConfig().githubInfos?.[userId];
+  if (!info) return null;
+  const token = info.token?.trim();
+  if (!token) return null;
+  const gitName = info.gitName?.trim() || undefined;
+  const gitEmail = info.gitEmail?.trim() || undefined;
+  return { token, gitName, gitEmail };
 }
 
-export function setGitHubTokenForUser(userId: string, token: string): void {
+export function setGitHubInfoForUser(userId: string, info: GitHubInfo): void {
   const config = loadOdeConfig();
-  const githubTokens = { ...(config.githubTokens ?? {}) };
-  const trimmed = token.trim();
-  if (trimmed.length === 0) {
-    delete githubTokens[userId];
+  const githubInfos = { ...(config.githubInfos ?? {}) };
+  const token = info.token.trim();
+  if (token.length === 0) {
+    delete githubInfos[userId];
   } else {
-    githubTokens[userId] = trimmed;
+    githubInfos[userId] = {
+      token,
+      gitName: info.gitName?.trim() || "",
+      gitEmail: info.gitEmail?.trim() || "",
+    };
   }
-  saveOdeConfig({ ...config, githubTokens });
+  saveOdeConfig({ ...config, githubInfos });
 }
 
-export function clearGitHubTokenForUser(userId: string): void {
+export function clearGitHubInfoForUser(userId: string): void {
   const config = loadOdeConfig();
-  const githubTokens = { ...(config.githubTokens ?? {}) };
-  if (!(userId in githubTokens)) return;
-  delete githubTokens[userId];
-  saveOdeConfig({ ...config, githubTokens });
+  const githubInfos = { ...(config.githubInfos ?? {}) };
+  if (!(userId in githubInfos)) return;
+  delete githubInfos[userId];
+  saveOdeConfig({ ...config, githubInfos });
 }
 
 export type ChannelCwdInfo = {

@@ -12,7 +12,7 @@ import {
   getChannelOpenCodeServerUrl,
   getDevServers,
   getDefaultOpenCodeServerUrl,
-  getGitHubTokenForUser,
+  getGitHubInfoForUser,
   loadOdeConfig,
   isLocalMode,
   resolveChannelCwd,
@@ -170,7 +170,7 @@ async function buildSlackContext(
       threadHistory: threadHistory || undefined,
       hasCustomSlackTool: await hasOdeSlackTool(cwd),
       odeSlackApiUrl: getOdeSlackApiUrl(),
-      hasGitHubToken: Boolean(getGitHubTokenForUser(userId)),
+      hasGitHubToken: Boolean(getGitHubInfoForUser(userId)?.token),
     },
   };
 }
@@ -389,7 +389,7 @@ async function postGitHubLauncher(
   userId: string,
   client: WebClient
 ): Promise<void> {
-  const hasToken = Boolean(getGitHubTokenForUser(userId));
+  const hasToken = Boolean(getGitHubInfoForUser(userId)?.token);
   const statusText = hasToken
     ? "GitHub token is set for your account."
     : "No GitHub token set yet.";
@@ -397,13 +397,13 @@ async function postGitHubLauncher(
   await client.chat.postEphemeral({
     channel: channelId,
     user: userId,
-    text: "Open GitHub token settings",
+    text: "Open GitHub info settings",
     blocks: [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `${statusText} Add or update your token to enable GitHub CLI actions.`,
+          text: `${statusText} Add or update your info to enable GitHub CLI actions.`,
         },
       },
       {
@@ -412,7 +412,7 @@ async function postGitHubLauncher(
           {
             type: "button",
             action_id: "open_github_token_modal",
-            text: { type: "plain_text", text: "Set GitHub token" },
+            text: { type: "plain_text", text: "Set GitHub info" },
             value: channelId,
           },
         ],
@@ -1373,10 +1373,18 @@ async function handleUserMessageInternal(
   let session = loadSession(channelId, threadId);
   const threadOwnerUserId = session?.threadOwnerUserId ?? context.userId;
   const sessionEnv: Record<string, string> = {};
-  const githubToken = getGitHubTokenForUser(threadOwnerUserId);
-  if (githubToken) {
-    sessionEnv.GH_TOKEN = githubToken;
-    sessionEnv.GITHUB_TOKEN = githubToken;
+  const githubInfo = getGitHubInfoForUser(threadOwnerUserId);
+  if (githubInfo?.token) {
+    sessionEnv.GH_TOKEN = githubInfo.token;
+    sessionEnv.GITHUB_TOKEN = githubInfo.token;
+  }
+  if (githubInfo?.gitName) {
+    sessionEnv.GIT_AUTHOR_NAME = githubInfo.gitName;
+    sessionEnv.GIT_COMMITTER_NAME = githubInfo.gitName;
+  }
+  if (githubInfo?.gitEmail) {
+    sessionEnv.GIT_AUTHOR_EMAIL = githubInfo.gitEmail;
+    sessionEnv.GIT_COMMITTER_EMAIL = githubInfo.gitEmail;
   }
   if (context.opencodeServerUrl) {
     sessionEnv.OPENCODE_SERVER_URL = context.opencodeServerUrl;
