@@ -1,10 +1,7 @@
-import type { QuestionInfo } from "@opencode-ai/sdk/v2";
 import {
   getDefaultOpenCodeServerUrl,
   isLocalMode,
   resolveMessageFrequency,
-  TOOL_DISPLAY_CONFIG,
-  type MessageFrequency,
   resolveChannelCwd,
 } from "@ode/config";
 import {
@@ -28,10 +25,17 @@ import {
   type TrackedTodo,
 } from "@ode/config/local/sessions";
 import { storeSessionEvent, storeSessionMeta } from "@ode/config/local/redis";
-import { buildSessionMessageState, type SessionEvent, type SessionMessageState, log } from "@ode/utils";
+import {
+  buildLiveStatusMessage,
+  buildSessionMessageState,
+  getStatusMessageKey,
+  type SessionEvent,
+  type SessionMessageState,
+  log,
+} from "@ode/utils";
 import { buildSessionEnvironment, prepareSessionWorkspace } from "@ode/core/session";
 import { CoreStateMachine } from "@ode/core/state-machine";
-import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@ode/core/types";
+import type { AgentAdapter, CoreMessageContext, IMAdapter, NormalizedQuestion } from "@ode/core/types";
 
 type RuntimeDeps = {
   im: IMAdapter;
@@ -57,207 +61,12 @@ function isRedisTrackingEnabled(): boolean {
   return flag === "true" || flag === "1" || flag === "yes";
 }
 
-function formatElapsedTime(startedAt: number): string {
-  const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
-  if (elapsedSeconds < 60) return `${elapsedSeconds}s`;
-  const minutes = Math.floor(elapsedSeconds / 60);
-  const seconds = elapsedSeconds % 60;
-  return `${minutes}m ${seconds}s`;
-}
-
-function getToolIcon(status: string): string {
-  switch (status) {
-    case "running":
-    case "pending":
-      return "~";
-    case "error":
-      return "!";
-    case "completed":
-    default:
-      return "-";
-  }
-}
-
-function getTodoIcon(status: string): string {
-  switch (status) {
-    case "completed":
-      return "\u2705";
-    case "in_progress":
-      return "\u25b6\ufe0f";
-    default:
-      return "\u2b1c";
-  }
-}
-
-const PLAN_TODO_LIMIT = 15;
-
-function getStatusMessageKey(request: ActiveRequest): string {
-  return `${request.channelId}:${request.threadId}:${request.statusMessageTs}`;
-}
-
-function getRepoRoot(workingPath: string): string {
-  const markers = ["/.worktree/", "/.worktrees/"];
-  for (const marker of markers) {
-    const matchIndex = workingPath.indexOf(marker);
-    if (matchIndex >= 0) {
-      return workingPath.slice(0, matchIndex);
-    }
-  }
-  return workingPath;
-}
-
-function trimToolPath(label: string, workingPath: string): string {
-  let trimmed = label.trim();
-  if (!trimmed) return trimmed;
-
-  const repoRoot = getRepoRoot(workingPath);
-  if (repoRoot && trimmed.startsWith(`${repoRoot}/`)) {
-    trimmed = trimmed.slice(repoRoot.length + 1);
-  }
-
-  if (trimmed.startsWith(`${workingPath}/`)) {
-    trimmed = trimmed.slice(workingPath.length + 1);
-  }
-
-  trimmed = trimmed.replace(/(^|\/)\.worktrees\/[^/]+\//, "");
-  trimmed = trimmed.replace(/(^|\/)\.worktree\/[^/]+\//, "");
-  trimmed = trimmed.replace(/^\//, "");
-  return trimmed;
-}
-
-function formatTodoLines(todos: TrackedTodo[], limit = PLAN_TODO_LIMIT): string[] {
-  const lines: string[] = [];
-  for (const todo of todos.slice(0, limit)) {
-    const icon = getTodoIcon(todo.status);
-    lines.push(`${icon} ${todo.content}`);
-  }
-  if (todos.length > limit) {
-    lines.push(`_(+${todos.length - limit} more)_`);
-  }
-  return lines;
-}
-
-function buildToolDetails(tool: SessionMessageState["tools"][number], workingPath: string): string {
-  const name = tool.name?.toLowerCase?.() ?? "";
-  const input = tool.input || {};
-  const title = tool.title?.trim() ?? "";
-
-  if (name === "grep" || name === "ripgrep" || name === "rg") {
-    const pattern = input.pattern || "";
-    const path = trimToolPath(String(input.path || "."), workingPath);
-    return `${pattern} in ${path}`.trim();
-  }
-
-  if (name === "glob") {
-    const pattern = input.pattern || "";
-    const path = trimToolPath(String(input.path || "."), workingPath);
-    return `${pattern} in ${path}`.trim();
-  }
-
-  if (name === "read") {
-    const filePath = input.filePath || input.file_path;
-    const offset = typeof input.offset === "number" ? input.offset : undefined;
-    const limit = typeof input.limit === "number" ? input.limit : undefined;
-    let details = filePath ? trimToolPath(String(filePath), workingPath) : "";
-    if (details && (offset !== undefined || limit !== undefined)) {
-      const offsetLabel = offset !== undefined ? `offset ${offset}` : "";
-      const limitLabel = limit !== undefined ? `limit ${limit}` : "";
-      const rangeLabel = [offsetLabel, limitLabel].filter(Boolean).join(", ");
-      details = `${details} (${rangeLabel})`;
-    }
-    return details;
-  }
-
-  if (name === "edit" || name === "write") {
-    const filePath = input.filePath || input.file_path;
-    if (filePath) {
-      return trimToolPath(String(filePath), workingPath);
-    }
-  }
-
-  if (name === "bash") {
-    return String(input.command || "");
-  }
-
-  return title ? trimToolPath(title, workingPath) : "";
-}
-
-function truncateToolDetail(detail: string, limit: number | null): string {
-  if (limit === null || detail.length <= limit) return detail;
-  return `${detail.slice(0, limit)}...`;
-}
-
-function buildToolLines(
-  state: SessionMessageState,
-  workingPath: string,
-  frequency: MessageFrequency
-): string[] {
-  const tools = state.tools || [];
-  if (tools.length === 0) return [];
-
-  const { itemLimit, detailLimit } = TOOL_DISPLAY_CONFIG[frequency];
-  const items = tools.length > itemLimit ? tools.slice(-itemLimit) : tools;
-  const header = tools.length > itemLimit
-    ? `Tool execution (Last ${itemLimit} items in ${tools.length})`
-    : "Tool execution";
-
-  const lines = [header];
-  const codeMark = "`";
-  for (const tool of items) {
-    const details = buildToolDetails(tool, workingPath);
-    const truncated = details ? truncateToolDetail(details, detailLimit) : "";
-    const suffix = truncated ? ` ${truncated}` : "";
-    lines.push(`${getToolIcon(tool.status)} ${codeMark}${tool.name}${codeMark}${suffix}`);
-  }
-
-  return lines;
-}
-
 function buildFinalResponseText(responses: Array<{ text?: string }>): string | null {
   const texts = responses
     .map((response) => response.text?.trim())
     .filter((text): text is string => Boolean(text));
   if (texts.length === 0) return null;
   return texts.join("\n\n");
-}
-
-function buildLiveStatusMessage(request: ActiveRequest, workingPath: string, state?: SessionMessageState): string {
-  if (!state) {
-    if (request.statusFrozen && request.currentText) {
-      return request.currentText;
-    }
-    return `_Working_ (${formatElapsedTime(request.startedAt)})`;
-  }
-
-  if (request.statusFrozen && request.currentText) {
-    return request.currentText;
-  }
-
-  const lines: string[] = [];
-
-  if (state.sessionTitle) {
-    const trimmedTitle = state.sessionTitle.length > 40
-      ? `${state.sessionTitle.slice(0, 40)}...`
-      : state.sessionTitle;
-    lines.push(`*${trimmedTitle}* (${formatElapsedTime(state.startedAt)})`);
-  } else {
-    lines.push(`_${formatElapsedTime(state.startedAt)}_`);
-  }
-
-  if (state.todos.length > 0) {
-    const todos = state.todos.map((todo) => ({
-      content: todo.content,
-      status: todo.status as TrackedTodo["status"],
-    }));
-    lines.push("Tasks", ...formatTodoLines(todos));
-  }
-
-  const toolLines = buildToolLines(state, workingPath, resolveMessageFrequency());
-  if (toolLines.length > 0) {
-    lines.push(...toolLines);
-  }
-
-  return lines.join("\n");
 }
 
 function categorizeError(
@@ -320,33 +129,6 @@ function categorizeError(
     message: errorStr.length > 100 ? `${errorStr.slice(0, 100)}...` : errorStr,
     suggestion: "If this persists, try starting a new thread or contact support.",
   };
-}
-
-type NormalizedQuestion = {
-  question: string;
-  options?: string[];
-  multiple?: boolean;
-  custom?: boolean;
-};
-
-function normalizeQuestions(questions?: QuestionInfo[]): NormalizedQuestion[] {
-  if (!questions || questions.length === 0) return [];
-  return questions
-    .map((question) => {
-      const prompt = typeof question.question === "string" ? question.question.trim() : "";
-      const options = Array.isArray(question.options)
-        ? question.options
-          .map((option) => (typeof option?.label === "string" ? option.label : ""))
-          .filter((label) => label.length > 0)
-        : undefined;
-      return {
-        question: prompt,
-        options: options && options.length > 0 ? options : undefined,
-        multiple: question.multiple,
-        custom: question.custom,
-      };
-    })
-    .filter((question) => question.question.length > 0);
 }
 
 function formatQuestionPrompt(questions: NormalizedQuestion[]): string {
@@ -561,7 +343,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
         const properties = event.properties as {
           id?: string;
           sessionID?: string;
-          questions?: QuestionInfo[];
+          questions?: unknown;
         };
         const requestId = properties?.id;
         if (!requestId) return;
@@ -569,7 +351,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
         const existingQuestion = getPendingQuestion(request.channelId, request.threadId);
         if (existingQuestion?.requestId === requestId) return;
 
-        const normalized = normalizeQuestions(properties.questions);
+          const normalized = deps.agent.normalizeQuestions(properties.questions);
         if (normalized.length === 0) return;
 
         request.statusFrozen = true;

@@ -1,4 +1,5 @@
-import type { AgentAdapter } from "@ode/core/types";
+import type { AgentAdapter, NormalizedQuestion } from "@ode/core/types";
+import type { QuestionInfo } from "@opencode-ai/sdk/v2";
 import {
   getOrCreateSession,
   sendMessage,
@@ -27,6 +28,28 @@ export function createAgentAdapter(): AgentAdapter {
       if (response.error) {
         throw new Error(`OpenCode question reply error: ${response.error}`);
       }
+    },
+    normalizeQuestions(questions: unknown): NormalizedQuestion[] {
+      if (!Array.isArray(questions) || questions.length === 0) return [];
+      return (questions as QuestionInfo[])
+        .map((question) => {
+          const prompt =
+            typeof question.question === "string" ? question.question.trim() : "";
+          const options = Array.isArray(question.options)
+            ? question.options
+                .map((option) =>
+                  typeof option?.label === "string" ? option.label : "",
+                )
+                .filter((label) => label.length > 0)
+            : undefined;
+          return {
+            question: prompt,
+            options: options && options.length > 0 ? options : undefined,
+            multiple: question.multiple,
+            custom: question.custom,
+          };
+        })
+        .filter((question) => question.question.length > 0);
     },
   };
 }

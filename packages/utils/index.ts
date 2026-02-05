@@ -7,4 +7,13 @@ export {
   type SessionTool,
   type SessionTodo,
 } from "./session-inspector";
+export {
+  buildLiveStatusMessage,
+  buildToolLines,
+  formatElapsedTime,
+  getStatusMessageKey,
+  getTodoIcon,
+  getToolIcon,
+  trimToolPath,
+} from "./status";
 export { ensureSessionWorktree, resolveRepoRoot } from "./worktree";

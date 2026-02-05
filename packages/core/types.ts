@@ -22,6 +22,13 @@ export type AgentContextBuilderParams = {
   threadHistory?: string | null;
 };
 
+export type NormalizedQuestion = {
+  question: string;
+  options?: string[];
+  multiple?: boolean;
+  custom?: boolean;
+};
+
 export interface IMAdapter {
   sendMessage(channelId: string, threadId: string, text: string, asMarkdown?: boolean): Promise<string | undefined>;
   updateMessage(channelId: string, messageTs: string, text: string, asMarkdown?: boolean): Promise<void>;
@@ -55,4 +62,5 @@ export interface AgentAdapter {
     directory?: string;
     answers: Array<Array<string>>;
   }): Promise<void>;
+  normalizeQuestions(questions: unknown): NormalizedQuestion[];
 }
