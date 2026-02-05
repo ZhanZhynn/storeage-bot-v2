@@ -1,12 +1,22 @@
 # Ode
 
-Ode is a Slack bot that bridges chat messages to OpenCode, enabling AI-assisted coding directly from Slack channels.
+Ode is a Chat bot that bridges your coding agents (currently only opencode, more coming soon) to your favourite chat apps.
+
+## Motivation
+
+* Why sit in front of your Mac all the time when you have options to work from anywhere, collaborate with your team, and leverage AI-powered coding assistance?
+* Just one setup on your Mac or VPS server, anyone in your team can work on it.
+* Bring everyone to this agentic coding era, just chat.
+
+## Why Slack & OpenCode
+
+* Slack has thread based messaging, making it easy to port to sessions in coding agents. Just focus on one thing in one thread.
+* OpenCode is open-source, powerful, and has server / client architecture, enabling seamless integration with IM clients like Slack.
 
 ## Features
 
 - **Slack Socket Mode**: Secure real-time messaging without webhooks
 - **OpenCode Integration**: Execute AI coding tasks via OpenCode's HTTP API
-- **Per-Channel Agents.md**: Custom system instructions per Slack channel
 - **Thread Tracking**: Maintains context within conversation threads
 - **Local Settings UI**: Web interface to manage Ode config in local mode
 
@@ -14,9 +24,8 @@ Ode is a Slack bot that bridges chat messages to OpenCode, enabling AI-assisted 
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) runtime
-- OpenCode installed and in PATH
-- Slack App with Socket Mode enabled
+- OpenCode installed configured
+- Register a Slack Bot with Socket Mode enabled, give event permissions and some chat permissions.
 
 ### Installation
 
@@ -32,37 +41,19 @@ Upgrade:
 ode upgrade
 ```
 
-### Configuration
-
-Copy `.env.example` to `.env` and fill in your Slack credentials:
-
-```bash
-cp .env.example .env
-```
-
-Optional:
-- `ODE_WEB_HOST` - Settings UI host (default: 127.0.0.1)
-- `ODE_WEB_PORT` - Settings UI port (default: 9293)
-- `ODE_REDIS_ENABLED` - Enable session inspector storage in local mode (default: false)
-- `REDIS_HOST` - Redis host for session inspector (default: localhost)
-- `REDIS_PORT` - Redis port for session inspector (default: 6379)
-
-Local settings UI:
-- Start the app in local mode and open `http://127.0.0.1:9293/local-setting`
-- Changes are saved to `~/.config/ode/ode.json`
-
 ## Running
 
 Local mode (starts the settings UI automatically):
 
 ```bash
-ode
+ode 
+# ODE_WEB_HOST=0.0.0.0 ode if you want to expose setting page
 ```
 
 Settings UI:
 
 ```
-http://127.0.0.1:9293/local-setting
+http://127.0.0.1:9293
 ```
 
 ## Usage
