@@ -26,10 +26,17 @@ const sessionEnvironments = new Map<string, SessionEnvironment>();
 const clientByBaseUrl = new Map<string, OpencodeClient>();
 let managedServerProcess: ChildProcess | null = null;
 let serverStartPromise: Promise<void> | null = null;
+let managedServerUrl: string | null = null;
+
+const LISTENING_URL_REGEX = /opencode server listening on\s+(https?:\/\/\S+)/i;
+
+function getConfiguredServerUrl(): string | null {
+  const configured = process.env.ODE_OPENCODE_SERVER_URL?.trim();
+  return configured && configured.length > 0 ? configured : null;
+}
 
 function resolveServerUrl(): string {
-  const configured = process.env.ODE_OPENCODE_SERVER_URL?.trim();
-  return configured && configured.length > 0 ? configured : "http://127.0.0.1:4096";
+  return managedServerUrl ?? getConfiguredServerUrl() ?? "http://127.0.0.1:4096";
 }
 
 function resolveServerUrlForEnv(env?: SessionEnvironment): string {
@@ -48,7 +55,12 @@ function getClientForBaseUrl(baseUrl: string): OpencodeClient {
 
 function getServerCommand(): { command: string; args: string[] } {
   const raw = process.env.ODE_OPENCODE_SERVER_COMMAND?.trim();
-  if (!raw) return { command: "opencode", args: ["serve"] };
+  if (!raw) {
+    return {
+      command: "opencode",
+      args: ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"],
+    };
+  }
   const parts = raw.split(/\s+/).filter(Boolean);
   const [command, ...args] = parts;
   if (!command) return { command: "opencode", args: ["serve"] };
@@ -148,15 +160,33 @@ async function ensureServerStarted(): Promise<void> {
     return;
   }
 
-  const baseUrl = resolveServerUrl();
+  const configuredBaseUrl = getConfiguredServerUrl();
   const { command, args } = getServerCommand();
   serverStartPromise = (async () => {
-    log.info("Starting managed OpenCode server", { command: [command, ...args].join(" "), baseUrl });
+    log.info("Starting managed OpenCode server", {
+      command: [command, ...args].join(" "),
+      configuredBaseUrl: configuredBaseUrl ?? undefined,
+    });
     const processHandle = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
     });
     managedServerProcess = processHandle;
+
+    const discoveredUrl = new Promise<string>((resolve, reject) => {
+      const onData = (chunk: Buffer) => {
+        const message = chunk.toString();
+        const match = message.match(LISTENING_URL_REGEX);
+        if (match?.[1]) {
+          resolve(match[1]);
+        }
+      };
+      processHandle.stdout?.on("data", onData);
+      processHandle.stderr?.on("data", onData);
+      processHandle.once("exit", () => {
+        reject(new Error("OpenCode server exited before exposing listening URL"));
+      });
+    });
 
     processHandle.stdout?.on("data", (chunk) => {
       log.debug("OpenCode server stdout", { message: chunk.toString().trim() });
@@ -171,9 +201,11 @@ async function ensureServerStarted(): Promise<void> {
       }
     });
 
-    await waitForServerReady(baseUrl);
-    await syncModelsFromServer(baseUrl);
-    log.info("Managed OpenCode server ready", { baseUrl });
+    const discoveredBaseUrl = configuredBaseUrl ?? await discoveredUrl;
+    managedServerUrl = discoveredBaseUrl;
+    await waitForServerReady(discoveredBaseUrl);
+    await syncModelsFromServer(discoveredBaseUrl);
+    log.info("Managed OpenCode server ready", { baseUrl: discoveredBaseUrl });
   })();
 
   try {
@@ -227,14 +259,12 @@ async function getOrCreateSessionInstance(
     sessionEnvironments.set(sessionId, env);
   }
 
-  const baseUrl = resolveServerUrlForEnv(env);
-
   // Create new instance
   const promise = (async () => {
-    log.info("Using OpenCode server for session", { sessionId, baseUrl });
-
     try {
       await ensureServerStarted();
+      const baseUrl = resolveServerUrlForEnv(env);
+      log.info("Using OpenCode server for session", { sessionId, baseUrl });
       const client = getClientForBaseUrl(baseUrl);
       const sessionInstance: SessionInstance = {
         client,
@@ -346,8 +376,8 @@ export async function createSessionInstance(envOverrides?: SessionEnvironment): 
   register: (sessionId: string, env?: SessionEnvironment) => void;
 }> {
   const env = envOverrides ?? {};
-  const baseUrl = resolveServerUrlForEnv(env);
   await ensureServerStarted();
+  const baseUrl = resolveServerUrlForEnv(env);
   const client = getClientForBaseUrl(baseUrl);
   log.info("Using OpenCode server for new session", { baseUrl });
 
@@ -516,6 +546,7 @@ export async function stopServer(): Promise<void> {
   }
   managedServerProcess = null;
   serverStartPromise = null;
+  managedServerUrl = null;
 }
 
 export function isServerReady(): boolean {
