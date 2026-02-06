@@ -31,7 +31,7 @@ const MODEL_ACTION = "model_select";
 const WORKING_DIR_BLOCK = "working_dir";
 const WORKING_DIR_ACTION = "working_dir_input";
 
-type AgentProvider = "opencode" | "claudecode";
+type AgentProvider = "opencode" | "claudecode" | "codex";
 
 function normalizeModel(value: string): string {
   return value.trim().toLowerCase();
@@ -45,14 +45,17 @@ function findMatchingModel(models: string[], value: string | null | undefined): 
 
 function getSelectableProviders(): AgentProvider[] {
   const enabled = getEnabledAgentProviders().filter(
-    (provider): provider is AgentProvider => provider === "opencode" || provider === "claudecode"
+    (provider): provider is AgentProvider =>
+      provider === "opencode" || provider === "claudecode" || provider === "codex"
   );
   if (enabled.length > 0) return enabled;
-  return ["opencode", "claudecode"];
+  return ["opencode", "claudecode", "codex"];
 }
 
 function toSelectableProvider(provider: "opencode" | "claudecode" | "codex"): AgentProvider {
-  return provider === "claudecode" ? "claudecode" : "opencode";
+  if (provider === "claudecode") return "claudecode";
+  if (provider === "codex") return "codex";
+  return "opencode";
 }
 
 function buildSettingsModal(params: {
@@ -74,6 +77,7 @@ function buildSettingsModal(params: {
   const providerLabels: Record<AgentProvider, string> = {
     opencode: "OpenCode",
     claudecode: "Claude Code",
+    codex: "Codex",
   };
   const providerOptions = enabledProviders.map((provider) => ({
     text: { type: "plain_text" as const, text: providerLabels[provider] },
@@ -90,13 +94,16 @@ function buildSettingsModal(params: {
   const initialModel = matchedSelectedModel
     ? matchedSelectedModel
     : (opencodeModels[0] ?? "__none__");
+  const introText = selectedProvider === "opencode"
+    ? "Configure agent, model (OpenCode), and working directory for this channel."
+    : "Configure agent and working directory for this channel.";
 
   const blocks: any[] = [
     {
       type: "section" as const,
         text: {
           type: "mrkdwn" as const,
-          text: "Configure agent, model (OpenCode), and working directory for this channel.",
+          text: introText,
         },
       },
     {
@@ -279,9 +286,12 @@ export function setupInteractiveHandlers(): void {
     if (!view) return;
 
     const channelId = view.private_metadata;
-    const selectedProvider = (body as any).actions?.[0]?.selected_option?.value === "claudecode"
+    const selectedOption = (body as any).actions?.[0]?.selected_option?.value;
+    const selectedProvider = selectedOption === "claudecode"
       ? "claudecode"
-      : "opencode";
+      : selectedOption === "codex"
+        ? "codex"
+        : "opencode";
     if (selectedProvider === "opencode") {
       try {
         await startOpenCodeServer();
@@ -316,7 +326,9 @@ export function setupInteractiveHandlers(): void {
     const selectedProvider =
       values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "claudecode"
         ? "claudecode"
-        : "opencode";
+        : values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "codex"
+          ? "codex"
+          : "opencode";
     const selectedModel = values?.[MODEL_BLOCK]?.[MODEL_ACTION]?.selected_option?.value;
     const workingDirectory = values?.[WORKING_DIR_BLOCK]?.[WORKING_DIR_ACTION]?.value || "";
 
@@ -349,7 +361,7 @@ export function setupInteractiveHandlers(): void {
         const normalizedSelectedModel = findMatchingModel(getOpenCodeModels(), selectedModel) ?? selectedModel;
         setChannelModel(channelId, normalizedSelectedModel);
       }
-      if (selectedProvider === "claudecode") {
+      if (selectedProvider !== "opencode") {
         setChannelModel(channelId, "");
       }
 
