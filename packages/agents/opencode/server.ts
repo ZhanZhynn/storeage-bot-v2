@@ -3,8 +3,9 @@ import {
   type OpencodeClient,
   type EventPermissionAsked,
 } from "@opencode-ai/sdk/v2";
+import { spawn, type ChildProcess } from "child_process";
 import { log } from "@/utils";
-import { getDefaultOpenCodeServerUrl } from "@/config";
+import { getOpenCodeModels, setOpenCodeModels } from "@/config";
 
 // Per-session OpenCode instances
 export type SessionEnvironment = Record<string, string>;
@@ -23,14 +24,16 @@ const sessionInstances = new Map<string, SessionInstance>();
 const sessionStartPromises = new Map<string, Promise<SessionInstance>>();
 const sessionEnvironments = new Map<string, SessionEnvironment>();
 const clientByBaseUrl = new Map<string, OpencodeClient>();
+let managedServerProcess: ChildProcess | null = null;
+let serverStartPromise: Promise<void> | null = null;
 
 function resolveServerUrl(): string {
-  return getDefaultOpenCodeServerUrl();
+  const configured = process.env.ODE_OPENCODE_SERVER_URL?.trim();
+  return configured && configured.length > 0 ? configured : "http://127.0.0.1:4096";
 }
 
 function resolveServerUrlForEnv(env?: SessionEnvironment): string {
-  const override = env?.OPENCODE_SERVER_URL;
-  if (override && override.trim().length > 0) return override;
+  void env;
   return resolveServerUrl();
 }
 
@@ -41,6 +44,143 @@ function getClientForBaseUrl(baseUrl: string): OpencodeClient {
   clientByBaseUrl.set(baseUrl, client);
   log.info("Using OpenCode server", { baseUrl });
   return client;
+}
+
+function getServerCommand(): { command: string; args: string[] } {
+  const raw = process.env.ODE_OPENCODE_SERVER_COMMAND?.trim();
+  if (!raw) return { command: "opencode", args: ["serve"] };
+  const parts = raw.split(/\s+/).filter(Boolean);
+  const [command, ...args] = parts;
+  if (!command) return { command: "opencode", args: ["serve"] };
+  return { command, args };
+}
+
+async function waitForServerReady(baseUrl: string, timeoutMs = 20_000): Promise<void> {
+  const startedAt = Date.now();
+  const endpoint = new URL("/config/providers", baseUrl).toString();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const response = await fetch(endpoint);
+      if (response.ok) return;
+    } catch {
+      // Keep polling while server boots.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Timed out waiting for OpenCode server on ${baseUrl}`);
+}
+
+function extractProviderModelIds(providerId: string, models: unknown): string[] {
+  if (!Array.isArray(models)) return [];
+  return models
+    .map((entry) => {
+      if (typeof entry === "string") return `${providerId}/${entry}`;
+      if (!entry || typeof entry !== "object") return "";
+      const model = entry as Record<string, unknown>;
+      const modelId =
+        (typeof model.id === "string" && model.id)
+        || (typeof model.modelID === "string" && model.modelID)
+        || (typeof model.modelId === "string" && model.modelId)
+        || "";
+      return modelId ? `${providerId}/${modelId}` : "";
+    })
+    .filter(Boolean);
+}
+
+function extractOpenCodeModels(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const data = payload as Record<string, unknown>;
+  const providersRaw = data.providers;
+  const models = new Set<string>();
+
+  if (Array.isArray(providersRaw)) {
+    for (const entry of providersRaw) {
+      if (!entry || typeof entry !== "object") continue;
+      const provider = entry as Record<string, unknown>;
+      const providerId =
+        (typeof provider.id === "string" && provider.id)
+        || (typeof provider.providerID === "string" && provider.providerID)
+        || (typeof provider.providerId === "string" && provider.providerId)
+        || "";
+      if (!providerId) continue;
+      for (const model of extractProviderModelIds(providerId, provider.models)) {
+        models.add(model);
+      }
+    }
+  } else if (providersRaw && typeof providersRaw === "object") {
+    for (const [providerId, providerValue] of Object.entries(providersRaw as Record<string, unknown>)) {
+      if (!providerValue || typeof providerValue !== "object") continue;
+      const provider = providerValue as Record<string, unknown>;
+      for (const model of extractProviderModelIds(providerId, provider.models)) {
+        models.add(model);
+      }
+    }
+  }
+
+  return Array.from(models).sort();
+}
+
+async function syncModelsFromServer(baseUrl: string): Promise<void> {
+  try {
+    const endpoint = new URL("/config/providers", baseUrl).toString();
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      log.warn("OpenCode model sync failed", { baseUrl, status: response.status });
+      return;
+    }
+    const payload = await response.json();
+    const models = extractOpenCodeModels(payload);
+    const existing = getOpenCodeModels();
+    if (JSON.stringify(existing) === JSON.stringify(models)) return;
+    setOpenCodeModels(models);
+    log.info("OpenCode models synced", { count: models.length });
+  } catch (error) {
+    log.warn("OpenCode model sync failed", { error: String(error) });
+  }
+}
+
+async function ensureServerStarted(): Promise<void> {
+  if (managedServerProcess && managedServerProcess.exitCode === null) {
+    return;
+  }
+  if (serverStartPromise) {
+    await serverStartPromise;
+    return;
+  }
+
+  const baseUrl = resolveServerUrl();
+  const { command, args } = getServerCommand();
+  serverStartPromise = (async () => {
+    log.info("Starting managed OpenCode server", { command: [command, ...args].join(" "), baseUrl });
+    const processHandle = spawn(command, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+    managedServerProcess = processHandle;
+
+    processHandle.stdout?.on("data", (chunk) => {
+      log.debug("OpenCode server stdout", { message: chunk.toString().trim() });
+    });
+    processHandle.stderr?.on("data", (chunk) => {
+      log.debug("OpenCode server stderr", { message: chunk.toString().trim() });
+    });
+    processHandle.on("exit", (code, signal) => {
+      log.warn("Managed OpenCode server exited", { code, signal });
+      if (managedServerProcess === processHandle) {
+        managedServerProcess = null;
+      }
+    });
+
+    await waitForServerReady(baseUrl);
+    await syncModelsFromServer(baseUrl);
+    log.info("Managed OpenCode server ready", { baseUrl });
+  })();
+
+  try {
+    await serverStartPromise;
+  } finally {
+    serverStartPromise = null;
+  }
 }
 
 // Cleanup inactive sessions after 10 minutes
@@ -94,6 +234,7 @@ async function getOrCreateSessionInstance(
     log.info("Using OpenCode server for session", { sessionId, baseUrl });
 
     try {
+      await ensureServerStarted();
       const client = getClientForBaseUrl(baseUrl);
       const sessionInstance: SessionInstance = {
         client,
@@ -206,6 +347,7 @@ export async function createSessionInstance(envOverrides?: SessionEnvironment): 
 }> {
   const env = envOverrides ?? {};
   const baseUrl = resolveServerUrlForEnv(env);
+  await ensureServerStarted();
   const client = getClientForBaseUrl(baseUrl);
   log.info("Using OpenCode server for new session", { baseUrl });
 
@@ -345,6 +487,7 @@ export function stopAllSessions(): void {
 
 // Get any available client (for operations that don't need a specific session)
 export async function getAnyClient(): Promise<OpencodeClient> {
+  await ensureServerStarted();
   return getClientForBaseUrl(resolveServerUrl());
 }
 
@@ -363,13 +506,18 @@ export function getServerUrl(): string {
 }
 
 export async function startServer(): Promise<void> {
-  log.debug("startServer() called - using external OpenCode server");
+  await ensureServerStarted();
 }
 
 export async function stopServer(): Promise<void> {
   stopAllSessions();
+  if (managedServerProcess && managedServerProcess.exitCode === null) {
+    managedServerProcess.kill("SIGTERM");
+  }
+  managedServerProcess = null;
+  serverStartPromise = null;
 }
 
 export function isServerReady(): boolean {
-  return true;
+  return Boolean(managedServerProcess && managedServerProcess.exitCode === null);
 }
