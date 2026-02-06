@@ -30,13 +30,8 @@ let managedServerUrl: string | null = null;
 
 const LISTENING_URL_REGEX = /opencode server listening on\s+(https?:\/\/\S+)/i;
 
-function getConfiguredServerUrl(): string | null {
-  const configured = process.env.ODE_OPENCODE_SERVER_URL?.trim();
-  return configured && configured.length > 0 ? configured : null;
-}
-
 function resolveServerUrl(): string {
-  return managedServerUrl ?? getConfiguredServerUrl() ?? "http://127.0.0.1:4096";
+  return managedServerUrl ?? "http://127.0.0.1:4096";
 }
 
 function resolveServerUrlForEnv(env?: SessionEnvironment): string {
@@ -54,17 +49,10 @@ function getClientForBaseUrl(baseUrl: string): OpencodeClient {
 }
 
 function getServerCommand(): { command: string; args: string[] } {
-  const raw = process.env.ODE_OPENCODE_SERVER_COMMAND?.trim();
-  if (!raw) {
-    return {
-      command: "opencode",
-      args: ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"],
-    };
-  }
-  const parts = raw.split(/\s+/).filter(Boolean);
-  const [command, ...args] = parts;
-  if (!command) return { command: "opencode", args: ["serve"] };
-  return { command, args };
+  return {
+    command: "opencode",
+    args: ["serve", "--hostname", "127.0.0.1", "--port", "0", "--print-logs"],
+  };
 }
 
 async function waitForServerReady(baseUrl: string, timeoutMs = 20_000): Promise<void> {
@@ -160,13 +148,9 @@ async function ensureServerStarted(): Promise<void> {
     return;
   }
 
-  const configuredBaseUrl = getConfiguredServerUrl();
   const { command, args } = getServerCommand();
   serverStartPromise = (async () => {
-    log.info("Starting managed OpenCode server", {
-      command: [command, ...args].join(" "),
-      configuredBaseUrl: configuredBaseUrl ?? undefined,
-    });
+    log.info("Starting managed OpenCode server", { command: [command, ...args].join(" ") });
     const processHandle = spawn(command, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env },
@@ -201,7 +185,7 @@ async function ensureServerStarted(): Promise<void> {
       }
     });
 
-    const discoveredBaseUrl = configuredBaseUrl ?? await discoveredUrl;
+    const discoveredBaseUrl = await discoveredUrl;
     managedServerUrl = discoveredBaseUrl;
     await waitForServerReady(discoveredBaseUrl);
     await syncModelsFromServer(discoveredBaseUrl);
