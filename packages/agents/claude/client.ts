@@ -251,38 +251,51 @@ async function runClaudeWithFallback(
   env: SessionEnvironment,
   entry: { controller: AbortController; process?: ChildProcess }
 ): Promise<{ output: string; permissionMode: string; command: string }> {
-      const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
-      const modes = isRoot ? ["dontAsk"] : ["bypassPermissions", "dontAsk"];
-      let lastError: Error | null = null;
+  const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+  const modes = isRoot
+    ? ["dontAsk", "acceptEdits", "default"]
+    : ["bypassPermissions", "dontAsk", "acceptEdits", "default"];
+  let lastError: Error | null = null;
 
-      for (const mode of modes) {
-        try {
-          const { args, command } = buildClaudeCommand(baseArgs, mode);
+  for (const mode of modes) {
+    try {
+      const { args, command } = buildClaudeCommand(baseArgs, mode);
 
-          log.info("Running Claude CLI", {
-            mode,
-            cwd,
-            command,
-          });
+      log.info("Running Claude CLI", {
+        mode,
+        cwd,
+        command,
+      });
 
-          const output = await runClaudeCommand(args, cwd, env, entry);
-          return { output, permissionMode: mode, command };
-        } catch (err) {
-          const error = err as Error;
-          const message = error.message.toLowerCase();
-          if (
-            mode === "bypassPermissions" &&
-            (message.includes("root") || message.includes("sudo") || message.includes("dangerously-skip-permissions"))
-          ) {
-            lastError = error;
-            continue;
-          }
-          throw error;
-        }
+      const output = await runClaudeCommand(args, cwd, env, entry);
+      return { output, permissionMode: mode, command };
+    } catch (err) {
+      const error = err as Error;
+      const message = error.message.toLowerCase();
+      const isBypassNotAllowed =
+        mode === "bypassPermissions" &&
+        (message.includes("root") ||
+          message.includes("sudo") ||
+          message.includes("dangerously-skip-permissions"));
+      const isModeUnsupported =
+        message.includes("invalid") &&
+        message.includes("permission") &&
+        message.includes("mode");
+
+      if (isBypassNotAllowed || isModeUnsupported) {
+        lastError = error;
+        log.warn("Retrying Claude CLI with fallback permission mode", {
+          failedMode: mode,
+          error: error.message,
+        });
+        continue;
       }
 
-      throw lastError ?? new Error("Claude CLI failed");
+      throw error;
+    }
+  }
 
+  throw lastError ?? new Error("Claude CLI failed");
 }
 
 export async function sendMessage(
