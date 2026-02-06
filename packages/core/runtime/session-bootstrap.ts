@@ -1,5 +1,5 @@
 import { loadSession, saveSession, type PersistedSession } from "@/config/local/sessions";
-import { resolveChannelCwd } from "@/config";
+import { resolveChannelCwd, resolveGitStrategy } from "@/config";
 import { buildSessionEnvironment, prepareSessionWorkspace } from "@/core/session";
 import { CoreStateMachine } from "@/core/state-machine";
 import { categorizeRuntimeError } from "@/core/runtime/helpers";
@@ -60,31 +60,33 @@ export async function prepareRuntimeSession(params: {
     return null;
   }
 
-  try {
-    stateMachine.transition("prepare_worktree");
-    const worktreeId = `ode_${threadId}`;
-    const { cwd: resolvedCwd, worktree } = await prepareSessionWorkspace({
-      channelId,
-      threadId,
-      cwd,
-      worktreeId,
-      sessionEnv,
-      gitIdentity,
-    });
-    if (worktree.skipped && worktree.message) {
-      await deps.im.sendMessage(channelId, threadId, worktree.message, false);
+  if (resolveGitStrategy() === "worktree") {
+    try {
+      stateMachine.transition("prepare_worktree");
+      const worktreeId = `ode_${threadId}`;
+      const { cwd: resolvedCwd, worktree } = await prepareSessionWorkspace({
+        channelId,
+        threadId,
+        cwd,
+        worktreeId,
+        sessionEnv,
+        gitIdentity,
+      });
+      if (worktree.skipped && worktree.message) {
+        await deps.im.sendMessage(channelId, threadId, worktree.message, false);
+      }
+      cwd = resolvedCwd;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error("Failed to prepare worktree", {
+        channelId,
+        threadId,
+        sessionId,
+        error: message,
+      });
+      await deps.im.sendMessage(channelId, threadId, `Error: Failed to prepare worktree. ${message}`, false);
+      return null;
     }
-    cwd = resolvedCwd;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error("Failed to prepare worktree", {
-      channelId,
-      threadId,
-      sessionId,
-      error: message,
-    });
-    await deps.im.sendMessage(channelId, threadId, `Error: Failed to prepare worktree. ${message}`, false);
-    return null;
   }
 
   if (!session) {
