@@ -126,6 +126,10 @@
     return "opencode";
   }
 
+  function shouldShowChannelModel(channel: { agentProvider?: string }): boolean {
+    return getChannelProvider(channel) === "opencode";
+  }
+
   function setChannelProvider(workspaceId: string, channelId: string, provider: AgentProvider): void {
     config = {
       ...config,
@@ -273,13 +277,17 @@
   });
 </script>
 
-<main class="page">
-  <header class="header">
-    <h1>Ode Settings</h1>
-    <ThemeToggle />
-  </header>
+<main>
+  <div class="container">
+    <nav class="navbar">
+      <div class="navbar-spacer"></div>
+      <div class="navbar-title">Ode Setting</div>
+      <div class="navbar-actions">
+        <ThemeToggle />
+      </div>
+    </nav>
 
-  <div class="layout">
+    <div class="layout">
     <aside class="sidebar card">
       <button class="nav-item {activeSection === 'profile' ? 'active' : ''}" on:click={() => goto('/local-setting/profile')}>
         Profile
@@ -350,40 +358,47 @@
           </div>
         </section>
       {:else if activeSection === "agent"}
-        <section class="card">
-          <div class="card-head">
+        <section class="card agent-card">
+          <div class="card-head agent-head">
             <h2>Agent</h2>
-            <button on:click={checkAgents} disabled={isCheckingCli || isLoading || isSaving}>
+            <button class="btn-sync" on:click={checkAgents} disabled={isCheckingCli || isLoading || isSaving}>
               {isCheckingCli ? "Checking..." : "Check"}
             </button>
           </div>
 
-          <div class="agent-row">
-            <strong>OpenCode CLI</strong>
-            <span class="badge {config.agents.opencode.enabled ? 'on' : 'off'}">
-              {config.agents.opencode.enabled ? "Enabled" : "Disabled"}
-            </span>
-            {#if cliCheckResult}
-              <span class="check-result {cliCheckResult.opencode ? 'ok' : 'bad'}">
-                {cliCheckResult.opencode ? "Installed" : "Not found"}
+          <div class="agent-status-grid">
+            <div class="agent-row">
+              <strong>OpenCode CLI</strong>
+              <span class="badge {config.agents.opencode.enabled ? 'on' : 'off'}">
+                {config.agents.opencode.enabled ? "Enabled" : "Disabled"}
               </span>
-            {/if}
+              {#if cliCheckResult}
+                <span class="check-result {cliCheckResult.opencode ? 'ok' : 'bad'}">
+                  {cliCheckResult.opencode ? "Installed" : "Not found"}
+                </span>
+              {/if}
+            </div>
+
+            <div class="agent-row">
+              <strong>Claude CLI</strong>
+              <span class="badge {config.agents.claudecode.enabled ? 'on' : 'off'}">
+                {config.agents.claudecode.enabled ? "Enabled" : "Disabled"}
+              </span>
+              {#if cliCheckResult}
+                <span class="check-result {cliCheckResult.claude ? 'ok' : 'bad'}">
+                  {cliCheckResult.claude ? "Installed" : "Not found"}
+                </span>
+              {/if}
+            </div>
           </div>
 
-          <div class="agent-row">
-            <strong>Claude CLI</strong>
-            <span class="badge {config.agents.claudecode.enabled ? 'on' : 'off'}">
-              {config.agents.claudecode.enabled ? "Enabled" : "Disabled"}
-            </span>
-            {#if cliCheckResult}
-              <span class="check-result {cliCheckResult.claude ? 'ok' : 'bad'}">
-                {cliCheckResult.claude ? "Installed" : "Not found"}
-              </span>
-            {/if}
+          <div class="models-section">
+            <div class="section-header">
+              <h3>OpenCode Models</h3>
+              <span class="hint-text">One model per line</span>
+            </div>
+            <textarea id="agent-opencode-models" rows="8" bind:value={opencodeModelsText}></textarea>
           </div>
-
-          <label for="agent-opencode-models">OpenCode models (one per line)</label>
-          <textarea id="agent-opencode-models" rows="8" bind:value={opencodeModelsText}></textarea>
         </section>
       {:else}
         <section class="card">
@@ -426,7 +441,7 @@
                   {/each}
                 </select>
 
-                {#if channel.agentProvider === "opencode"}
+                {#if shouldShowChannelModel(channel)}
                   <label for={`channel-model-${channel.id}`}>Model</label>
                   <input id={`channel-model-${channel.id}`} bind:value={channel.model} placeholder="openai/gpt-5.3-codex" />
                 {/if}
@@ -455,21 +470,45 @@
         <p class="message">{message}</p>
       {/if}
     </section>
+    </div>
   </div>
 </main>
 
 <style>
-  .page {
-    max-width: 1160px;
-    margin: 0 auto;
-    padding: 24px;
+  :global(body) {
+    background: var(--bg);
   }
 
-  .header {
-    display: flex;
+  .container {
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .navbar {
+    height: 64px;
+    border: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
+    padding: 0 24px;
+    background: var(--card);
+    border-radius: 8px;
     margin-bottom: 16px;
+  }
+
+  .navbar-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: center;
+  }
+
+  .navbar-actions {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .layout {
@@ -573,6 +612,55 @@
     flex-wrap: wrap;
   }
 
+  .agent-card {
+    gap: 14px;
+  }
+
+  .agent-head {
+    margin-bottom: 2px;
+  }
+
+  .agent-status-grid {
+    display: grid;
+    gap: 10px;
+  }
+
+  .models-section {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px;
+    background: var(--bg-soft);
+    display: grid;
+    gap: 8px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .hint-text {
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+
+  .btn-sync {
+    background: var(--bg-soft);
+    border: 1px solid var(--line);
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    min-width: auto;
+  }
+
+  .btn-sync:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
   .badge {
     padding: 2px 8px;
     border-radius: 999px;
@@ -648,8 +736,16 @@
   }
 
   @media (max-width: 768px) {
-    .page {
+    .container {
       padding: 16px;
+    }
+
+    .navbar {
+      padding: 0 12px;
+    }
+
+    .navbar-title {
+      font-size: 16px;
     }
   }
 </style>
