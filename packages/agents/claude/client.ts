@@ -4,7 +4,7 @@ import {
   setOpenCodeSession,
 } from "@/config/local/settings";
 import { log } from "@/utils";
-import { buildPromptParts, buildPromptText, buildSlackSystemPrompt } from "../shared";
+import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -310,7 +310,7 @@ export async function sendMessage(
 
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
-      const systemPrompt = buildSlackSystemPrompt(context?.slack);
+      const systemPrompt = buildSystemPrompt(context?.slack);
 
       const isNewSession = newSessions.has(sessionId);
       const args = buildClaudeCommandArgs({

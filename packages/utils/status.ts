@@ -77,8 +77,10 @@ export function trimToolPath(label: string, workingPath: string): string {
 function formatTodoLines(todos: TrackedTodo[], limit = PLAN_TODO_LIMIT): string[] {
   const lines: string[] = [];
   for (const todo of todos.slice(0, limit)) {
-    const icon = getTodoIcon(todo.status);
-    lines.push(`${icon} ${todo.content}`);
+    const statusLabel = todo.status === "in_progress"
+      ? "in progress"
+      : todo.status;
+    lines.push(`\`${statusLabel}\` ${todo.content}`);
   }
   if (todos.length > limit) {
     lines.push(`_(+${todos.length - limit} more)_`);
@@ -147,8 +149,8 @@ export function buildToolLines(
   const { itemLimit, detailLimit } = TOOL_DISPLAY_CONFIG[frequency];
   const items = tools.length > itemLimit ? tools.slice(-itemLimit) : tools;
   const header = tools.length > itemLimit
-    ? `Tool execution (Last ${itemLimit} items in ${tools.length})`
-    : "Tool execution";
+    ? `*Tool execution (Last ${itemLimit} items in ${tools.length})*`
+    : "*Tool execution*";
 
   const lines = [header];
   const codeMark = "`";
@@ -194,11 +196,12 @@ export function buildLiveStatusMessage(
       content: todo.content,
       status: todo.status as TrackedTodo["status"],
     }));
-    lines.push("Tasks", ...formatTodoLines(todos));
+    lines.push("", "*Tasks*", ...formatTodoLines(todos));
   }
 
   const toolLines = buildToolLines(state, workingPath, resolveMessageFrequency());
   if (toolLines.length > 0) {
+    lines.push("");
     lines.push(...toolLines);
   }
 
