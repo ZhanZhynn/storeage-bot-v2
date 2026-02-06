@@ -5,7 +5,7 @@ import {
 import type { OpenCodeMessageContext, OpenCodeOptions, PromptPart, SlackContext } from "./types";
 import { getSlackActionApiUrl } from "@/config";
 
-export function buildSlackSystemPrompt(slack?: SlackContext): string {
+export function buildSystemPrompt(slack?: SlackContext): string {
   const lines = [
     "COMMUNICATION STYLE:",
     "- Be concise and conversational - this is chat, not documentation",
@@ -23,46 +23,46 @@ export function buildSlackSystemPrompt(slack?: SlackContext): string {
     "- Prefer: git commit --author=\"$GIT_AUTHOR_NAME <$GIT_AUTHOR_EMAIL>\" -m \"...\"",
     "- Use GH_TOKEN for gh commands when available; fall back to git commands when GH_TOKEN is not set.",
     "",
-    "SLACK CONTEXT:",
   ];
 
   if (slack) {
+    lines.push("SLACK CONTEXT:");
     lines.push(`- Channel: ${slack.channelId}`);
     lines.push(`- Thread: ${slack.threadId}`);
     lines.push(`- User: <@${slack.userId}>`);
     if (slack.hasGitHubToken !== undefined) {
       lines.push(`- GitHub token available: ${slack.hasGitHubToken ? "yes" : "no"}`);
     }
-  }
 
-  lines.push("");
-  lines.push("SLACK ACTIONS:");
-  if (slack?.hasCustomSlackTool) {
-    lines.push("- Use `ode_action` tool for Slack actions (messages, reactions, thread history, questions, uploads).");
-  } else {
-    const baseUrl = slack?.odeSlackApiUrl ?? getSlackActionApiUrl();
-    lines.push("- Use bash + curl to call the Ode Slack API.");
-    lines.push(`- Endpoint: ${baseUrl}/action`);
-    lines.push("- Payload: {\"action\":\"post_message\",\"channelId\":\"...\",\"threadId\":\"...\",\"messageId\":\"...\",\"text\":\"...\"}");
+    lines.push("");
+    lines.push("SLACK ACTIONS:");
+    if (slack.hasCustomSlackTool) {
+      lines.push("- Use `ode_action` tool for Slack actions (messages, reactions, thread history, questions, uploads).");
+    } else {
+      const baseUrl = slack.odeSlackApiUrl ?? getSlackActionApiUrl();
+      lines.push("- Use bash + curl to call the Ode Slack API.");
+      lines.push(`- Endpoint: ${baseUrl}/action`);
+      lines.push("- Payload: {\"action\":\"post_message\",\"channelId\":\"...\",\"threadId\":\"...\",\"messageId\":\"...\",\"text\":\"...\"}");
+    }
+    lines.push("- Supported actions: post_message, add_reaction, get_thread_messages, ask_user, get_user_info, upload_file.");
+    lines.push("- Required fields: channelId; threadId for thread actions; messageId + emoji for reactions; userId for get_user_info.");
+    lines.push("- add_reaction schema: { action: \"add_reaction\", channelId: string, messageId: string, emoji: \"thumbsup\" | \"eyes\" | \"ok_hand\" }");
+    lines.push("- You can use any tool available via bash, curl");
+    lines.push("");
+    lines.push("IMPORTANT: Your text output is automatically posted to Slack.");
+    lines.push("- When asking the user to choose options, you can send an ask_user Slack action, do NOT also output text - the buttons are enough.");
+    lines.push("- Only output text OR use a messaging tool, never both.");
+    lines.push("");
+    lines.push("FORMATTING:");
+    lines.push("- Slack uses *bold* and _italic_ (not **bold** or *italic*)");
+    lines.push("- Use ` for inline code and ``` for code blocks");
+    lines.push("- Keep responses readable on mobile screens");
+    lines.push("");
+    lines.push("TASK LISTS:");
+    lines.push("- When sharing tasks, put each item on its own line");
+    lines.push("- Use four states: * not started, ♻️ in progress, ✅ done, 🚫 cancelled");
+    lines.push("- If you include a task list, keep the tasks you have done at the top of the response");
   }
-  lines.push("- Supported actions: post_message, add_reaction, get_thread_messages, ask_user, get_user_info, upload_file.");
-  lines.push("- Required fields: channelId; threadId for thread actions; messageId + emoji for reactions; userId for get_user_info.");
-  lines.push("- add_reaction schema: { action: \"add_reaction\", channelId: string, messageId: string, emoji: \"thumbsup\" | \"eyes\" | \"ok_hand\" }");
-  lines.push("- You can use any tool available via bash, curl");
-  lines.push("");
-  lines.push("IMPORTANT: Your text output is automatically posted to Slack.");
-  lines.push("- When asking the user to choose options, you can send an ask_user Slack action, do NOT also output text - the buttons are enough.");
-  lines.push("- Only output text OR use a messaging tool, never both.");
-  lines.push("");
-  lines.push("FORMATTING:");
-  lines.push("- Slack uses *bold* and _italic_ (not **bold** or *italic*)");
-  lines.push("- Use ` for inline code and ``` for code blocks");
-  lines.push("- Keep responses readable on mobile screens");
-  lines.push("");
-  lines.push("TASK LISTS:");
-  lines.push("- When sharing tasks, put each item on its own line");
-  lines.push("- Use four states: * not started, ♻️ in progress, ✅ done, 🚫 cancelled");
-  lines.push("- If you include a task list, keep the tasks you have done at the top of the response");
 
   return lines.join("\n");
 }

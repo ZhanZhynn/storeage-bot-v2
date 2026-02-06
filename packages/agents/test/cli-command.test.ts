@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildPromptParts, buildPromptText, buildSlackSystemPrompt } from "../shared";
+import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
 import { buildOpenCodeCommand } from "../opencode/client";
 import { buildClaudeCommand, buildClaudeCommandArgs } from "../claude/client";
 
@@ -8,7 +8,7 @@ describe("agent cli command formatting", () => {
     const message = "hello world";
     const parts = buildPromptParts("C123", message);
     const prompt = buildPromptText(parts);
-    const systemPrompt = buildSlackSystemPrompt({
+    const systemPrompt = buildSystemPrompt({
       channelId: "C123",
       threadId: "T456",
       userId: "U789",
