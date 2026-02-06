@@ -17,8 +17,26 @@ export type SessionEnvironment = Record<string, string>;
 const activeRequests = new Map<string, { controller: AbortController; process?: ChildProcess }>();
 const sessionLocks = new Map<string, Promise<unknown>>();
 const sessionEnvironments = new Map<string, SessionEnvironment>();
+const sessionSubscribers = new Map<string, Set<(event: unknown) => void>>();
 const newSessions = new Set<string>();
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type ClaudeJsonRecord = {
+  type?: string;
+  event?: {
+    type?: string;
+    index?: number;
+    content_block?: Record<string, unknown>;
+    delta?: Record<string, unknown>;
+  };
+  message?: {
+    content?: Array<{ type?: string; text?: string }>;
+  };
+  result?: string;
+  is_error?: boolean;
+  error?: string;
+  session_id?: string;
+};
 
 async function withSessionLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
   const existing = sessionLocks.get(sessionKey);
@@ -152,8 +170,10 @@ export function buildClaudeCommandArgs(params: {
     : ["--resume", params.sessionId];
   return [
     "--print",
+    "--verbose",
     "--output-format",
-    "json",
+    "stream-json",
+    "--include-partial-messages",
     "--append-system-prompt",
     params.systemPrompt,
     ...sessionArgs,
@@ -178,11 +198,194 @@ export function buildClaudeCommand(
   return { args, command };
 }
 
+function getRecordSessionId(record: ClaudeJsonRecord, fallbackSessionId: string): string {
+  return typeof record.session_id === "string" ? record.session_id : fallbackSessionId;
+}
+
+function publishSessionEvent(sessionId: string, event: unknown): void {
+  const handlers = sessionSubscribers.get(sessionId);
+  if (!handlers || handlers.size === 0) return;
+  for (const handler of handlers) {
+    try {
+      handler(event);
+    } catch (err) {
+      log.warn("Claude session subscriber failed", {
+        sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+function publishClaudeRecordAsSessionEvents(
+  record: ClaudeJsonRecord,
+  fallbackSessionId: string,
+  textByIndex: Map<number, string>,
+  toolByIndex: Map<number, { id: string; name: string }>
+): void {
+  const sessionId = getRecordSessionId(record, fallbackSessionId);
+
+  if (record.type === "assistant") {
+    const text = record.message?.content
+      ?.filter((block) => block?.type === "text")
+      .map((block) => block.text ?? "")
+      .join("")
+      .trim();
+    if (text) {
+      publishSessionEvent(sessionId, {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "text",
+            text,
+            sessionID: sessionId,
+          },
+        },
+      });
+    }
+    return;
+  }
+
+  if (record.type !== "stream_event" || !record.event?.type) {
+    return;
+  }
+
+  const eventType = record.event.type;
+  const index = typeof record.event.index === "number" ? record.event.index : -1;
+
+  if (eventType === "content_block_start") {
+    const contentBlock = record.event.content_block;
+    if (contentBlock?.type === "tool_use") {
+      const id = typeof contentBlock.id === "string" ? contentBlock.id : `tool-${Date.now()}-${index}`;
+      const name = typeof contentBlock.name === "string" ? contentBlock.name : "tool";
+      toolByIndex.set(index, { id, name });
+      publishSessionEvent(sessionId, {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            id,
+            tool: name,
+            sessionID: sessionId,
+            state: {
+              status: "running",
+              input:
+                contentBlock && typeof contentBlock.input === "object"
+                  ? (contentBlock.input as Record<string, unknown>)
+                  : {},
+            },
+          },
+        },
+      });
+    }
+    return;
+  }
+
+  if (eventType === "content_block_delta") {
+    const delta = record.event.delta;
+    if (delta?.type === "text_delta") {
+      const chunk = typeof delta.text === "string" ? delta.text : "";
+      if (!chunk) return;
+      const next = `${textByIndex.get(index) ?? ""}${chunk}`;
+      textByIndex.set(index, next);
+      publishSessionEvent(sessionId, {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "text",
+            text: next,
+            sessionID: sessionId,
+          },
+        },
+      });
+      return;
+    }
+
+    if (delta?.type === "input_json_delta") {
+      const tool = toolByIndex.get(index);
+      if (!tool) return;
+      publishSessionEvent(sessionId, {
+        type: "message.part.updated",
+        properties: {
+          part: {
+            type: "tool",
+            id: tool.id,
+            tool: tool.name,
+            sessionID: sessionId,
+            state: {
+              status: "running",
+            },
+          },
+        },
+      });
+    }
+    return;
+  }
+
+  if (eventType === "content_block_stop") {
+    const tool = toolByIndex.get(index);
+    if (!tool) return;
+    publishSessionEvent(sessionId, {
+      type: "message.part.updated",
+      properties: {
+        part: {
+          type: "tool",
+          id: tool.id,
+          tool: tool.name,
+          sessionID: sessionId,
+          state: {
+            status: "completed",
+          },
+        },
+      },
+    });
+  }
+}
+
+function parseClaudeResult(output: string): {
+  result?: string;
+  is_error?: boolean;
+  error?: string;
+  session_id?: string;
+} {
+  const lines = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (!line) continue;
+    try {
+      const parsed = JSON.parse(line) as ClaudeJsonRecord;
+      if (parsed.type === "result") {
+        return {
+          result: parsed.result,
+          is_error: parsed.is_error,
+          error: parsed.error,
+          session_id: parsed.session_id,
+        };
+      }
+    } catch {
+      // ignore non-json lines
+    }
+  }
+
+  const payload = extractJsonPayload(output);
+  return JSON.parse(payload) as {
+    result?: string;
+    is_error?: boolean;
+    error?: string;
+    session_id?: string;
+  };
+}
+
 async function runClaudeCommand(
   args: string[],
   cwd: string,
   env: SessionEnvironment,
-  entry: { controller: AbortController; process?: ChildProcess }
+  entry: { controller: AbortController; process?: ChildProcess },
+  onRecord?: (record: ClaudeJsonRecord) => void
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("claude", args, {
@@ -196,8 +399,31 @@ async function runClaudeCommand(
 
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
+    let stdoutBuffer = "";
 
-    child.stdout?.on("data", (chunk) => stdoutChunks.push(Buffer.from(chunk)));
+    const flushLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed || !onRecord) return;
+      try {
+        const record = JSON.parse(trimmed) as ClaudeJsonRecord;
+        onRecord(record);
+      } catch {
+        // ignore non-json stream lines
+      }
+    };
+
+    child.stdout?.on("data", (chunk) => {
+      const bufferChunk = Buffer.from(chunk);
+      stdoutChunks.push(bufferChunk);
+      stdoutBuffer += bufferChunk.toString("utf-8");
+      while (true) {
+        const newlineIndex = stdoutBuffer.indexOf("\n");
+        if (newlineIndex < 0) break;
+        const line = stdoutBuffer.slice(0, newlineIndex);
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        flushLine(line);
+      }
+    });
     child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
 
     const timeout = setTimeout(() => {
@@ -220,6 +446,9 @@ async function runClaudeCommand(
 
     child.on("close", (code) => {
       clearTimeout(timeout);
+      if (stdoutBuffer.trim().length > 0) {
+        flushLine(stdoutBuffer);
+      }
       const stdout = Buffer.concat(stdoutChunks).toString("utf-8").trim();
       const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
 
@@ -249,7 +478,8 @@ async function runClaudeWithFallback(
   baseArgs: string[],
   cwd: string,
   env: SessionEnvironment,
-  entry: { controller: AbortController; process?: ChildProcess }
+  entry: { controller: AbortController; process?: ChildProcess },
+  onRecord?: (record: ClaudeJsonRecord) => void
 ): Promise<{ output: string; permissionMode: string; command: string }> {
   const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
   const modes = isRoot
@@ -267,7 +497,7 @@ async function runClaudeWithFallback(
         command,
       });
 
-      const output = await runClaudeCommand(args, cwd, env, entry);
+      const output = await runClaudeCommand(args, cwd, env, entry, onRecord);
       return { output, permissionMode: mode, command };
     } catch (err) {
       const error = err as Error;
@@ -335,24 +565,23 @@ export async function sendMessage(
       });
 
       const envOverrides = sessionEnvironments.get(sessionId) ?? {};
+      const textByIndex = new Map<number, string>();
+      const toolByIndex = new Map<number, { id: string; name: string }>();
       const { output, permissionMode, command } = await runClaudeWithFallback(
         args,
         workingPath,
         envOverrides,
-        entry
+        entry,
+        (record) => {
+          publishClaudeRecordAsSessionEvents(record, sessionId, textByIndex, toolByIndex);
+        }
       );
 
       log.info("Claude CLI response received", { sessionId, permissionMode, command });
 
       let parsed: { result?: string; is_error?: boolean; error?: string; session_id?: string } | null = null;
       try {
-        const payload = extractJsonPayload(output);
-        parsed = JSON.parse(payload) as {
-          result?: string;
-          is_error?: boolean;
-          error?: string;
-          session_id?: string;
-        };
+        parsed = parseClaudeResult(output);
       } catch (err) {
         throw new Error(
           `Failed to parse Claude output: ${err instanceof Error ? err.message : String(err)}`
@@ -392,8 +621,19 @@ export async function ensureSession(sessionId: string): Promise<void> {
   }
 }
 
-export function subscribeToSession(_sessionId: string, _handler: (event: unknown) => void): () => void {
-  return () => {};
+export function subscribeToSession(sessionId: string, handler: (event: unknown) => void): () => void {
+  const handlers = sessionSubscribers.get(sessionId) ?? new Set<(event: unknown) => void>();
+  handlers.add(handler);
+  sessionSubscribers.set(sessionId, handlers);
+
+  return () => {
+    const activeHandlers = sessionSubscribers.get(sessionId);
+    if (!activeHandlers) return;
+    activeHandlers.delete(handler);
+    if (activeHandlers.size === 0) {
+      sessionSubscribers.delete(sessionId);
+    }
+  };
 }
 
 export async function abortSession(sessionId: string, _directory?: string): Promise<void> {
@@ -427,6 +667,7 @@ export function stopServer(): void {
     entry.process?.kill("SIGTERM");
   }
   activeRequests.clear();
+  sessionSubscribers.clear();
 }
 
 export async function startServer(): Promise<void> {
