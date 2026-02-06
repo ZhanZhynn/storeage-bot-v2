@@ -273,13 +273,17 @@
   });
 </script>
 
-<main class="page">
-  <header class="header">
-    <h1>Ode Settings</h1>
-    <ThemeToggle />
-  </header>
+<main>
+  <div class="container">
+    <nav class="navbar">
+      <div class="navbar-spacer"></div>
+      <div class="navbar-title">Ode Setting</div>
+      <div class="navbar-actions">
+        <ThemeToggle />
+      </div>
+    </nav>
 
-  <div class="layout">
+    <div class="layout">
     <aside class="sidebar card">
       <button class="nav-item {activeSection === 'profile' ? 'active' : ''}" on:click={() => goto('/local-setting/profile')}>
         Profile
@@ -462,21 +466,45 @@
         <p class="message">{message}</p>
       {/if}
     </section>
+    </div>
   </div>
 </main>
 
 <style>
-  .page {
-    max-width: 1160px;
-    margin: 0 auto;
-    padding: 24px;
+  :global(body) {
+    background: var(--bg);
   }
 
-  .header {
-    display: flex;
+  .container {
+    width: 100%;
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .navbar {
+    height: 64px;
+    border: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
+    padding: 0 24px;
+    background: var(--card);
+    border-radius: 8px;
     margin-bottom: 16px;
+  }
+
+  .navbar-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: center;
+  }
+
+  .navbar-actions {
+    display: flex;
+    justify-content: flex-end;
   }
 
   .layout {
@@ -704,8 +732,16 @@
   }
 
   @media (max-width: 768px) {
-    .page {
+    .container {
       padding: 16px;
+    }
+
+    .navbar {
+      padding: 0 12px;
+    }
+
+    .navbar-title {
+      font-size: 16px;
     }
   }
 </style>
