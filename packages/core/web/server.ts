@@ -33,6 +33,10 @@ type JsonResponse = {
   error?: string;
   config?: typeof defaultDashboardConfig;
   workspace?: (typeof defaultDashboardConfig)["workspaces"][number];
+  agentCheck?: {
+    opencode: boolean;
+    claude: boolean;
+  };
   providers?: unknown;
   result?: unknown;
 };
@@ -176,13 +180,6 @@ async function handleRequest(request: Request): Promise<Response> {
     });
   }
 
-  if (pathname.startsWith("/local-setting/slack-bot/")) {
-    return new Response(null, {
-      status: 307,
-      headers: { location: "/local-setting" },
-    });
-  }
-
   if (pathname === "/api/config") {
     if (request.method === "GET") {
       const config = await readLocalSettings();
@@ -289,6 +286,19 @@ async function handleRequest(request: Request): Promise<Response> {
       const message = error instanceof Error ? error.message : "Slack sync failed";
       return jsonResponse(500, { ok: false, error: message });
     }
+  }
+
+  if (pathname === "/api/agent-check") {
+    if (request.method !== "GET") {
+      return jsonResponse(405, { ok: false, error: "Method not allowed" });
+    }
+    return jsonResponse(200, {
+      ok: true,
+      result: {
+        opencode: Boolean(Bun.which("opencode")),
+        claude: Boolean(Bun.which("claude")),
+      },
+    });
   }
 
   if (pathname === "/api/action") {
