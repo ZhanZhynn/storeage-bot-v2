@@ -38,6 +38,11 @@ type ClaudeJsonRecord = {
   session_id?: string;
 };
 
+type SessionLikeEvent = {
+  type: string;
+  properties: Record<string, unknown>;
+};
+
 async function withSessionLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
   const existing = sessionLocks.get(sessionKey);
   if (existing) {
@@ -217,22 +222,83 @@ function publishSessionEvent(sessionId: string, event: unknown): void {
   }
 }
 
-function publishClaudeRecordAsSessionEvents(
+function statusFromClaudeRecord(
   record: ClaudeJsonRecord,
+  toolByIndex: Map<number, { id: string; name: string }>
+): string | null {
+  if (record.type === "assistant") {
+    return "Drafting response";
+  }
+  if (record.type === "result") {
+    return record.is_error ? "Claude reported an error" : "Finalizing response";
+  }
+  if (record.type !== "stream_event" || !record.event?.type) {
+    return null;
+  }
+
+  switch (record.event.type) {
+    case "message_start":
+      return "Thinking";
+    case "content_block_start": {
+      const block = record.event.content_block;
+      if (block?.type === "tool_use") {
+        const toolName = typeof block.name === "string" ? block.name : "tool";
+        return `Running tool: ${toolName}`;
+      }
+      return "Drafting response";
+    }
+    case "content_block_delta": {
+      const delta = record.event.delta;
+      if (delta?.type === "text_delta") {
+        return "Drafting response";
+      }
+      if (delta?.type === "input_json_delta") {
+        const index = typeof record.event?.index === "number" ? record.event.index : -1;
+        const tool = toolByIndex.get(index);
+        return tool ? `Running tool: ${tool.name}` : "Running tool";
+      }
+      return null;
+    }
+    case "content_block_stop": {
+      const index = typeof record.event.index === "number" ? record.event.index : -1;
+      const tool = toolByIndex.get(index);
+      return tool ? `Finished tool: ${tool.name}` : "Finished step";
+    }
+    case "message_stop":
+      return "Finalizing response";
+    default:
+      return null;
+  }
+}
+
+export function mapClaudeRecordToSessionEvents(
+  record: unknown,
   fallbackSessionId: string,
   textByIndex: Map<number, string>,
   toolByIndex: Map<number, { id: string; name: string }>
-): void {
-  const sessionId = getRecordSessionId(record, fallbackSessionId);
+): SessionLikeEvent[] {
+  const parsedRecord = record as ClaudeJsonRecord;
+  const events: SessionLikeEvent[] = [];
+  const sessionId = getRecordSessionId(parsedRecord, fallbackSessionId);
+  const status = statusFromClaudeRecord(parsedRecord, toolByIndex);
+  if (status) {
+    events.push({
+      type: "session.status",
+      properties: {
+        sessionID: sessionId,
+        status,
+      },
+    });
+  }
 
-  if (record.type === "assistant") {
-    const text = record.message?.content
+  if (parsedRecord.type === "assistant") {
+    const text = parsedRecord.message?.content
       ?.filter((block) => block?.type === "text")
       .map((block) => block.text ?? "")
       .join("")
       .trim();
     if (text) {
-      publishSessionEvent(sessionId, {
+      events.push({
         type: "message.part.updated",
         properties: {
           part: {
@@ -243,23 +309,23 @@ function publishClaudeRecordAsSessionEvents(
         },
       });
     }
-    return;
+    return events;
   }
 
-  if (record.type !== "stream_event" || !record.event?.type) {
-    return;
+  if (parsedRecord.type !== "stream_event" || !parsedRecord.event?.type) {
+    return events;
   }
 
-  const eventType = record.event.type;
-  const index = typeof record.event.index === "number" ? record.event.index : -1;
+  const eventType = parsedRecord.event.type;
+  const index = typeof parsedRecord.event.index === "number" ? parsedRecord.event.index : -1;
 
   if (eventType === "content_block_start") {
-    const contentBlock = record.event.content_block;
+    const contentBlock = parsedRecord.event.content_block;
     if (contentBlock?.type === "tool_use") {
       const id = typeof contentBlock.id === "string" ? contentBlock.id : `tool-${Date.now()}-${index}`;
       const name = typeof contentBlock.name === "string" ? contentBlock.name : "tool";
       toolByIndex.set(index, { id, name });
-      publishSessionEvent(sessionId, {
+      events.push({
         type: "message.part.updated",
         properties: {
           part: {
@@ -278,17 +344,17 @@ function publishClaudeRecordAsSessionEvents(
         },
       });
     }
-    return;
+    return events;
   }
 
   if (eventType === "content_block_delta") {
-    const delta = record.event.delta;
+    const delta = parsedRecord.event.delta;
     if (delta?.type === "text_delta") {
       const chunk = typeof delta.text === "string" ? delta.text : "";
-      if (!chunk) return;
+      if (!chunk) return events;
       const next = `${textByIndex.get(index) ?? ""}${chunk}`;
       textByIndex.set(index, next);
-      publishSessionEvent(sessionId, {
+      events.push({
         type: "message.part.updated",
         properties: {
           part: {
@@ -298,13 +364,13 @@ function publishClaudeRecordAsSessionEvents(
           },
         },
       });
-      return;
+      return events;
     }
 
     if (delta?.type === "input_json_delta") {
       const tool = toolByIndex.get(index);
-      if (!tool) return;
-      publishSessionEvent(sessionId, {
+      if (!tool) return events;
+      events.push({
         type: "message.part.updated",
         properties: {
           part: {
@@ -319,13 +385,13 @@ function publishClaudeRecordAsSessionEvents(
         },
       });
     }
-    return;
+    return events;
   }
 
   if (eventType === "content_block_stop") {
     const tool = toolByIndex.get(index);
-    if (!tool) return;
-    publishSessionEvent(sessionId, {
+    if (!tool) return events;
+    events.push({
       type: "message.part.updated",
       properties: {
         part: {
@@ -339,6 +405,19 @@ function publishClaudeRecordAsSessionEvents(
         },
       },
     });
+  }
+
+  return events;
+}
+
+function publishClaudeRecordAsSessionEvents(
+  record: ClaudeJsonRecord,
+  fallbackSessionId: string,
+  textByIndex: Map<number, string>,
+  toolByIndex: Map<number, { id: string; name: string }>
+): void {
+  for (const event of mapClaudeRecordToSessionEvents(record, fallbackSessionId, textByIndex, toolByIndex)) {
+    publishSessionEvent(getRecordSessionId(record, fallbackSessionId), event);
   }
 }
 
