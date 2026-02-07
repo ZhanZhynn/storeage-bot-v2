@@ -35,6 +35,23 @@ bun run packages/live-status-harness/scripts/render-status.ts --run-id <runId>
 
 If `--run-id` is omitted, the latest run in Redis is used.
 
+## Generate a full provider report markdown
+
+```bash
+bun run packages/live-status-harness/scripts/generate-report.ts
+```
+
+This runs capture + render for each provider (`opencode`, `claudecode`, `codex`, `kimi`), then writes a combined report with each provider's final live status message and final result message.
+
+Optional flags:
+
+- `--providers opencode,claudecode,codex,kimi`
+- `--output <path>` (default: `packages/live-status-harness/reports/agent-live-status.md`)
+- `--cwd <path>`
+- `--prompt-file <path>`
+- `--redis-prefix <prefix>`
+- `--fail-fast` to stop on first provider failure
+
 ## Redis keys
 
 - `<prefix>:runs:index` sorted set of run ids
