@@ -54,6 +54,7 @@ function normalizeConfig(input: DashboardConfig): DashboardConfig {
       },
       codex: {
         enabled: input.agents?.codex?.enabled ?? true,
+        models: input.agents?.codex?.models ?? [],
       },
       kimi: {
         enabled: input.agents?.kimi?.enabled ?? true,

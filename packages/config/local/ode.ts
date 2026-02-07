@@ -42,14 +42,15 @@ const agentsSchema = z.object({
   }).optional().default({ enabled: true }),
   codex: z.object({
     enabled: z.boolean().optional().default(true),
-  }).optional().default({ enabled: true }),
+    models: z.array(z.string()).optional().default([]),
+  }).optional().default({ enabled: true, models: [] }),
   kimi: z.object({
     enabled: z.boolean().optional().default(true),
   }).optional().default({ enabled: true }),
 }).optional().default({
   opencode: { enabled: true, models: [] },
   claudecode: { enabled: true },
-  codex: { enabled: true },
+  codex: { enabled: true, models: [] },
   kimi: { enabled: true },
 });
 
@@ -66,6 +67,7 @@ const channelDetailSchema = z.object({
 
 const DEFAULT_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 const MIN_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
+export const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
 
 const updateSchema = z.object({
   autoUpgrade: z.boolean().optional().default(true),
@@ -129,7 +131,7 @@ const EMPTY_TEMPLATE: OdeConfig = {
   agents: {
     opencode: { enabled: true, models: [] },
     claudecode: { enabled: true },
-    codex: { enabled: true },
+    codex: { enabled: true, models: [] },
     kimi: { enabled: true },
   },
   workspaces: [],
@@ -170,6 +172,9 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
   const opencodeModels = Array.from(new Set((config.agents?.opencode?.models ?? [])
     .map((model) => model.trim())
     .filter(Boolean)));
+  const codexModels = Array.from(new Set((config.agents?.codex?.models ?? [])
+    .map((model) => model.trim())
+    .filter(Boolean)));
   return {
     ...config,
     user: {
@@ -191,6 +196,7 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
       },
       codex: {
         enabled: config.agents?.codex?.enabled ?? true,
+        models: codexModels,
       },
       kimi: {
         enabled: config.agents?.kimi?.enabled ?? true,
@@ -311,6 +317,24 @@ export function setOpenCodeModels(models: string[]): void {
       ...config.agents,
       opencode: {
         ...config.agents.opencode,
+        models,
+      },
+    },
+  });
+}
+
+export function getCodexModels(): string[] {
+  return getAgentsConfig().codex.models;
+}
+
+export function setCodexModels(models: string[]): void {
+  const config = loadOdeConfig();
+  saveOdeConfig({
+    ...config,
+    agents: {
+      ...config.agents,
+      codex: {
+        ...config.agents.codex,
         models,
       },
     },

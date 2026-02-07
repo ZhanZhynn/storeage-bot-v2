@@ -1,4 +1,6 @@
 import {
+  DEFAULT_CODEX_MODEL,
+  getChannelModel,
   isLocalMode,
   resolveMessageFrequency,
 } from "@/config";
@@ -22,6 +24,7 @@ import { handlePendingQuestionReply } from "@/core/runtime/pending-question";
 import { recoverPendingRequests as recoverPendingRequestsInternal } from "@/core/runtime/recovery";
 import { prepareRuntimeSession } from "@/core/runtime/session-bootstrap";
 import { runOpenRequest } from "@/core/runtime/open-request";
+import type { OpenCodeOptions } from "@/agents";
 
 type RuntimeDeps = {
   im: IMAdapter;
@@ -116,6 +119,17 @@ export function createCoreRuntime(deps: RuntimeDeps) {
 
     const trimmed = text.trim();
     const agent = /^plan\b/i.test(trimmed) ? "plan" : undefined;
+    const providerId = deps.agent.getProviderForSession(sessionId);
+    const channelModel = getChannelModel(channelId)?.trim();
+    const codexModel = providerId === "codex"
+      ? (channelModel && channelModel.length > 0 ? channelModel : DEFAULT_CODEX_MODEL)
+      : undefined;
+    const options: OpenCodeOptions | undefined = agent || codexModel
+      ? {
+          ...(agent ? { agent } : {}),
+          ...(codexModel ? { model: { providerID: "openai", modelID: codexModel } } : {}),
+        }
+      : undefined;
 
     const responses = await runOpenRequest({
       deps,
@@ -127,7 +141,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
       phaseLabel: "Working",
       stateMachine,
       agentContext,
-      options: agent ? { agent } : undefined,
+      options,
       liveEventHistory: state.liveEventHistory,
       liveParsedState: state.liveParsedState,
       shouldStoreEvents: isRedisTrackingEnabled(),
