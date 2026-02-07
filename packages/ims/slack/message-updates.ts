@@ -11,7 +11,7 @@ type QueuedUpdate = {
 
 export function createThrottledMessageUpdater(deps: {
   getApp: () => { client: { chat: { update: (args: any) => Promise<unknown> } } };
-  getChannelBotToken: (channelId: string) => string | undefined;
+  getSlackBotToken: () => string | undefined;
 }) {
   let globalLastUpdate = 0;
   const GLOBAL_UPDATE_INTERVAL_MS = 1000;
@@ -40,7 +40,7 @@ export function createThrottledMessageUpdater(deps: {
         const formattedText = item.asMarkdown ? markdownToSlack(item.text) : item.text;
         const truncatedText = truncateForSlack(formattedText);
 
-        const botToken = deps.getChannelBotToken(item.channelId);
+        const botToken = deps.getSlackBotToken();
         if (!botToken) {
           log.warn("No Slack bot token available for message update", { channelId: item.channelId });
         }

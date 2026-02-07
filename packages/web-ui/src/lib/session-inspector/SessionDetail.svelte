@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import type { AgentStatusProvider } from "../../../../utils/status";
   import EventLog from "./EventLog.svelte";
   import IMPreview from "./IMPreview.svelte";
 
@@ -16,7 +17,7 @@
 
   interface SessionMeta {
     sessionId: string;
-    agentProvider?: "opencode" | "claude";
+    agentProvider?: AgentStatusProvider | "claude";
     channelId: string;
     threadId: string;
     workingDirectory: string;
@@ -147,14 +148,21 @@
     selectedEventIndex = index;
   }
 
-  function inferProvider(meta: SessionMeta | null): "opencode" | "claude" {
-    if (meta?.agentProvider === "claude") return "claude";
-    if (meta?.sessionId?.startsWith("claude_")) return "claude";
+  function inferProvider(meta: SessionMeta | null): AgentStatusProvider {
+    if (meta?.agentProvider === "claudecode" || meta?.agentProvider === "claude") return "claudecode";
+    if (meta?.agentProvider === "codex" || meta?.sessionId?.startsWith("codex_")) return "codex";
+    if (meta?.agentProvider === "kimi" || meta?.sessionId?.startsWith("kimi_")) return "kimi";
+    if (meta?.sessionId?.startsWith("claude_") || meta?.sessionId?.startsWith("claudecode_")) {
+      return "claudecode";
+    }
     return "opencode";
   }
 
-  function providerLabel(provider: "opencode" | "claude"): string {
-    return provider === "claude" ? "Claude Code" : "OpenCode";
+  function providerLabel(provider: AgentStatusProvider): string {
+    if (provider === "claudecode") return "Claude Code";
+    if (provider === "codex") return "Codex";
+    if (provider === "kimi") return "Kimi";
+    return "OpenCode";
   }
 </script>
 

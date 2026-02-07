@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import type { AgentStatusProvider } from "../../../../utils/status";
 
   interface SessionMeta {
     sessionId: string;
-    agentProvider?: "opencode" | "claude";
+    agentProvider?: AgentStatusProvider | "claude";
     channelId: string;
     threadId: string;
     workingDirectory: string;

@@ -58,14 +58,12 @@ type WorkspaceAuth = {
 const teamAuthMap = new Map<string, WorkspaceAuth>();
 const enterpriseAuthMap = new Map<string, WorkspaceAuth>();
 const channelWorkspaceMap = new Map<string, string>();
-const channelBotTokenMap = new Map<string, string>();
 const backgroundWorkspaceSyncInFlight = new Set<string>();
 
 export function clearSlackAuthState(): void {
   teamAuthMap.clear();
   enterpriseAuthMap.clear();
   channelWorkspaceMap.clear();
-  channelBotTokenMap.clear();
 }
 
 export function resetSlackState(): void {
@@ -100,7 +98,7 @@ async function buildSlackContext(
 
 const updateMessageThrottled = createThrottledMessageUpdater({
   getApp,
-  getChannelBotToken,
+  getSlackBotToken,
 });
 
 export async function createSlackApp(): Promise<App> {
@@ -157,19 +155,13 @@ function resolveWorkspaceAuth(
   return undefined;
 }
 
-export function getChannelBotToken(channelId: string): string | undefined {
-  const mapped = channelBotTokenMap.get(channelId);
-  if (mapped) return mapped;
+export function getSlackBotToken(): string | undefined {
+  const registered = teamAuthMap.values().next().value as WorkspaceAuth | undefined;
+  if (registered?.botToken) return registered.botToken;
   const tokens = getSlackBotTokens()
     .map((entry) => entry.token)
     .filter((token) => token && token.trim().length > 0);
   return tokens[0];
-}
-
-function registerChannelBotToken(channelId: string, botToken: string | undefined): void {
-  if (!botToken) return;
-  if (channelBotTokenMap.has(channelId)) return;
-  channelBotTokenMap.set(channelId, botToken);
 }
 
 async function hasOdeSlackTool(workingPath: string): Promise<boolean> {
@@ -410,7 +402,7 @@ export async function sendMessage(
   const formattedText = asMarkdown ? markdownToSlack(text) : text;
   const chunks = splitForSlack(formattedText);
   const workspace = channelWorkspaceMap.get(channelId) || "unknown";
-  const botToken = getChannelBotToken(channelId);
+  const botToken = getSlackBotToken();
 
   if (!botToken) {
     log.warn("No Slack bot token available for channel", { channelId });
@@ -443,7 +435,7 @@ export async function deleteMessage(
 ): Promise<void> {
   try {
     const slackApp = getApp();
-    const botToken = getChannelBotToken(channelId);
+    const botToken = getSlackBotToken();
     if (!botToken) {
       log.warn("No Slack bot token available for message delete", { channelId });
     }
@@ -467,7 +459,7 @@ async function fetchThreadHistory(
     channelId,
     threadId,
     messageId,
-    token: getChannelBotToken(channelId),
+    token: getSlackBotToken(),
   });
 }
 
@@ -527,7 +519,6 @@ export function setupMessageHandlers(): void {
   registerSlackMessageRouter({
     getApp,
     isAuthorizedChannel,
-    registerChannelBotToken,
     resolveWorkspaceAuth,
     getChannelWorkspaceName: (channelId) => channelWorkspaceMap.get(channelId),
     setChannelWorkspaceName: (channelId, workspaceName) => {
@@ -557,7 +548,6 @@ export function setupMessageHandlers(): void {
     );
     if (!workspaceAuth || memberId !== workspaceAuth.botUserId) return;
 
-    registerChannelBotToken(channelId, workspaceAuth.botToken ?? client?.token);
     if (workspaceAuth.workspaceName) {
       channelWorkspaceMap.set(channelId, workspaceAuth.workspaceName);
     }

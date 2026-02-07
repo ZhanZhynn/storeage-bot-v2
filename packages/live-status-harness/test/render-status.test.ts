@@ -17,7 +17,7 @@ describe("live status harness renderer", () => {
     expect(statuses.length).toBeGreaterThanOrEqual(2);
     expect(statuses[0]?.text).toContain("Running tool: Read");
     expect(statuses[statuses.length - 1]?.text).toContain("Finished tool: Read");
-    expect(statuses.some((status) => status.text.includes("Current response"))).toBeTrue();
+    expect(statuses.some((status) => status.text.includes("Drafting response"))).toBeTrue();
   });
 
   it("renders codex tool and response statuses from fixture", async () => {
