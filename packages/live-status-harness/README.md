@@ -25,6 +25,7 @@ Optional flags:
 - `--user <id>`
 - `--run-id <id>`
 - `--prompt-file <path>`
+- `--model <provider/model>` (or `<model>`, defaults provider to `openai`)
 - `--redis-prefix <prefix>`
 
 ## Render captured data into live status output
@@ -42,6 +43,8 @@ bun run packages/live-status-harness/scripts/generate-report.ts
 ```
 
 This runs capture + render for each provider (`opencode`, `claudecode`, `codex`, `kimi`), then writes a combined report with each provider's final live status message and final result message.
+
+For `opencode`, the report run forces model `openai/gpt-5.3-codex` so it does not depend on channel-level model config.
 
 Optional flags:
 

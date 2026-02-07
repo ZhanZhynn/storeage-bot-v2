@@ -7,6 +7,7 @@ import { renderStatusesFromRun } from "../renderer";
 
 const DEFAULT_OUTPUT_PATH = "packages/live-status-harness/reports/agent-live-status.md";
 const DEFAULT_PROVIDERS: AgentProviderId[] = ["opencode", "claudecode", "codex", "kimi"];
+const OPENCODE_REPORT_MODEL = "openai/gpt-5.3-codex";
 
 type ProviderRunSummary = {
   provider: AgentProviderId;
@@ -136,6 +137,9 @@ async function runProvider(
 ): Promise<ProviderRunSummary> {
   const runId = buildHarnessRunId(provider);
   const captureArgs = ["--provider", provider, "--run-id", runId, "--cwd", options.cwd];
+  if (provider === "opencode") {
+    captureArgs.push("--model", OPENCODE_REPORT_MODEL);
+  }
   if (options.promptFile) {
     captureArgs.push("--prompt-file", options.promptFile);
   }
