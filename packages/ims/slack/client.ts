@@ -6,6 +6,7 @@ import {
   getSlackTargetChannels,
   getSlackAppToken,
   getSlackBotTokens,
+  invalidateOdeConfigCache,
   getChannelAgentProvider,
   getChannelModel,
   getOpenCodeModels,
@@ -29,6 +30,7 @@ import { getSlackActionApiUrl } from "./config";
 import { createThrottledMessageUpdater } from "./message-updates";
 import { fetchThreadHistoryByClient } from "./message-history";
 import { registerSlackMessageRouter } from "./message-router";
+import { syncSlackWorkspace } from "@/core/web/local-settings";
 
 export interface MessageContext {
   channelId: string;
@@ -44,6 +46,7 @@ let app: App | null = null;
 
 type WorkspaceAuth = {
   botToken: string;
+  workspaceId: string;
   workspaceName: string;
   teamId: string | null;
   enterpriseId: string | null;
@@ -56,6 +59,7 @@ const teamAuthMap = new Map<string, WorkspaceAuth>();
 const enterpriseAuthMap = new Map<string, WorkspaceAuth>();
 const channelWorkspaceMap = new Map<string, string>();
 const channelBotTokenMap = new Map<string, string>();
+const backgroundWorkspaceSyncInFlight = new Set<string>();
 
 export function clearSlackAuthState(): void {
   teamAuthMap.clear();
@@ -297,12 +301,48 @@ async function postGitHubLauncher(
   });
 }
 
-async function fetchWorkspaceAuth(botToken: string, workspaceName: string): Promise<WorkspaceAuth | null> {
+function syncWorkspaceInBackground(workspace: WorkspaceAuth, channelId: string): void {
+  if (backgroundWorkspaceSyncInFlight.has(workspace.workspaceId)) {
+    log.debug("Skipping Slack workspace sync; already in flight", {
+      workspaceId: workspace.workspaceId,
+      channelId,
+    });
+    return;
+  }
+
+  backgroundWorkspaceSyncInFlight.add(workspace.workspaceId);
+  void syncSlackWorkspace(workspace.workspaceId)
+    .then((updatedWorkspace) => {
+      invalidateOdeConfigCache();
+      log.info("Slack workspace synced after bot joined channel", {
+        workspaceId: workspace.workspaceId,
+        workspaceName: updatedWorkspace.name,
+        channelId,
+      });
+    })
+    .catch((error) => {
+      log.warn("Slack workspace sync failed after bot joined channel", {
+        workspaceId: workspace.workspaceId,
+        channelId,
+        error: String(error),
+      });
+    })
+    .finally(() => {
+      backgroundWorkspaceSyncInFlight.delete(workspace.workspaceId);
+    });
+}
+
+async function fetchWorkspaceAuth(
+  botToken: string,
+  workspaceId: string,
+  workspaceName: string
+): Promise<WorkspaceAuth | null> {
   try {
     const client = new WebClient(botToken);
     const auth = await client.auth.test();
     return {
       botToken,
+      workspaceId,
       workspaceName,
       teamId: (auth as any).team_id ?? null,
       enterpriseId: (auth as any).enterprise_id ?? null,
@@ -330,24 +370,28 @@ function registerWorkspaceAuth(auth: WorkspaceAuth): void {
 }
 
 export async function initializeWorkspaceAuth(): Promise<void> {
-  const combined = new Map<string, string | null>();
+  const combined = new Map<string, { workspaceId: string; workspaceName: string }>();
 
   for (const record of getSlackBotTokens()) {
-    combined.set(record.token, record.workspaceName ?? "config");
+    combined.set(record.token, {
+      workspaceId: record.workspaceId,
+      workspaceName: record.workspaceName ?? "config",
+    });
   }
 
   if (combined.size === 0) {
     log.warn("No Slack bot tokens configured", { mode: "local" });
   }
 
-  for (const [botToken, workspaceName] of combined.entries()) {
+  for (const [botToken, workspace] of combined.entries()) {
     if (!botToken) continue;
-    const name = workspaceName ?? "unknown";
-    const auth = await fetchWorkspaceAuth(botToken, name);
+    const name = workspace.workspaceName ?? "unknown";
+    const auth = await fetchWorkspaceAuth(botToken, workspace.workspaceId, name);
     if (!auth) continue;
     registerWorkspaceAuth(auth);
     log.info("Registered Slack workspace auth", {
       workspace: name,
+      workspaceId: auth.workspaceId,
       teamId: auth.teamId,
       enterpriseId: auth.enterpriseId,
       botUserId: auth.botUserId,
@@ -499,6 +543,39 @@ export function setupMessageHandlers(): void {
     getChannelAgentProvider,
     handleStopCommand: (channelId, threadId) => coreRuntime.handleStopCommand(channelId, threadId),
     handleIncomingMessage: (context, text) => coreRuntime.handleIncomingMessage(context, text),
+  });
+
+  const slackApp = getApp();
+  slackApp.event("member_joined_channel", async ({ event, context, client }: any) => {
+    const channelId = event?.channel as string | undefined;
+    const memberId = event?.user as string | undefined;
+    if (!channelId || !memberId) return;
+
+    const workspaceAuth = resolveWorkspaceAuth(
+      event?.team as string | undefined,
+      (event?.enterprise_id as string | undefined) ?? (context?.enterpriseId as string | undefined)
+    );
+    if (!workspaceAuth || memberId !== workspaceAuth.botUserId) return;
+
+    registerChannelBotToken(channelId, workspaceAuth.botToken ?? client?.token);
+    if (workspaceAuth.workspaceName) {
+      channelWorkspaceMap.set(channelId, workspaceAuth.workspaceName);
+    }
+
+    if (!workspaceAuth.workspaceId) {
+      log.warn("Bot added to channel but workspace id is missing; skipping sync", {
+        workspaceName: workspaceAuth.workspaceName,
+        channelId,
+      });
+      return;
+    }
+
+    log.info("Bot added to channel; syncing Slack workspace", {
+      workspaceId: workspaceAuth.workspaceId,
+      workspaceName: workspaceAuth.workspaceName,
+      channelId,
+    });
+    syncWorkspaceInBackground(workspaceAuth, channelId);
   });
 
 }
