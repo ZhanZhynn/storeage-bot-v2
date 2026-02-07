@@ -7,10 +7,11 @@ import {
   markMessageProcessed,
   saveSession,
 } from "@/config/local/sessions";
-import { resolveMessageFrequency } from "@/config/message-frequency";
+import { DEFAULT_CODEX_MODEL, getChannelModel, resolveMessageFrequency } from "@/config";
 import { runTrackedRequest } from "@/core/runtime/request-runner";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import { CoreStateMachine } from "@/core/state-machine";
+import type { OpenCodeOptions } from "@/agents";
 import type { AgentAdapter, IMAdapter } from "@/core/types";
 import { getStatusMessageKey, type SessionEvent, type SessionMessageState, log } from "@/utils";
 
@@ -87,6 +88,17 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
 
   const threadOwnerUserId = session?.threadOwnerUserId ?? userId;
   const agent = /^plan\b/i.test(selection.trim()) ? "plan" : undefined;
+  const providerId = deps.agent.getProviderForSession(sessionId);
+  const channelModel = getChannelModel(channelId)?.trim();
+  const codexModel = providerId === "codex"
+    ? (channelModel && channelModel.length > 0 ? channelModel : DEFAULT_CODEX_MODEL)
+    : undefined;
+  const options: OpenCodeOptions | undefined = agent || codexModel
+    ? {
+        ...(agent ? { agent } : {}),
+        ...(codexModel ? { model: { providerID: "openai", modelID: codexModel } } : {}),
+      }
+    : undefined;
 
   const agentContext = await deps.im.buildAgentContext({
     cwd,
@@ -110,7 +122,7 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
         sessionId,
         `User selected: ${selection}`,
         cwd,
-        agent ? { agent } : undefined,
+        options,
         agentContext
       ),
     onProgressTick: async () => {

@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "child_process";
+import { DEFAULT_CODEX_MODEL, getCodexModels, setCodexModels } from "@/config";
 import {
   getThreadSessionId,
   setThreadSessionId,
@@ -75,8 +76,42 @@ function buildCodexPrompt(systemPrompt: string, prompt: string): string {
 
 function getCodexModel(options?: OpenCodeOptions): string | undefined {
   const configured = options?.model?.modelID?.trim();
-  if (!configured) return undefined;
-  return configured;
+  if (configured) return configured;
+  return DEFAULT_CODEX_MODEL;
+}
+
+type CodexModelCatalog = {
+  models?: Array<{ slug?: string }>;
+};
+
+function extractCodexModels(payload: unknown): string[] {
+  if (!payload || typeof payload !== "object") return [];
+  const catalog = payload as CodexModelCatalog;
+  if (!Array.isArray(catalog.models)) return [];
+  return catalog.models
+    .map((entry) => (typeof entry?.slug === "string" ? entry.slug.trim() : ""))
+    .filter(Boolean);
+}
+
+async function syncCodexModelsFromCache(): Promise<void> {
+  const home = process.env.HOME?.trim();
+  if (!home) return;
+  const cacheFile = Bun.file(`${home}/.codex/models_cache.json`);
+  if (!(await cacheFile.exists())) return;
+
+  try {
+    const payload = JSON.parse(await cacheFile.text());
+    const models = Array.from(new Set([...extractCodexModels(payload), DEFAULT_CODEX_MODEL])).sort();
+    if (models.length === 0) return;
+    const existing = getCodexModels();
+    if (JSON.stringify(existing) === JSON.stringify(models)) return;
+    setCodexModels(models);
+    log.info("Codex models synced", { count: models.length });
+  } catch (error) {
+    log.warn("Codex model sync failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 export function buildCodexCommandArgs(params: {
@@ -319,6 +354,7 @@ export async function sendMessage(
   activeRequests.set(sessionKey, entry);
 
   try {
+    await syncCodexModelsFromCache();
     return await withSessionLock(sessionKey, async () => {
       const agent = options?.agent;
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
@@ -420,5 +456,5 @@ export function stopServer(): void {
 }
 
 export async function startServer(): Promise<void> {
-  return;
+  await syncCodexModelsFromCache();
 }

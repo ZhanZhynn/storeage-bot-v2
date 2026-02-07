@@ -17,6 +17,7 @@ export type DashboardConfig = {
     };
     codex: {
       enabled: boolean;
+      models: string[];
     };
     kimi: {
       enabled: boolean;
@@ -63,7 +64,7 @@ export const defaultDashboardConfig: DashboardConfig = {
   agents: {
     opencode: { enabled: true, models: [] },
     claudecode: { enabled: true },
-    codex: { enabled: true },
+    codex: { enabled: true, models: [] },
     kimi: { enabled: true },
   },
   workspaces: [defaultWorkspace],
@@ -179,6 +180,7 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
     : {};
 
   const opencodeModels = asStringArray(opencodeRecord.models);
+  const codexModels = asStringArray(codexRecord.models);
 
   const primaryWorkspace = sanitizePrimaryWorkspace(record.workspaces);
 
@@ -201,6 +203,7 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
       },
       codex: {
         enabled: codexRecord.enabled !== false,
+        models: Array.from(new Set(codexModels.filter(Boolean))),
       },
       kimi: {
         enabled: kimiRecord.enabled !== false,

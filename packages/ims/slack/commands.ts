@@ -5,6 +5,7 @@ import {
   resolveChannelCwd,
   getEnabledAgentProviders,
   getOpenCodeModels,
+  getCodexModels,
   isAgentEnabled,
   getGitHubInfoForUser,
   setChannelAgentProvider,
@@ -13,6 +14,7 @@ import {
   setGitHubInfoForUser,
 } from "@/config";
 import { startServer as startOpenCodeServer } from "@/agents/opencode";
+import { startServer as startCodexServer } from "@/agents/codex";
 
 const SETTINGS_LAUNCH_ACTION = "open_settings_modal";
 const SETTINGS_MODAL_ID = "settings_modal";
@@ -63,6 +65,7 @@ function buildSettingsModal(params: {
   channelId: string;
   enabledProviders: AgentProvider[];
   opencodeModels: string[];
+  codexModels: string[];
   selectedProvider?: AgentProvider;
   selectedModel?: string | null;
   workingDirectory?: string | null;
@@ -71,6 +74,7 @@ function buildSettingsModal(params: {
     channelId,
     enabledProviders,
     opencodeModels,
+    codexModels,
     selectedProvider = "opencode",
     selectedModel,
     workingDirectory,
@@ -91,14 +95,24 @@ function buildSettingsModal(params: {
         value: model,
       }))
     : [{ text: { type: "plain_text" as const, text: "No models configured" }, value: "__none__" }];
+  const codexModelOptions = [
+    { text: { type: "plain_text" as const, text: "Use default (gpt-5.3-codex)" }, value: "__default__" },
+    ...codexModels.map((model) => ({
+      text: { type: "plain_text" as const, text: model },
+      value: model,
+    })),
+  ];
 
-  const matchedSelectedModel = findMatchingModel(opencodeModels, selectedModel);
+  const availableModels = selectedProvider === "codex" ? codexModelOptions.map((entry) => entry.value) : opencodeModels;
+  const matchedSelectedModel = findMatchingModel(availableModels, selectedModel);
   const initialModel = matchedSelectedModel
     ? matchedSelectedModel
-    : (opencodeModels[0] ?? "__none__");
+    : (selectedProvider === "codex" ? "__default__" : (opencodeModels[0] ?? "__none__"));
   const introText = selectedProvider === "opencode"
     ? "Configure agent, model (OpenCode), and working directory for this channel."
-    : "Configure agent and working directory for this channel.";
+    : selectedProvider === "codex"
+      ? "Configure agent, optional Codex model, and working directory for this channel."
+      : "Configure agent and working directory for this channel.";
 
   const blocks: any[] = [
     {
@@ -121,19 +135,20 @@ function buildSettingsModal(params: {
     },
   ];
 
-  if (selectedProvider === "opencode") {
+  if (selectedProvider === "opencode" || selectedProvider === "codex") {
+    const options = selectedProvider === "opencode" ? modelOptions : codexModelOptions;
+    const initialOption = options.find((option) => option.value === initialModel);
     blocks.push(
       {
         type: "input" as const,
         block_id: MODEL_BLOCK,
+        optional: selectedProvider === "codex",
         label: { type: "plain_text" as const, text: "Model" },
         element: {
           type: "static_select" as const,
           action_id: MODEL_ACTION,
-          options: modelOptions,
-          initial_option: initialModel
-            ? { text: { type: "plain_text" as const, text: initialModel }, value: initialModel }
-            : undefined,
+          options,
+          initial_option: initialOption,
         },
       },
     );
@@ -240,6 +255,11 @@ export function setupInteractiveHandlers(): void {
     } catch {
       // Fall back to models currently stored in local config.
     }
+    try {
+      await startCodexServer();
+    } catch {
+      // Fall back to models currently stored in local config.
+    }
 
     const enabledProviders = getSelectableProviders();
 
@@ -247,6 +267,7 @@ export function setupInteractiveHandlers(): void {
       channelId,
       enabledProviders,
       opencodeModels: getOpenCodeModels(),
+      codexModels: getCodexModels(),
       selectedProvider: toSelectableProvider(getChannelAgentProvider(channelId)),
       selectedModel: getChannelModel(channelId),
       workingDirectory: resolveChannelCwd(channelId).workingDirectory,
@@ -302,6 +323,12 @@ export function setupInteractiveHandlers(): void {
       } catch {
         // Fall back to models currently stored in local config.
       }
+    } else if (selectedProvider === "codex") {
+      try {
+        await startCodexServer();
+      } catch {
+        // Fall back to models currently stored in local config.
+      }
     }
     const selectedModel = view.state?.values?.[MODEL_BLOCK]?.[MODEL_ACTION]?.selected_option?.value
       || getChannelModel(channelId)
@@ -312,6 +339,7 @@ export function setupInteractiveHandlers(): void {
       channelId,
       enabledProviders: getSelectableProviders(),
       opencodeModels: getOpenCodeModels(),
+      codexModels: getCodexModels(),
       selectedProvider,
       selectedModel,
       workingDirectory,
@@ -352,6 +380,11 @@ export function setupInteractiveHandlers(): void {
       if (selectedModel && !findMatchingModel(models, selectedModel)) {
         errors[MODEL_BLOCK] = "Model not available in ~/.config/ode/ode.json agents.opencode.models.";
       }
+    } else if (selectedProvider === "codex") {
+      const models = getCodexModels();
+      if (selectedModel && selectedModel !== "__default__" && !findMatchingModel(models, selectedModel)) {
+        errors[MODEL_BLOCK] = "Model not available in local Codex model list.";
+      }
     }
 
     if (Object.keys(errors).length > 0) {
@@ -367,7 +400,15 @@ export function setupInteractiveHandlers(): void {
         const normalizedSelectedModel = findMatchingModel(getOpenCodeModels(), selectedModel) ?? selectedModel;
         setChannelModel(channelId, normalizedSelectedModel);
       }
-      if (selectedProvider !== "opencode") {
+      if (selectedProvider === "codex") {
+        if (selectedModel && selectedModel !== "__default__") {
+          const normalizedSelectedModel = findMatchingModel(getCodexModels(), selectedModel) ?? selectedModel;
+          setChannelModel(channelId, normalizedSelectedModel);
+        } else {
+          setChannelModel(channelId, "");
+        }
+      }
+      if (selectedProvider === "claudecode") {
         setChannelModel(channelId, "");
       }
 

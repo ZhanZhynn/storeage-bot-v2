@@ -11,6 +11,7 @@ import {
 import { runTrackedRequest } from "@/core/runtime/request-runner";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import { CoreStateMachine } from "@/core/state-machine";
+import type { OpenCodeOptions } from "@/agents";
 import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@/core/types";
 import { getStatusMessageKey, type SessionEvent, type SessionMessageState, log } from "@/utils";
 
@@ -29,7 +30,7 @@ export async function runOpenRequest(params: {
   phaseLabel: string;
   stateMachine: CoreStateMachine;
   agentContext: Awaited<ReturnType<IMAdapter["buildAgentContext"]>>;
-  options?: { agent?: string };
+  options?: OpenCodeOptions;
   liveEventHistory: Map<string, SessionEvent[]>;
   liveParsedState: Map<string, SessionMessageState>;
   shouldStoreEvents: boolean;
