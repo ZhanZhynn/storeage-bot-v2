@@ -90,8 +90,6 @@ export function buildCodexCommandArgs(params: {
     "--json",
     "--full-auto",
     "--skip-git-repo-check",
-    "--color",
-    "never",
   ];
   if (params.model) {
     args.push("--model", params.model);
