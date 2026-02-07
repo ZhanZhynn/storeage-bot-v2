@@ -324,11 +324,12 @@ export function getSlackAppToken(): string {
   return tokens[0]!;
 }
 
-export function getSlackBotTokens(): Array<{ token: string; workspaceName?: string }> {
+export function getSlackBotTokens(): Array<{ token: string; workspaceId: string; workspaceName?: string }> {
   const active = getWorkspaces().filter((workspace) => workspace.status === "active");
   const candidates = active.length > 0 ? active : getWorkspaces();
   return candidates.map((workspace) => ({
     token: workspace.slackBotToken,
+    workspaceId: workspace.id,
     workspaceName: workspace.name,
   }));
 }
