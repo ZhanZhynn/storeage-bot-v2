@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { buildSessionMessageState } from "../../utils/session-inspector";
-import { buildClaudeStatusMessage } from "../../utils/status";
+import { buildStatusMessageByProvider } from "../../utils/status";
 
 function rawEvent(timestamp: number, record: Record<string, unknown>) {
   return {
@@ -228,7 +228,8 @@ describe("claude stream status parsing", () => {
       }),
     ]);
 
-    const text = buildClaudeStatusMessage(
+    const text = buildStatusMessageByProvider(
+      "claudecode",
       {
         channelId: "C1",
         threadId: "T1",
@@ -244,8 +245,7 @@ describe("claude stream status parsing", () => {
     expect(text).toContain("Investigate preview");
     expect(text).toContain("Drafting response");
     expect(text).toContain("`Grep`");
-    expect(text).toContain("Current response");
-    expect(text).toContain("Collecting preview details");
+    expect(text).toContain("session.status in tmp/repo");
   });
 
   it("renders assistant-derived tool details in claude status message", () => {
@@ -285,7 +285,8 @@ describe("claude stream status parsing", () => {
       }),
     ]);
 
-    const text = buildClaudeStatusMessage(
+    const text = buildStatusMessageByProvider(
+      "claudecode",
       {
         channelId: "C1",
         threadId: "T1",
@@ -300,7 +301,7 @@ describe("claude stream status parsing", () => {
 
     expect(text).toContain("`Read` packages/core/index.ts");
     expect(text).toContain("`Bash` ls -la");
-    expect(text).toContain("`Task` Explore codebase structure");
+    expect(text).toContain("`Task`");
   });
 
   it("uses frequency config for latest actions and shows last-N header", () => {
@@ -323,7 +324,8 @@ describe("claude stream status parsing", () => {
       }),
     ]);
 
-    const text = buildClaudeStatusMessage(
+    const text = buildStatusMessageByProvider(
+      "claudecode",
       {
         channelId: "C1",
         threadId: "T1",
@@ -336,12 +338,12 @@ describe("claude stream status parsing", () => {
       "medium"
     );
 
-    expect(text).toContain("Latest actions (Last 6 in 9)");
+    expect(text).toContain("Tool execution (Last 6 items in 9)");
     expect(text).not.toContain("`Read` file-1.ts");
     expect(text).toContain("`Read` file-9.ts");
   });
 
-  it("does not truncate current response text", () => {
+  it("uses shared renderer format without inline response body", () => {
     const now = Date.now();
     const longResponse = `${"A".repeat(180)}\n\n${"B".repeat(180)}`;
     const state = buildSessionMessageState([
@@ -358,7 +360,8 @@ describe("claude stream status parsing", () => {
       }),
     ]);
 
-    const text = buildClaudeStatusMessage(
+    const text = buildStatusMessageByProvider(
+      "claudecode",
       {
         channelId: "C1",
         threadId: "T1",
@@ -371,7 +374,7 @@ describe("claude stream status parsing", () => {
       "minimum"
     );
 
-    expect(text).toContain("Current response");
-    expect(text).toContain(longResponse);
+    expect(text).toContain("Drafting response");
+    expect(text).not.toContain(longResponse);
   });
 });

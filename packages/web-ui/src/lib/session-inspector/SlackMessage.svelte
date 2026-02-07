@@ -1,5 +1,6 @@
 <script lang="ts">
   import { buildStatusMessageByProvider } from "../../../../utils/status";
+  import type { AgentStatusProvider } from "../../../../utils/status";
   import type { SessionMessageState } from "../../../../utils/session-inspector";
 
   type PreviewStatusRequest = {
@@ -13,7 +14,7 @@
 
   export let state: SessionMessageState;
   export let workingDirectory: string;
-  export let provider: "opencode" | "claude" = "opencode";
+  export let provider: AgentStatusProvider = "opencode";
 
   function renderSlackMarkdown(text: string): string {
     if (!text) return "";

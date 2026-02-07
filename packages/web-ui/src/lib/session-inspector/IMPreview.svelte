@@ -1,5 +1,6 @@
 <script lang="ts">
   import SlackMessage from "./SlackMessage.svelte";
+  import type { AgentStatusProvider } from "../../../../utils/status";
   import { buildSessionMessageState, type SessionMessageState } from "@/utils/session-inspector";
 
   export let events: Array<{
@@ -9,7 +10,7 @@
   }>;
   export let selectedEventIndex: number;
   export let workingDirectory: string;
-  export let provider: "opencode" | "claude" = "opencode";
+  export let provider: AgentStatusProvider = "opencode";
 
   type PreviewState = SessionMessageState & {
     currentStatus: string;

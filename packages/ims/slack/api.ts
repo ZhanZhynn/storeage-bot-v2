@@ -1,5 +1,5 @@
 import { basename } from "path";
-import { getApp, getChannelBotToken } from "./client";
+import { getApp, getSlackBotToken } from "./client";
 
 export type SlackActionName =
   | "get_thread_messages"
@@ -76,14 +76,6 @@ function normalizeSlackUserId(userId: string): string {
     return trimmed.slice(2, -1);
   }
   return trimmed.startsWith("@") ? trimmed.slice(1) : trimmed;
-}
-
-function requireChannelToken(channelId: string): string {
-  const token = getChannelBotToken(channelId);
-  if (!token) {
-    throw new Error("No Slack bot token available for channel");
-  }
-  return token;
 }
 
 async function slackApiCall(method: string, body: Record<string, unknown>, token: string): Promise<unknown> {
@@ -165,7 +157,10 @@ async function slackFileUpload(
 
 async function handleSlackAction(payload: SlackActionRequest): Promise<unknown> {
   const channelId = requireString(payload.channelId, "channelId");
-  const token = requireChannelToken(channelId);
+  const token = getSlackBotToken();
+  if (!token) {
+    throw new Error("No Slack bot token available for channel");
+  }
   const client = getApp().client;
 
   switch (payload.action) {

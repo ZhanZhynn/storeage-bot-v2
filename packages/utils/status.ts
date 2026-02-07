@@ -224,106 +224,12 @@ export function buildLiveStatusMessage(
   return lines.join("\n");
 }
 
-function buildClaudeToolDetail(tool: SessionMessageState["tools"][number], workingPath: string): string {
-  const input = tool.input || {};
-  const toolName = tool.name?.toLowerCase?.() ?? "";
-  if (toolName === "task") {
-    const description = input.description;
-    if (typeof description === "string" && description.trim()) {
-      return description.trim();
-    }
-  }
-  const filePath = input.filePath || input.file_path;
-  const path = input.path;
-  const pattern = input.pattern;
-  const command = input.command;
-
-  if (typeof filePath === "string" && filePath.trim()) {
-    return trimToolPath(filePath, workingPath);
-  }
-  if (typeof pattern === "string" && pattern.trim()) {
-    if (typeof path === "string" && path.trim()) {
-      return `${pattern} in ${trimToolPath(path, workingPath)}`;
-    }
-    return pattern;
-  }
-  if (typeof path === "string" && path.trim()) {
-    return trimToolPath(path, workingPath);
-  }
-  if (typeof command === "string" && command.trim()) {
-    return command;
-  }
-  if (Array.isArray(input.args) && input.args.length > 0) {
-    return input.args.map((value) => String(value)).join(" ");
-  }
-  if (typeof tool.title === "string" && tool.title.trim()) {
-    return trimToolPath(tool.title, workingPath);
-  }
-  return "";
-}
-
-function truncateStatusDetail(value: string, limit = 200): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  if (normalized.length <= limit) return normalized;
-  return `${normalized.slice(0, limit)}...`;
-}
-
-export function buildClaudeStatusMessage(
-  request: StatusRequest,
-  workingPath: string,
-  state?: SessionMessageState,
-  frequency: MessageFrequency = "medium"
-): string {
-  if (!state) {
-    if (request.statusFrozen && request.currentText) return request.currentText;
-    return `_Thinking_ (${formatElapsedTime(request.startedAt)})`;
-  }
-
-  if (request.statusFrozen && request.currentText) {
-    return request.currentText;
-  }
-
-  const lines: string[] = [];
-  const title = state.sessionTitle || "ClaudeCode";
-  lines.push(`*${title}* (${formatElapsedTime(state.startedAt)})`);
-
-  const phase = state.phaseStatus?.trim() || "Thinking";
-  lines.push(`_${phase}_`);
-  if (state.thinkingText && /thinking/i.test(phase)) {
-    lines.push(`_${truncateStatusDetail(state.thinkingText)}_`);
-  }
-
-  const tools = state.tools || [];
-  if (tools.length > 0) {
-    const { itemLimit, detailLimit } = TOOL_DISPLAY_CONFIG[frequency];
-    const items = tools.length > itemLimit ? tools.slice(-itemLimit) : tools;
-    const header = tools.length > itemLimit
-      ? `*Latest actions (Last ${itemLimit} in ${tools.length})*`
-      : "*Latest actions*";
-    lines.push("", header);
-    for (const tool of items) {
-      const detail = buildClaudeToolDetail(tool, workingPath);
-      const truncated = detail ? truncateToolDetail(detail, detailLimit) : "";
-      lines.push(`${getToolIcon(tool.status)} \`${tool.name}\`${truncated ? ` ${truncated}` : ""}`);
-    }
-  }
-
-  if (state.currentText?.trim()) {
-    lines.push("", "*Current response*", state.currentText);
-  }
-
-  return lines.join("\n");
-}
-
 export function buildStatusMessageByProvider(
-  provider: AgentStatusProvider,
+  _provider: AgentStatusProvider,
   request: StatusRequest,
   workingPath: string,
   state?: SessionMessageState,
   frequency: MessageFrequency = "medium"
 ): string {
-  if (provider === "claudecode") {
-    return buildClaudeStatusMessage(request, workingPath, state, frequency);
-  }
   return buildLiveStatusMessage(request, workingPath, state, frequency);
 }

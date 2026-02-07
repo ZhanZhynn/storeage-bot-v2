@@ -3,7 +3,6 @@ import { log } from "@/utils";
 type RouterDeps = {
   getApp: () => any;
   isAuthorizedChannel: (channelId: string) => boolean;
-  registerChannelBotToken: (channelId: string, token?: string) => void;
   resolveWorkspaceAuth: (teamId?: string, enterpriseId?: string) => { workspaceName?: string; botToken?: string } | undefined;
   getChannelWorkspaceName: (channelId: string) => string | undefined;
   setChannelWorkspaceName: (channelId: string, workspaceName: string) => void;
@@ -42,7 +41,6 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
       log.info("[DROP] Unauthorized channel", { channelId });
       return;
     }
-    deps.registerChannelBotToken(channelId, client.token);
 
     const authResult = await client.auth.test();
     const currentBotUserId = authResult.user_id as string;
@@ -51,7 +49,6 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
       if (auth?.workspaceName && !deps.getChannelWorkspaceName(channelId)) {
         deps.setChannelWorkspaceName(channelId, auth.workspaceName);
       }
-      deps.registerChannelBotToken(channelId, auth?.botToken);
     }
 
     if (userId === currentBotUserId) {
