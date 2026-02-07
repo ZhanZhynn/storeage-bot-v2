@@ -37,6 +37,7 @@ export const writeLocalSettings = async (config: DashboardConfig): Promise<void>
 type SlackChannel = {
   id: string;
   name: string;
+  is_member?: boolean;
 };
 
 const slackRequest = async <T>(token: string, path: string, params?: URLSearchParams) => {
@@ -72,7 +73,8 @@ const fetchSlackChannels = async (token: string) => {
       channels: SlackChannel[];
       response_metadata?: { next_cursor?: string };
     }>(token, "conversations.list", params);
-    channels.push(...(data.channels ?? []));
+    const joinedChannels = (data.channels ?? []).filter((channel) => channel.is_member === true);
+    channels.push(...joinedChannels);
     cursor = data.response_metadata?.next_cursor ?? "";
   } while (cursor);
   return channels;
