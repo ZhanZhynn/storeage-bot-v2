@@ -43,8 +43,8 @@ describe("agent cli command formatting", () => {
       channelSystemMessage: "Always ask for confirmation before destructive file operations.",
     });
 
-    expect(systemPrompt).toContain("CHANNEL SYSTEM MESSAGE:");
     expect(systemPrompt).toContain("Always ask for confirmation before destructive file operations.");
+    expect(systemPrompt).not.toContain("CHANNEL SYSTEM MESSAGE:");
   });
 
   it("builds the OpenCode curl command", () => {

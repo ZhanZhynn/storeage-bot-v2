@@ -66,7 +66,6 @@ export function buildSystemPrompt(slack?: SlackContext): string {
     const channelSystemMessage = slack.channelSystemMessage?.trim();
     if (channelSystemMessage) {
       lines.push("");
-      lines.push("CHANNEL SYSTEM MESSAGE:");
       lines.push(channelSystemMessage);
     }
   }
