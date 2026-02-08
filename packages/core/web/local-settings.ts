@@ -80,6 +80,52 @@ const fetchSlackChannels = async (token: string) => {
   return channels;
 };
 
+export const discoverSlackWorkspace = async (
+  slackAppToken: string,
+  slackBotToken: string
+): Promise<DashboardConfig["workspaces"][number]> => {
+  const appToken = slackAppToken.trim();
+  const botToken = slackBotToken.trim();
+  if (!appToken) {
+    throw new Error("Missing Slack app token");
+  }
+  if (!botToken) {
+    throw new Error("Missing Slack bot token");
+  }
+
+  const config = await readLocalSettings();
+  const teamInfo = await slackRequest<{ team: { id?: string; name?: string; domain?: string } }>(
+    botToken,
+    "team.info"
+  );
+  const slackChannels = await fetchSlackChannels(botToken);
+  const fallbackModel = config.agents.opencode.models[0] ?? "";
+  const discoveredWorkspaceId = teamInfo.team?.id?.trim();
+  const workspaceId = discoveredWorkspaceId || `workspace-${config.workspaces.length + 1}`;
+  const workspaceName = teamInfo.team?.name?.trim() || `Workspace ${config.workspaces.length + 1}`;
+
+  const channelDetails = slackChannels.map((channel) => ({
+    id: channel.id,
+    name: channel.name ? `#${channel.name}` : "",
+    agentProvider: "opencode" as const,
+    model: fallbackModel,
+    workingDirectory: "",
+  }));
+
+  return {
+    id: workspaceId,
+    name: workspaceName,
+    domain: teamInfo.team?.domain ? `${teamInfo.team.domain}.slack.com` : "",
+    status: "active",
+    channels: channelDetails.length,
+    members: 0,
+    lastSync: new Date().toISOString(),
+    slackAppToken: appToken,
+    slackBotToken: botToken,
+    channelDetails,
+  };
+};
+
 export const syncSlackWorkspace = async (workspaceId: string): Promise<DashboardConfig["workspaces"][number]> => {
   const config = await readLocalSettings();
   const workspaceIndex = config.workspaces.findIndex((item) => item.id === workspaceId);
