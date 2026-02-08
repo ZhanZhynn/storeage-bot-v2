@@ -11,7 +11,7 @@
 </script>
 
 <section class="card">
-  <h2>Profile</h2>
+  <h2>General</h2>
   <div class="field-group">
     <p class="field-label">Status Message Format</p>
     <div class="options-row">
