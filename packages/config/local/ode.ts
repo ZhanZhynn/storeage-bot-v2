@@ -358,11 +358,29 @@ export function getSlackAppToken(): string {
   return tokens[0]!;
 }
 
-export function getSlackBotTokens(): Array<{ token: string; workspaceId: string; workspaceName?: string }> {
+export function getSlackAppTokens(): Array<{ token: string; workspaceId: string; workspaceName?: string }> {
+  const active = getWorkspaces().filter((workspace) => workspace.status === "active");
+  const candidates = active.length > 0 ? active : getWorkspaces();
+  return candidates
+    .map((workspace) => ({
+      token: workspace.slackAppToken,
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    }))
+    .filter((entry) => entry.token && entry.token.trim().length > 0);
+}
+
+export function getSlackBotTokens(): Array<{
+  token: string;
+  appToken: string;
+  workspaceId: string;
+  workspaceName?: string;
+}> {
   const active = getWorkspaces().filter((workspace) => workspace.status === "active");
   const candidates = active.length > 0 ? active : getWorkspaces();
   return candidates.map((workspace) => ({
     token: workspace.slackBotToken,
+    appToken: workspace.slackAppToken,
     workspaceId: workspace.id,
     workspaceName: workspace.name,
   }));
