@@ -6,7 +6,7 @@ import {
   type TrackedTodo,
   type TrackedTool,
 } from "@/config/local/sessions";
-import { resolveMessageFrequency } from "@/config/message-frequency";
+import { resolveStatusMessageFormat } from "@/config/status-message-format";
 import { CoreStateMachine } from "@/core/state-machine";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import type { AgentAdapter, IMAdapter } from "@/core/types";
@@ -157,7 +157,7 @@ export async function startEventStreamWatcher(
             request,
             workingPath,
             state: liveParsedState.get(messageKey),
-            frequency: resolveMessageFrequency(),
+            statusMessageFormat: resolveStatusMessageFormat(),
           }),
           false
         );

@@ -1,7 +1,7 @@
 import {
   DEFAULT_CODEX_MODEL,
   getChannelModel,
-  resolveMessageFrequency,
+  resolveStatusMessageFormat,
 } from "@/config";
 import {
   loadSession,
@@ -71,7 +71,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
     text: string;
   }): Promise<void> {
     const { channelId, threadId, statusTs, text } = params;
-    if (resolveMessageFrequency() === "aggressive") {
+    if (resolveStatusMessageFormat() === "aggressive") {
       await deps.im.sendMessage(channelId, threadId, text, true);
       return;
     }
