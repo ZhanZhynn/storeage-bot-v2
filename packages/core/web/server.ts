@@ -40,6 +40,7 @@ type JsonResponse = {
     claude: boolean;
     codex: boolean;
     kimi: boolean;
+    kiro: boolean;
     qwen: boolean;
   };
   providers?: unknown;
@@ -460,6 +461,7 @@ async function handleRequest(request: Request): Promise<Response> {
         claude: Boolean(Bun.which("claude")),
         codex: Boolean(Bun.which("codex")),
         kimi: Boolean(Bun.which("kimi")),
+        kiro: Boolean(Bun.which("kiro-cli") || Bun.which("kiro")),
         qwen: Boolean(Bun.which("qwen") || Bun.which("qwen-code")),
         opencodeModels,
         opencodeModelError,

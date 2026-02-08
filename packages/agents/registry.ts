@@ -1,6 +1,7 @@
 import * as claude from "./claude";
 import * as codex from "./codex";
 import * as kimi from "./kimi";
+import * as kiro from "./kiro";
 import * as opencode from "./opencode";
 import * as qwen from "./qwen";
 import type {
@@ -10,7 +11,7 @@ import type {
   OpenCodeSessionInfo,
 } from "./types";
 
-export type AgentProviderId = "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
+export type AgentProviderId = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen";
 
 export type AgentProvider = {
   id: AgentProviderId;
@@ -91,6 +92,19 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     ensureSession: kimi.ensureSession,
     subscribeToSession: kimi.subscribeToSession,
   },
+  kiro: {
+    id: "kiro",
+    supportsEventStream: false,
+    startServer: kiro.startServer,
+    stopServer: kiro.stopServer,
+    createSession: kiro.createSession,
+    getOrCreateSession: kiro.getOrCreateSession,
+    sendMessage: kiro.sendMessage,
+    abortSession: kiro.abortSession,
+    cancelActiveRequest: kiro.cancelActiveRequest,
+    ensureSession: kiro.ensureSession,
+    subscribeToSession: kiro.subscribeToSession,
+  },
   qwen: {
     id: "qwen",
     supportsEventStream: false,
@@ -111,6 +125,7 @@ export function getSelectedAgentProviderId(): AgentProviderId {
   if (raw === "claudecode" || raw === "claude") return "claudecode";
   if (raw === "codex") return "codex";
   if (raw === "kimi") return "kimi";
+  if (raw === "kiro") return "kiro";
   if (raw === "qwen") return "qwen";
   return "opencode";
 }

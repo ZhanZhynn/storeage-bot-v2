@@ -46,6 +46,24 @@ type SlackTeam = {
   domain?: string;
 };
 
+type ChannelAgentProvider = DashboardConfig["workspaces"][number]["channelDetails"][number]["agentProvider"];
+
+const KNOWN_AGENT_PROVIDERS = new Set<NonNullable<ChannelAgentProvider>>([
+  "opencode",
+  "claudecode",
+  "codex",
+  "kimi",
+  "kiro",
+  "qwen",
+]);
+
+function normalizeChannelAgentProvider(value: unknown): NonNullable<ChannelAgentProvider> {
+  if (typeof value !== "string") return "opencode";
+  return KNOWN_AGENT_PROVIDERS.has(value as NonNullable<ChannelAgentProvider>)
+    ? value as NonNullable<ChannelAgentProvider>
+    : "opencode";
+}
+
 const slackRequest = async <T>(token: string, path: string, params?: URLSearchParams) => {
   const url = new URL(`https://slack.com/api/${path}`);
   if (params) {
@@ -115,16 +133,7 @@ const buildSyncedChannelDetails = (
 ): DashboardConfig["workspaces"][number]["channelDetails"] =>
   channels.map((channel) => {
     const existing = workspace.channelDetails.find((item) => item.id === channel.id);
-    const agentProvider: "opencode" | "claudecode" | "codex" | "kimi" | "qwen" =
-      existing?.agentProvider === "claudecode"
-        ? "claudecode"
-        : existing?.agentProvider === "codex"
-          ? "codex"
-          : existing?.agentProvider === "kimi"
-            ? "kimi"
-            : existing?.agentProvider === "qwen"
-              ? "qwen"
-            : "opencode";
+    const agentProvider = normalizeChannelAgentProvider(existing?.agentProvider);
 
     return {
       id: channel.id,

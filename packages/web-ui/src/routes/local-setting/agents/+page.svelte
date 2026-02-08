@@ -43,6 +43,15 @@
     </div>
 
     <div class="agent-row">
+      <strong>Kiro CLI</strong>
+      {#if $localSettingStore.cliCheckResult}
+        <span class="badge {$localSettingStore.cliCheckResult.kiro ? 'on' : 'off'}">
+          {$localSettingStore.cliCheckResult.kiro ? "Installed" : "Not found"}
+        </span>
+      {/if}
+    </div>
+
+    <div class="agent-row">
       <strong>Qwen CLI</strong>
       {#if $localSettingStore.cliCheckResult}
         <span class="badge {$localSettingStore.cliCheckResult.qwen ? 'on' : 'off'}">

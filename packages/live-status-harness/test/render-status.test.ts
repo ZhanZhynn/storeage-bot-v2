@@ -33,16 +33,15 @@ describe("live status harness renderer", () => {
     expect(joined).toContain("Drafting response");
   });
 
-  it("renders qwen tool and response statuses from fixture", async () => {
-    const fixtureFile = Bun.file(`${import.meta.dir}/fixtures/qwen-basic-run.json`);
+  it("renders kiro busy to idle live status from fixture", async () => {
+    const fixtureFile = Bun.file(`${import.meta.dir}/fixtures/kiro-basic-run.json`);
     const fixture = JSON.parse(await fixtureFile.text()) as FixtureShape;
 
     const statuses = renderStatusesFromRun(fixture.meta, fixture.events);
     const joined = statuses.map((status) => status.text).join("\n\n");
 
-    expect(statuses.length).toBeGreaterThanOrEqual(3);
-    expect(joined).toContain("Running tool: Read");
-    expect(joined).toContain("Finished tool: Read");
-    expect(joined).toContain("Drafting response");
+    expect(statuses.length).toBe(2);
+    expect(joined).toContain("Working");
+    expect(joined).toContain("Waiting");
   });
 });

@@ -24,6 +24,9 @@ export type DashboardConfig = {
     kimi: {
       enabled: boolean;
     };
+    kiro: {
+      enabled: boolean;
+    };
     qwen: {
       enabled: boolean;
     };
@@ -41,7 +44,7 @@ export type DashboardConfig = {
     channelDetails: {
       id: string;
       name: string;
-      agentProvider?: "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
+      agentProvider?: "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen";
       model: string;
       workingDirectory: string;
       baseBranch: string;
@@ -74,6 +77,7 @@ export const defaultDashboardConfig: DashboardConfig = {
     claudecode: { enabled: true },
     codex: { enabled: true, models: [] },
     kimi: { enabled: true },
+    kiro: { enabled: true },
     qwen: { enabled: true },
   },
   workspaces: [],
@@ -112,18 +116,24 @@ const asGitStrategy = (
 const asStatus = (value: unknown): DashboardConfig["workspaces"][number]["status"] =>
   value === "paused" ? "paused" : "active";
 
+const KNOWN_AGENT_PROVIDERS = new Set<NonNullable<
+  DashboardConfig["workspaces"][number]["channelDetails"][number]["agentProvider"]
+>>(["opencode", "claudecode", "codex", "kimi", "kiro", "qwen"]);
+
+function isKnownAgentProvider(
+  value: string
+): value is NonNullable<DashboardConfig["workspaces"][number]["channelDetails"][number]["agentProvider"]> {
+  return KNOWN_AGENT_PROVIDERS.has(value as NonNullable<
+    DashboardConfig["workspaces"][number]["channelDetails"][number]["agentProvider"]
+  >);
+}
+
 const asAgentProvider = (
   value: unknown
 ): DashboardConfig["workspaces"][number]["channelDetails"][number]["agentProvider"] =>
-  value === "claudecode"
-    ? "claudecode"
-    : value === "codex"
-      ? "codex"
-      : value === "kimi"
-        ? "kimi"
-        : value === "qwen"
-          ? "qwen"
-        : "opencode";
+  typeof value === "string" && isKnownAgentProvider(value)
+    ? value
+    : "opencode";
 
 const sanitizeChannelDetail = (
   channel: unknown
@@ -210,6 +220,9 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
   const kimiRecord = agentsRecord.kimi && typeof agentsRecord.kimi === "object"
     ? (agentsRecord.kimi as Record<string, unknown>)
     : {};
+  const kiroRecord = agentsRecord.kiro && typeof agentsRecord.kiro === "object"
+    ? (agentsRecord.kiro as Record<string, unknown>)
+    : {};
   const qwenRecord = agentsRecord.qwen && typeof agentsRecord.qwen === "object"
     ? (agentsRecord.qwen as Record<string, unknown>)
     : {};
@@ -245,6 +258,9 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
       },
       kimi: {
         enabled: kimiRecord.enabled !== false,
+      },
+      kiro: {
+        enabled: kiroRecord.enabled !== false,
       },
       qwen: {
         enabled: qwenRecord.enabled !== false,

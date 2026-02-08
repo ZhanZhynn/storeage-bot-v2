@@ -5,15 +5,33 @@
   import { localSettingStore } from "$lib/local-setting/store";
   import { getSelectedWorkspace, getWorkspacePath, slugify } from "$lib/local-setting/workspaces";
 
-  type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
+  type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen";
 
   const providerLabels: Record<AgentProvider, string> = {
     opencode: "OpenCode",
     claudecode: "Claude Code",
     codex: "Codex",
     kimi: "Kimi",
+    kiro: "Kiro",
     qwen: "Qwen Code",
   };
+
+  const agentProviders = Object.keys(providerLabels) as AgentProvider[];
+
+  function parseAgentProvider(value: unknown): AgentProvider {
+    return typeof value === "string" && agentProviders.includes(value as AgentProvider)
+      ? value as AgentProvider
+      : "opencode";
+  }
+
+  function isProviderEnabled(provider: AgentProvider): boolean {
+    if (provider === "opencode") return $localSettingStore.config.agents.opencode.enabled;
+    if (provider === "claudecode") return $localSettingStore.config.agents.claudecode.enabled;
+    if (provider === "codex") return $localSettingStore.config.agents.codex.enabled;
+    if (provider === "kimi") return $localSettingStore.config.agents.kimi.enabled;
+    if (provider === "kiro") return $localSettingStore.config.agents.kiro.enabled;
+    return $localSettingStore.config.agents.qwen.enabled;
+  }
 
   let isCanonicalizingWorkspaceRoute = false;
 
@@ -21,13 +39,7 @@
   $: duplicateWorkspaceIds = getDuplicateWorkspaceIds($localSettingStore.config.workspaces);
   $: duplicateSlackBotTokens = getDuplicateSlackBotTokens($localSettingStore.config.workspaces);
   $: selectedWorkspaceErrors = getWorkspaceErrors(selectedWorkspace, duplicateWorkspaceIds, duplicateSlackBotTokens);
-  $: enabledProviders = (Object.keys(providerLabels) as AgentProvider[]).filter((provider) => {
-    if (provider === "opencode") return $localSettingStore.config.agents.opencode.enabled;
-    if (provider === "claudecode") return $localSettingStore.config.agents.claudecode.enabled;
-    if (provider === "codex") return $localSettingStore.config.agents.codex.enabled;
-    if (provider === "kimi") return $localSettingStore.config.agents.kimi.enabled;
-    return $localSettingStore.config.agents.qwen.enabled;
-  });
+  $: enabledProviders = agentProviders.filter((provider) => isProviderEnabled(provider));
   $: maybeCanonicalizeWorkspaceRoute();
 
   function maybeCanonicalizeWorkspaceRoute(): void {
@@ -44,11 +56,7 @@
   }
 
   function getChannelProvider(channel: { agentProvider?: string }): AgentProvider {
-    if (channel.agentProvider === "claudecode") return "claudecode";
-    if (channel.agentProvider === "codex") return "codex";
-    if (channel.agentProvider === "kimi") return "kimi";
-    if (channel.agentProvider === "qwen") return "qwen";
-    return "opencode";
+    return parseAgentProvider(channel.agentProvider);
   }
 
   function ensureAgentEnabled(provider: AgentProvider): AgentProvider {
@@ -81,15 +89,7 @@
 
   function onChannelProviderChange(workspaceId: string, channelId: string, event: Event): void {
     const selected = (event.currentTarget as HTMLSelectElement).value;
-    const provider = selected === "claudecode"
-      ? "claudecode"
-      : selected === "codex"
-        ? "codex"
-        : selected === "kimi"
-          ? "kimi"
-          : selected === "qwen"
-            ? "qwen"
-        : "opencode";
+    const provider = parseAgentProvider(selected);
     localSettingStore.updateWorkspace(workspaceId, (workspace) => ({
       ...workspace,
       channelDetails: workspace.channelDetails.map((channel) => {
