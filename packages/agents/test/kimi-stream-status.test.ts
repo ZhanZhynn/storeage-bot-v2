@@ -151,4 +151,24 @@ describe("kimi stream status parsing", () => {
     expect(state.tools[0]?.status).toBe("completed");
     expect(state.phaseStatus).toBe("Finished tool: Read");
   });
+
+  it("infers session title from kimi tool calls", () => {
+    const now = Date.now();
+    const state = buildSessionMessageState([
+      rawEvent(now, {
+        role: "assistant",
+        tool_calls: [
+          {
+            id: "tool_4",
+            function: {
+              name: "ReadFile",
+              arguments: '{"path":"/tmp/repo/packages/core/index.ts"}',
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(state.sessionTitle).toBe("Inspect file: /tmp/repo/packages/core/index.ts");
+  });
 });
