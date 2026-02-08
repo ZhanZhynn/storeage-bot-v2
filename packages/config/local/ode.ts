@@ -37,7 +37,7 @@ const userSchema = z.object({
   ]).optional(),
 });
 
-const agentProviderSchema = z.enum(["opencode", "claudecode", "codex", "kimi"]);
+const agentProviderSchema = z.enum(["opencode", "claudecode", "codex", "kimi", "qwen"]);
 
 const agentsSchema = z.object({
   opencode: z.object({
@@ -54,11 +54,15 @@ const agentsSchema = z.object({
   kimi: z.object({
     enabled: z.boolean().optional().default(true),
   }).optional().default({ enabled: true }),
+  qwen: z.object({
+    enabled: z.boolean().optional().default(true),
+  }).optional().default({ enabled: true }),
 }).optional().default({
   opencode: { enabled: true, models: [] },
   claudecode: { enabled: true },
   codex: { enabled: true, models: [] },
   kimi: { enabled: true },
+  qwen: { enabled: true },
 });
 
 const channelDetailSchema = z.object({
@@ -143,6 +147,7 @@ const EMPTY_TEMPLATE: OdeConfig = {
     claudecode: { enabled: true },
     codex: { enabled: true, models: [] },
     kimi: { enabled: true },
+    qwen: { enabled: true },
   },
   completeOnboarding: false,
   workspaces: [],
@@ -227,6 +232,9 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
       },
       kimi: {
         enabled: config.agents?.kimi?.enabled ?? true,
+      },
+      qwen: {
+        enabled: config.agents?.qwen?.enabled ?? true,
       },
     },
     completeOnboarding,
@@ -323,6 +331,7 @@ export function getEnabledAgentProviders(): AgentProvider[] {
   if (agents.claudecode.enabled) enabled.push("claudecode");
   if (agents.codex.enabled) enabled.push("codex");
   if (agents.kimi.enabled) enabled.push("kimi");
+  if (agents.qwen.enabled) enabled.push("qwen");
   return enabled.length > 0 ? enabled : ["opencode"];
 }
 
@@ -331,7 +340,8 @@ export function isAgentEnabled(agentProvider: AgentProvider): boolean {
   if (agentProvider === "opencode") return agents.opencode.enabled;
   if (agentProvider === "claudecode") return agents.claudecode.enabled;
   if (agentProvider === "codex") return agents.codex.enabled;
-  return agents.kimi.enabled;
+  if (agentProvider === "kimi") return agents.kimi.enabled;
+  return agents.qwen.enabled;
 }
 
 export function getOpenCodeModels(): string[] {
@@ -526,7 +536,9 @@ export function getChannelModel(channelId: string): string | null {
 
 export function getChannelAgentProvider(channelId: string): AgentProvider {
   const provider = getChannelDetails(channelId)?.agentProvider;
-  if (provider === "claudecode" || provider === "codex" || provider === "kimi") return provider;
+  if (provider === "claudecode" || provider === "codex" || provider === "kimi" || provider === "qwen") {
+    return provider;
+  }
   return "opencode";
 }
 

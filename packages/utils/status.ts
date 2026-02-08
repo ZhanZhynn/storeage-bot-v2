@@ -13,7 +13,7 @@ export type StatusRequest = {
   statusFrozen?: boolean;
 };
 
-export type AgentStatusProvider = "opencode" | "claudecode" | "codex" | "kimi";
+export type AgentStatusProvider = "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
 
 type StatusTodo = {
   content: string;
@@ -102,8 +102,43 @@ function formatTodoLines(todos: StatusTodo[], limit = PLAN_TODO_LIMIT): string[]
   return lines;
 }
 
+function normalizeToolName(name: string): string {
+  switch (name) {
+    case "read_file":
+    case "read_many_files":
+      return "read";
+    case "write_file":
+      return "write";
+    case "run_shell_command":
+      return "bash";
+    case "grep_search":
+      return "grep";
+    case "list_directory":
+      return "list_directory";
+    default:
+      return name;
+  }
+}
+
+function getToolDisplayName(name: string): string {
+  switch (name.toLowerCase()) {
+    case "read_file":
+      return "read";
+    case "read_many_files":
+      return "read";
+    case "write_file":
+      return "write";
+    case "run_shell_command":
+      return "bash";
+    case "grep_search":
+      return "grep";
+    default:
+      return name;
+  }
+}
+
 function buildToolDetails(tool: SessionMessageState["tools"][number], workingPath: string): string {
-  const name = tool.name?.toLowerCase?.() ?? "";
+  const name = normalizeToolName(tool.name?.toLowerCase?.() ?? "");
   const input = tool.input || {};
   const title = tool.title?.trim() ?? "";
 
@@ -120,7 +155,7 @@ function buildToolDetails(tool: SessionMessageState["tools"][number], workingPat
   }
 
   if (name === "read") {
-    const filePath = input.filePath || input.file_path;
+    const filePath = input.filePath || input.file_path || input.absolute_path;
     const offset = typeof input.offset === "number" ? input.offset : undefined;
     const limit = typeof input.limit === "number" ? input.limit : undefined;
     let details = filePath ? trimToolPath(String(filePath), workingPath) : "";
@@ -134,14 +169,21 @@ function buildToolDetails(tool: SessionMessageState["tools"][number], workingPat
   }
 
   if (name === "edit" || name === "write") {
-    const filePath = input.filePath || input.file_path;
+    const filePath = input.filePath || input.file_path || input.absolute_path;
     if (filePath) {
       return trimToolPath(String(filePath), workingPath);
     }
   }
 
+  if (name === "list_directory") {
+    const path = input.path || input.directory;
+    if (path) {
+      return trimToolPath(String(path), workingPath);
+    }
+  }
+
   if (name === "bash") {
-    return String(input.command || "");
+    return String(input.command || input.cmd || "");
   }
 
   return title ? trimToolPath(title, workingPath) : "";
@@ -172,7 +214,7 @@ export function buildToolLines(
     const details = buildToolDetails(tool, workingPath);
     const truncated = details ? truncateToolDetail(details, detailLimit) : "";
     const suffix = truncated ? ` ${truncated}` : "";
-    lines.push(`${getToolIcon(tool.status)} ${codeMark}${tool.name}${codeMark}${suffix}`);
+    lines.push(`${getToolIcon(tool.status)} ${codeMark}${getToolDisplayName(tool.name)}${codeMark}${suffix}`);
   }
 
   return lines;

@@ -5,6 +5,7 @@ import {
 } from "@/agents/claude/session-state";
 import { applyCodexRecordToState, extractCodexRecord } from "@/agents/codex/session-state";
 import { applyKimiRecordToState, extractKimiRecord } from "@/agents/kimi/session-state";
+import { applyQwenRecordToState, extractQwenRecord } from "@/agents/qwen/session-state";
 
 export type SessionEvent = {
   timestamp: number;
@@ -164,6 +165,17 @@ export function buildSessionMessageState(
     const kimiRecord = extractKimiRecord(type, eventData, eventProps);
     if (kimiRecord) {
       applyKimiRecordToState(state, kimiRecord, kimiToolById);
+      continue;
+    }
+
+    const qwenRecord = extractQwenRecord(type, eventData, eventProps);
+    if (qwenRecord) {
+      applyQwenRecordToState(state, qwenRecord, {
+        textByIndex: claudeTextByIndex,
+        thinkingByIndex: claudeThinkingByIndex,
+        toolByIndex: claudeToolByIndex,
+        toolById: claudeToolById,
+      });
       continue;
     }
 
