@@ -43,6 +43,22 @@ const CHANNEL_SYSTEM_MESSAGE_ACTION = "channel_system_message_input";
 
 type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen";
 
+const AGENT_PROVIDERS: AgentProvider[] = ["opencode", "claudecode", "codex", "kimi", "kiro", "qwen"];
+
+const AGENT_PROVIDER_LABELS: Record<AgentProvider, string> = {
+  opencode: "OpenCode",
+  claudecode: "Claude Code",
+  codex: "Codex",
+  kimi: "Kimi",
+  kiro: "Kiro",
+  qwen: "Qwen Code",
+};
+
+function parseAgentProvider(value: unknown): AgentProvider {
+  if (typeof value !== "string") return "opencode";
+  return AGENT_PROVIDERS.includes(value as AgentProvider) ? value as AgentProvider : "opencode";
+}
+
 function normalizeModel(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -55,20 +71,14 @@ function findMatchingModel(models: string[], value: string | null | undefined): 
 
 function getSelectableProviders(): AgentProvider[] {
   const enabled = getEnabledAgentProviders().filter(
-    (provider): provider is AgentProvider =>
-      provider === "opencode" || provider === "claudecode" || provider === "codex" || provider === "kimi" || provider === "kiro" || provider === "qwen"
+    (provider): provider is AgentProvider => AGENT_PROVIDERS.includes(provider as AgentProvider)
   );
   if (enabled.length > 0) return enabled;
-  return ["opencode", "claudecode", "codex", "kimi", "kiro", "qwen"];
+  return AGENT_PROVIDERS;
 }
 
 function toSelectableProvider(provider: "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen"): AgentProvider {
-  if (provider === "claudecode") return "claudecode";
-  if (provider === "codex") return "codex";
-  if (provider === "kimi") return "kimi";
-  if (provider === "kiro") return "kiro";
-  if (provider === "qwen") return "qwen";
-  return "opencode";
+  return parseAgentProvider(provider);
 }
 
 function buildSettingsModal(params: {
@@ -93,16 +103,8 @@ function buildSettingsModal(params: {
     baseBranch,
     channelSystemMessage,
   } = params;
-  const providerLabels: Record<AgentProvider, string> = {
-    opencode: "OpenCode",
-    claudecode: "Claude Code",
-    codex: "Codex",
-    kimi: "Kimi",
-    kiro: "Kiro",
-    qwen: "Qwen Code",
-  };
   const providerOptions = enabledProviders.map((provider) => ({
-    text: { type: "plain_text" as const, text: providerLabels[provider] },
+    text: { type: "plain_text" as const, text: AGENT_PROVIDER_LABELS[provider] },
     value: provider,
   }));
   const modelOptions = opencodeModels.length > 0
@@ -353,17 +355,7 @@ export function setupInteractiveHandlers(): void {
 
     const channelId = view.private_metadata;
     const selectedOption = (body as any).actions?.[0]?.selected_option?.value;
-    const selectedProvider = selectedOption === "claudecode"
-      ? "claudecode"
-      : selectedOption === "codex"
-        ? "codex"
-        : selectedOption === "kimi"
-          ? "kimi"
-          : selectedOption === "kiro"
-            ? "kiro"
-            : selectedOption === "qwen"
-              ? "qwen"
-        : "opencode";
+    const selectedProvider = parseAgentProvider(selectedOption);
     if (selectedProvider === "opencode") {
       try {
         await startOpenCodeServer();
@@ -410,18 +402,9 @@ export function setupInteractiveHandlers(): void {
     slackApp.view(SETTINGS_MODAL_ID, async ({ ack, view, body, client }) => {
     const channelId = view.private_metadata;
     const values = view.state.values;
-    const selectedProvider =
-      values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "claudecode"
-        ? "claudecode"
-        : values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "codex"
-          ? "codex"
-          : values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "kimi"
-            ? "kimi"
-            : values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "kiro"
-              ? "kiro"
-              : values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "qwen"
-                ? "qwen"
-          : "opencode";
+    const selectedProvider = parseAgentProvider(
+      values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value
+    );
     const selectedModel = values?.[MODEL_BLOCK]?.[MODEL_ACTION]?.selected_option?.value;
     const workingDirectory = values?.[WORKING_DIR_BLOCK]?.[WORKING_DIR_ACTION]?.value || "";
     const baseBranch = values?.[BASE_BRANCH_BLOCK]?.[BASE_BRANCH_ACTION]?.value || "main";
