@@ -2,7 +2,7 @@ import {
   TOOL_DISPLAY_CONFIG,
   type StatusMessageFormat,
 } from "@/config/web";
-import type { SessionMessageState, SessionTodo } from "./session-inspector";
+import type { SessionMessageState } from "./session-inspector";
 
 export type StatusRequest = {
   channelId: string;
@@ -281,53 +281,21 @@ export function buildStatusMessageByProvider(
   state?: SessionMessageState,
   statusMessageFormat: StatusMessageFormat = "medium"
 ): string {
-  const normalizedState = provider === "kiro" && state
-    ? normalizeKiroStatusState(state)
-    : state;
-  const fallbackTitle = normalizedState && !normalizedState.sessionTitle
+  const fallbackTitle = state && !state.sessionTitle
     ? PROVIDER_FALLBACK_TITLES[provider]
     : undefined;
 
-  if (fallbackTitle && normalizedState) {
+  if (fallbackTitle && state) {
     return buildLiveStatusMessage(
       request,
       workingPath,
       {
-        ...normalizedState,
+        ...state,
         sessionTitle: fallbackTitle,
       },
       statusMessageFormat
     );
   }
 
-  return buildLiveStatusMessage(request, workingPath, normalizedState, statusMessageFormat);
-}
-
-function normalizeKiroStatusState(state: SessionMessageState): SessionMessageState {
-  const todos: SessionTodo[] = [...state.todos];
-  const tools: SessionMessageState["tools"] = [];
-
-  for (const tool of state.tools) {
-    const toolName = tool.name?.toLowerCase?.() ?? "";
-    if (toolName === "task") {
-      const todoStatus = tool.status === "completed"
-        ? "completed"
-        : tool.status === "error"
-          ? "cancelled"
-          : "in_progress";
-      todos.push({
-        content: tool.title?.trim() || "Task",
-        status: todoStatus,
-      });
-      continue;
-    }
-
-    tools.push(tool);
-  }
-
-  return {
-    ...state,
-    tools,
-    todos,
-  };
+  return buildLiveStatusMessage(request, workingPath, state, statusMessageFormat);
 }
