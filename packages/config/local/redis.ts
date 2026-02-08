@@ -5,9 +5,9 @@ let redis: Redis | null = null;
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const AGENT_SESSION_LIMIT = 10;
 
-export type SessionAgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro";
+export type SessionAgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen";
 
-const SESSION_PREFIXES: SessionAgentProvider[] = ["opencode", "claudecode", "codex", "kimi", "kiro"];
+const SESSION_PREFIXES: SessionAgentProvider[] = ["opencode", "claudecode", "codex", "kimi", "kiro", "qwen"];
 
 export function toRedisSessionId(sessionId: string, agentProvider: SessionAgentProvider): string {
   const trimmed = sessionId.trim();

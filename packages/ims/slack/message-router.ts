@@ -31,18 +31,126 @@ type RouterDeps = {
   }, text: string) => Promise<void>;
 };
 
+type WorkspaceAuth = ReturnType<RouterDeps["resolveWorkspaceAuth"]>;
+
+type IncomingMessageData = {
+  channelId: string;
+  userId: string;
+  text: string;
+  threadId: string;
+  messageId: string;
+};
+
+function syncWorkspaceAuth(
+  deps: RouterDeps,
+  channelId: string,
+  teamId?: string,
+  enterpriseId?: string
+): WorkspaceAuth {
+  if (!teamId) return undefined;
+  const auth = deps.resolveWorkspaceAuth(teamId, enterpriseId);
+  if (auth?.workspaceName && !deps.getChannelWorkspaceName(channelId)) {
+    deps.setChannelWorkspaceName(channelId, auth.workspaceName);
+  }
+  deps.setChannelWorkspaceAuth(channelId, auth);
+  return auth;
+}
+
+function stripBotMention(text: string, botUserId: string): string {
+  if (!botUserId) return text.trim();
+  return text.replace(new RegExp(`<@${botUserId}>`, "g"), "").trim();
+}
+
+function extractIncomingMessageData(message: any): IncomingMessageData | null {
+  if (message.subtype !== undefined) return null;
+  if (!("text" in message) || !message.text) return null;
+  if (!("user" in message) || !message.user) return null;
+
+  return {
+    channelId: message.channel,
+    userId: message.user,
+    text: message.text,
+    threadId: message.thread_ts || message.ts,
+    messageId: message.ts,
+  };
+}
+
+function shouldDropForThreadContext(isMention: boolean, threadActive: boolean): boolean {
+  return !isMention && !threadActive;
+}
+
+function shouldDropForOtherMentions(text: string, isMention: boolean): boolean {
+  return /<@U[A-Z0-9]+>/g.test(text) && !isMention;
+}
+
+async function maybeHandleStopCommand(
+  deps: RouterDeps,
+  text: string,
+  channelId: string,
+  threadId: string,
+  say: any
+): Promise<boolean> {
+  if (!/\bstop\b/i.test(text)) return false;
+  const stopped = await deps.handleStopCommand(channelId, threadId);
+  if (!stopped) return false;
+
+  await say({ text: "Request stopped.", thread_ts: threadId });
+  return true;
+}
+
+async function maybeNotifySettingsIssues(
+  deps: RouterDeps,
+  channelId: string,
+  threadId: string,
+  userId: string,
+  client: any,
+  say: any
+): Promise<boolean> {
+  const settingsIssues = deps.describeSettingsIssues(channelId);
+  if (settingsIssues.length === 0) return false;
+
+  await say({
+    text: `Channel settings need attention:\n- ${settingsIssues.join("\n- ")}`,
+    thread_ts: threadId,
+  });
+  await deps.postSettingsLauncher(channelId, userId, client);
+  return true;
+}
+
+async function maybeHandleLauncherCommand(params: {
+  deps: RouterDeps;
+  cleanText: string;
+  isMention: boolean;
+  channelId: string;
+  userId: string;
+  client: any;
+}): Promise<boolean> {
+  const { deps, cleanText, isMention, channelId, userId, client } = params;
+
+  const commandHandlers: Array<{
+    matches: (text: string) => boolean;
+    launch: (channelId: string, userId: string, client: any) => Promise<void>;
+  }> = [
+    { matches: deps.isGitHubCommand, launch: deps.postGitHubLauncher },
+    { matches: deps.isSettingsCommand, launch: deps.postSettingsLauncher },
+  ];
+
+  const handler = commandHandlers.find((entry) => entry.matches(cleanText));
+  if (!handler) return false;
+  if (isMention) {
+    await handler.launch(channelId, userId, client);
+  }
+  return true;
+}
+
 export function registerSlackMessageRouter(deps: RouterDeps): void {
   const slackApp = deps.app;
 
   slackApp.message(async ({ message, say, client }: any) => {
-    if (message.subtype !== undefined) return;
-    if (!("text" in message) || !message.text) return;
-    if (!("user" in message)) return;
+    const incoming = extractIncomingMessageData(message);
+    if (!incoming) return;
 
-    const channelId = message.channel;
-    const userId = message.user;
-    const text = message.text;
-    const threadId = message.thread_ts || message.ts;
+    const { channelId, userId, text, threadId, messageId } = incoming;
 
     if (!deps.isAuthorizedChannel(channelId)) {
       log.info("[DROP] Unauthorized channel", { channelId });
@@ -51,68 +159,51 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
 
     const authResult = await client.auth.test();
     const currentBotUserId = authResult.user_id as string;
-    if (authResult.team_id) {
-      const auth = deps.resolveWorkspaceAuth(authResult.team_id, authResult.enterprise_id ?? undefined);
-      if (auth?.workspaceName && !deps.getChannelWorkspaceName(channelId)) {
-        deps.setChannelWorkspaceName(channelId, auth.workspaceName);
-      }
-      deps.setChannelWorkspaceAuth(channelId, auth);
-    }
+    syncWorkspaceAuth(
+      deps,
+      channelId,
+      authResult.team_id,
+      authResult.enterprise_id ?? undefined
+    );
 
     if (userId === currentBotUserId) {
       log.debug("[DROP] Message from bot user", { channelId, userId });
       return;
     }
 
-    if (/\bstop\b/i.test(text)) {
-      const stopped = await deps.handleStopCommand(channelId, threadId);
-      if (stopped) {
-        await say({ text: "Request stopped.", thread_ts: threadId });
-        return;
-      }
+    if (await maybeHandleStopCommand(deps, text, channelId, threadId, say)) {
+      return;
     }
 
     const isMention = currentBotUserId ? text.includes(`<@${currentBotUserId}>`) : false;
     const threadActive = deps.isThreadActive(channelId, threadId);
 
-    if (!isMention && !threadActive) {
+    if (shouldDropForThreadContext(isMention, threadActive)) {
       log.info("[DROP] Not mentioned and thread inactive", { channelId, threadId });
       return;
     }
 
-    const mentionsOthers = /<@U[A-Z0-9]+>/g.test(text) && !isMention;
-    if (mentionsOthers) {
+    if (shouldDropForOtherMentions(text, isMention)) {
       log.info("[DROP] Mentions other user", { channelId, threadId });
       return;
     }
 
     deps.markThreadActive(channelId, threadId);
 
-    const cleanText = currentBotUserId
-      ? text.replace(new RegExp(`<@${currentBotUserId}>`, "g"), "").trim()
-      : text.trim();
+    const cleanText = stripBotMention(text, currentBotUserId);
 
-    if (deps.isGitHubCommand(cleanText)) {
-      if (isMention) {
-        await deps.postGitHubLauncher(channelId, userId, client);
-      }
+    if (await maybeHandleLauncherCommand({
+      deps,
+      cleanText,
+      isMention,
+      channelId,
+      userId,
+      client,
+    })) {
       return;
     }
 
-    if (deps.isSettingsCommand(cleanText)) {
-      if (isMention) {
-        await deps.postSettingsLauncher(channelId, userId, client);
-      }
-      return;
-    }
-
-    const settingsIssues = deps.describeSettingsIssues(channelId);
-    if (settingsIssues.length > 0) {
-      await say({
-        text: `Channel settings need attention:\n- ${settingsIssues.join("\n- ")}`,
-        thread_ts: threadId,
-      });
-      await deps.postSettingsLauncher(channelId, userId, client);
+    if (await maybeNotifySettingsIssues(deps, channelId, threadId, userId, client, say)) {
       return;
     }
 
@@ -130,7 +221,7 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
         channelId,
         threadId,
         userId,
-        messageId: message.ts,
+        messageId,
         workspaceName,
       },
       cleanText

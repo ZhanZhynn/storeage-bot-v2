@@ -30,9 +30,6 @@ const agentOptions: Omit<AgentOption, "installed">[] = [
 ];
 
 function isAgentCommandAvailable(agent: Omit<AgentOption, "installed">): boolean {
-  if (agent.id === "qwen") {
-    return Boolean(Bun.which("qwen") || Bun.which("qwen-code"));
-  }
   return Boolean(Bun.which(agent.command));
 }
 
