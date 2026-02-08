@@ -41,7 +41,7 @@ const BASE_BRANCH_ACTION = "base_branch_input";
 const CHANNEL_SYSTEM_MESSAGE_BLOCK = "channel_system_message";
 const CHANNEL_SYSTEM_MESSAGE_ACTION = "channel_system_message_input";
 
-type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi";
+type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
 
 function normalizeModel(value: string): string {
   return value.trim().toLowerCase();
@@ -56,16 +56,21 @@ function findMatchingModel(models: string[], value: string | null | undefined): 
 function getSelectableProviders(): AgentProvider[] {
   const enabled = getEnabledAgentProviders().filter(
     (provider): provider is AgentProvider =>
-      provider === "opencode" || provider === "claudecode" || provider === "codex" || provider === "kimi"
+      provider === "opencode"
+      || provider === "claudecode"
+      || provider === "codex"
+      || provider === "kimi"
+      || provider === "qwen"
   );
   if (enabled.length > 0) return enabled;
-  return ["opencode", "claudecode", "codex", "kimi"];
+  return ["opencode", "claudecode", "codex", "kimi", "qwen"];
 }
 
-function toSelectableProvider(provider: "opencode" | "claudecode" | "codex" | "kimi"): AgentProvider {
+function toSelectableProvider(provider: "opencode" | "claudecode" | "codex" | "kimi" | "qwen"): AgentProvider {
   if (provider === "claudecode") return "claudecode";
   if (provider === "codex") return "codex";
   if (provider === "kimi") return "kimi";
+  if (provider === "qwen") return "qwen";
   return "opencode";
 }
 
@@ -96,6 +101,7 @@ function buildSettingsModal(params: {
     claudecode: "Claude Code",
     codex: "Codex",
     kimi: "Kimi",
+    qwen: "Qwen Code",
   };
   const providerOptions = enabledProviders.map((provider) => ({
     text: { type: "plain_text" as const, text: providerLabels[provider] },
@@ -355,6 +361,8 @@ export function setupInteractiveHandlers(): void {
         ? "codex"
         : selectedOption === "kimi"
           ? "kimi"
+          : selectedOption === "qwen"
+            ? "qwen"
         : "opencode";
     if (selectedProvider === "opencode") {
       try {
@@ -409,6 +417,8 @@ export function setupInteractiveHandlers(): void {
           ? "codex"
           : values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "kimi"
             ? "kimi"
+            : values?.[PROVIDER_BLOCK]?.[PROVIDER_ACTION]?.selected_option?.value === "qwen"
+              ? "qwen"
           : "opencode";
     const selectedModel = values?.[MODEL_BLOCK]?.[MODEL_ACTION]?.selected_option?.value;
     const workingDirectory = values?.[WORKING_DIR_BLOCK]?.[WORKING_DIR_ACTION]?.value || "";
@@ -457,7 +467,7 @@ export function setupInteractiveHandlers(): void {
           setChannelModel(channelId, "");
         }
       }
-      if (selectedProvider === "claudecode") {
+      if (selectedProvider === "claudecode" || selectedProvider === "kimi" || selectedProvider === "qwen") {
         setChannelModel(channelId, "");
       }
 

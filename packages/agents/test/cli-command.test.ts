@@ -4,6 +4,7 @@ import { buildOpenCodeCommand } from "../opencode/client";
 import { buildClaudeCommand, buildClaudeCommandArgs } from "../claude/client";
 import { buildCodexCommand, buildCodexCommandArgs } from "../codex/client";
 import { buildKimiCommand, buildKimiCommandArgs } from "../kimi/client";
+import { buildQwenCommand, buildQwenCommandArgs } from "../qwen/client";
 
 describe("agent cli command formatting", () => {
   it("builds the final Claude CLI command", () => {
@@ -101,5 +102,20 @@ describe("agent cli command formatting", () => {
     expect(command).toContain("--session session-4");
     expect(command).toContain("--work-dir /tmp/project");
     expect(command).toContain("-p 'hello from kimi'");
+  });
+
+  it("builds the Qwen headless command", () => {
+    const args = buildQwenCommandArgs({
+      sessionId: "session-5",
+      isNewSession: false,
+      prompt: "hello from qwen",
+    });
+    const command = buildQwenCommand(args);
+
+    expect(command).toContain("qwen");
+    expect(command).toContain("--output-format stream-json");
+    expect(command).toContain("--include-partial-messages");
+    expect(command).toContain("--resume session-5");
+    expect(command).toContain("-p 'hello from qwen'");
   });
 });

@@ -21,7 +21,7 @@ function parseArg(name: string): string | undefined {
 function normalizeProvider(value: string | undefined): AgentProviderId {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "claude") return "claudecode";
-  if (normalized === "claudecode" || normalized === "codex" || normalized === "kimi") {
+  if (normalized === "claudecode" || normalized === "codex" || normalized === "kimi" || normalized === "qwen") {
     return normalized;
   }
   return "opencode";

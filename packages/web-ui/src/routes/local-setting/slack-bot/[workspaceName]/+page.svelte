@@ -5,13 +5,14 @@
   import { localSettingStore } from "$lib/local-setting/store";
   import { getSelectedWorkspace, getWorkspacePath, slugify } from "$lib/local-setting/workspaces";
 
-  type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi";
+  type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
 
   const providerLabels: Record<AgentProvider, string> = {
     opencode: "OpenCode",
     claudecode: "Claude Code",
     codex: "Codex",
     kimi: "Kimi",
+    qwen: "Qwen Code",
   };
 
   let isCanonicalizingWorkspaceRoute = false;
@@ -24,7 +25,8 @@
     if (provider === "opencode") return $localSettingStore.config.agents.opencode.enabled;
     if (provider === "claudecode") return $localSettingStore.config.agents.claudecode.enabled;
     if (provider === "codex") return $localSettingStore.config.agents.codex.enabled;
-    return $localSettingStore.config.agents.kimi.enabled;
+    if (provider === "kimi") return $localSettingStore.config.agents.kimi.enabled;
+    return $localSettingStore.config.agents.qwen.enabled;
   });
   $: maybeCanonicalizeWorkspaceRoute();
 
@@ -45,6 +47,7 @@
     if (channel.agentProvider === "claudecode") return "claudecode";
     if (channel.agentProvider === "codex") return "codex";
     if (channel.agentProvider === "kimi") return "kimi";
+    if (channel.agentProvider === "qwen") return "qwen";
     return "opencode";
   }
 
@@ -84,6 +87,8 @@
         ? "codex"
         : selected === "kimi"
           ? "kimi"
+          : selected === "qwen"
+            ? "qwen"
         : "opencode";
     localSettingStore.updateWorkspace(workspaceId, (workspace) => ({
       ...workspace,

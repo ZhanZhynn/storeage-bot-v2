@@ -13,7 +13,7 @@ export type StatusRequest = {
   statusFrozen?: boolean;
 };
 
-export type AgentStatusProvider = "opencode" | "claudecode" | "codex" | "kimi";
+export type AgentStatusProvider = "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
 
 type StatusTodo = {
   content: string;
