@@ -24,7 +24,7 @@ export type DashboardConfig = {
     kimi: {
       enabled: boolean;
     };
-    qwen: {
+    kiro: {
       enabled: boolean;
     };
   };
@@ -41,7 +41,7 @@ export type DashboardConfig = {
     channelDetails: {
       id: string;
       name: string;
-      agentProvider?: "opencode" | "claudecode" | "codex" | "kimi" | "qwen";
+      agentProvider?: "opencode" | "claudecode" | "codex" | "kimi" | "kiro";
       model: string;
       workingDirectory: string;
       baseBranch: string;
@@ -74,7 +74,7 @@ export const defaultDashboardConfig: DashboardConfig = {
     claudecode: { enabled: true },
     codex: { enabled: true, models: [] },
     kimi: { enabled: true },
-    qwen: { enabled: true },
+    kiro: { enabled: true },
   },
   workspaces: [],
 };
@@ -121,8 +121,8 @@ const asAgentProvider = (
       ? "codex"
       : value === "kimi"
         ? "kimi"
-        : value === "qwen"
-          ? "qwen"
+        : value === "kiro"
+          ? "kiro"
         : "opencode";
 
 const sanitizeChannelDetail = (
@@ -210,8 +210,8 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
   const kimiRecord = agentsRecord.kimi && typeof agentsRecord.kimi === "object"
     ? (agentsRecord.kimi as Record<string, unknown>)
     : {};
-  const qwenRecord = agentsRecord.qwen && typeof agentsRecord.qwen === "object"
-    ? (agentsRecord.qwen as Record<string, unknown>)
+  const kiroRecord = agentsRecord.kiro && typeof agentsRecord.kiro === "object"
+    ? (agentsRecord.kiro as Record<string, unknown>)
     : {};
 
   const opencodeModels = asStringArray(opencodeRecord.models);
@@ -246,8 +246,8 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
       kimi: {
         enabled: kimiRecord.enabled !== false,
       },
-      qwen: {
-        enabled: qwenRecord.enabled !== false,
+      kiro: {
+        enabled: kiroRecord.enabled !== false,
       },
     },
     workspaces,

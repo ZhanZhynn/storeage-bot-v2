@@ -4,7 +4,7 @@ import { buildOpenCodeCommand } from "../opencode/client";
 import { buildClaudeCommand, buildClaudeCommandArgs } from "../claude/client";
 import { buildCodexCommand, buildCodexCommandArgs } from "../codex/client";
 import { buildKimiCommand, buildKimiCommandArgs } from "../kimi/client";
-import { buildQwenCommand, buildQwenCommandArgs } from "../qwen/client";
+import { buildKiroCommand, buildKiroCommandArgs } from "../kiro/client";
 
 describe("agent cli command formatting", () => {
   it("builds the final Claude CLI command", () => {
@@ -104,18 +104,19 @@ describe("agent cli command formatting", () => {
     expect(command).toContain("-p 'hello from kimi'");
   });
 
-  it("builds the Qwen headless command", () => {
-    const args = buildQwenCommandArgs({
-      sessionId: "session-5",
+  it("builds the Kiro non-interactive command", () => {
+    const args = buildKiroCommandArgs({
       isNewSession: false,
-      prompt: "hello from qwen",
+      prompt: "hello from kiro",
+      agent: "plan",
     });
-    const command = buildQwenCommand(args);
+    const command = buildKiroCommand("kiro-cli", args);
 
-    expect(command).toContain("qwen");
-    expect(command).toContain("--output-format stream-json");
-    expect(command).toContain("--include-partial-messages");
-    expect(command).toContain("--resume session-5");
-    expect(command).toContain("-p 'hello from qwen'");
+    expect(command).toContain("kiro-cli chat");
+    expect(command).toContain("--no-interactive");
+    expect(command).toContain("--trust-all-tools");
+    expect(command).toContain("--resume");
+    expect(command).toContain("--agent plan");
+    expect(command).toContain("'hello from kiro'");
   });
 });
