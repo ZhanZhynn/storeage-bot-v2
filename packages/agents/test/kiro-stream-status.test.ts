@@ -50,4 +50,47 @@ describe("kiro stream status parsing", () => {
 
     expect(text).toContain("Working");
   });
+
+  it("renders tool execution details for kiro tool events", () => {
+    const now = Date.now();
+    const state = buildSessionMessageState([
+      {
+        timestamp: now,
+        type: "message.part.updated",
+        data: {
+          properties: {
+            part: {
+              id: "kiro-tool-1",
+              type: "tool",
+              tool: "Grep",
+              state: {
+                status: "completed",
+                title: "Search TODO",
+                input: {
+                  pattern: "TODO|FIXME",
+                  path: "/tmp/repo",
+                },
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    const text = buildLiveStatusMessage(
+      {
+        channelId: "C1",
+        threadId: "T1",
+        statusMessageTs: "S1",
+        startedAt: now,
+        currentText: "",
+      },
+      "/tmp/repo",
+      state,
+      "medium"
+    );
+
+    expect(text).toContain("Tool execution");
+    expect(text).toContain("`Grep` TODO|FIXME in tmp/repo");
+  });
 });
