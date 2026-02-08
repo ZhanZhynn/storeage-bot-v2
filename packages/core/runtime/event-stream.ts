@@ -52,6 +52,8 @@ export async function startEventStreamWatcher(
   }
 
   await deps.agent.ensureSession(request.sessionId);
+  const providerId = deps.agent.getProviderForSession(request.sessionId);
+  const providerTag = providerId.toUpperCase();
 
   const messageKey = getStatusMessageKey(request);
   const eventHistory = liveEventHistory.get(messageKey) ?? [];
@@ -83,7 +85,7 @@ export async function startEventStreamWatcher(
   let stopNotified = false;
   const unsubscribe = deps.agent.subscribeToSession(request.sessionId, (globalEvent: unknown) => {
     const event = (globalEvent as any).payload ?? globalEvent;
-    log.info("[OPENCODE] Event", {
+    log.debug(`[${providerTag}] Event`, {
       sessionId: request.sessionId,
       type: (event as any)?.type ?? "unknown",
       properties: (event as any)?.properties,

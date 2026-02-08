@@ -6,7 +6,6 @@ import {
 import {
   loadSession,
   failActiveRequest,
-  clearActiveRequest,
   isMessageProcessed,
   markMessageProcessed,
   getPendingQuestion,
