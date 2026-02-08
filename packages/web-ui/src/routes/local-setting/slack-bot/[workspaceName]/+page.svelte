@@ -18,7 +18,8 @@
 
   $: selectedWorkspace = getSelectedWorkspace($page.params.workspaceName ?? "", $localSettingStore.config.workspaces);
   $: duplicateWorkspaceIds = getDuplicateWorkspaceIds($localSettingStore.config.workspaces);
-  $: selectedWorkspaceErrors = getWorkspaceErrors(selectedWorkspace, duplicateWorkspaceIds);
+  $: duplicateSlackBotTokens = getDuplicateSlackBotTokens($localSettingStore.config.workspaces);
+  $: selectedWorkspaceErrors = getWorkspaceErrors(selectedWorkspace, duplicateWorkspaceIds, duplicateSlackBotTokens);
   $: enabledProviders = (Object.keys(providerLabels) as AgentProvider[]).filter((provider) => {
     if (provider === "opencode") return $localSettingStore.config.agents.opencode.enabled;
     if (provider === "claudecode") return $localSettingStore.config.agents.claudecode.enabled;
@@ -137,7 +138,8 @@
 
   function getWorkspaceErrors(
     workspace: DashboardConfig["workspaces"][number] | null,
-    duplicateIds: Set<string>
+    duplicateIds: Set<string>,
+    duplicateBotTokens: Set<string>
   ): string[] {
     if (!workspace) return [];
     const errors: string[] = [];
@@ -151,8 +153,20 @@
     }
     if (!(workspace.slackBotToken?.trim() ?? "")) {
       errors.push("Slack Bot Token is required.");
+    } else if (duplicateBotTokens.has(workspace.slackBotToken.trim())) {
+      errors.push("Slack Bot Token must be unique across workspaces.");
     }
     return errors;
+  }
+
+  function getDuplicateSlackBotTokens(workspaces: DashboardConfig["workspaces"]): Set<string> {
+    const counts = new Map<string, number>();
+    for (const workspace of workspaces) {
+      const botToken = workspace.slackBotToken?.trim() ?? "";
+      if (!botToken) continue;
+      counts.set(botToken, (counts.get(botToken) ?? 0) + 1);
+    }
+    return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([token]) => token));
   }
 </script>
 

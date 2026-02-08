@@ -144,6 +144,7 @@ function jsonResponse(status: number, payload: JsonResponse): Response {
 
 function validateWorkspaceConfig(config: typeof defaultDashboardConfig): string | null {
   const idCounts = new Map<string, number>();
+  const botTokenCounts = new Map<string, number>();
   for (const workspace of config.workspaces) {
     const workspaceId = workspace.id.trim();
     if (!workspaceId) {
@@ -156,6 +157,7 @@ function validateWorkspaceConfig(config: typeof defaultDashboardConfig): string 
       const label = workspace.name.trim() || workspace.id;
       return `Missing Slack app/bot token for workspace: ${label}`;
     }
+    botTokenCounts.set(botToken, (botTokenCounts.get(botToken) ?? 0) + 1);
   }
 
   const duplicateIds = Array.from(idCounts.entries())
@@ -163,6 +165,11 @@ function validateWorkspaceConfig(config: typeof defaultDashboardConfig): string 
     .map(([id]) => id);
   if (duplicateIds.length > 0) {
     return `Duplicate workspace ids: ${duplicateIds.join(", ")}`;
+  }
+
+  const duplicateBotTokenCount = Array.from(botTokenCounts.values()).filter((count) => count > 1).length;
+  if (duplicateBotTokenCount > 0) {
+    return "Duplicate Slack bot tokens found across workspaces";
   }
 
   return null;

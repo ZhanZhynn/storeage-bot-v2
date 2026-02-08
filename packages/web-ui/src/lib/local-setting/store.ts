@@ -40,12 +40,18 @@ const store = writable<LocalSettingState>(initialState);
 
 function validateWorkspaceConfig(config: DashboardConfig): string | null {
   const idCounts = new Map<string, number>();
+  const botTokenCounts = new Map<string, number>();
   for (const workspace of config.workspaces) {
     const workspaceId = workspace.id.trim();
     if (!workspaceId) {
       return "Workspace id is required for every workspace.";
     }
     idCounts.set(workspaceId, (idCounts.get(workspaceId) ?? 0) + 1);
+
+    const botToken = workspace.slackBotToken?.trim() ?? "";
+    if (botToken) {
+      botTokenCounts.set(botToken, (botTokenCounts.get(botToken) ?? 0) + 1);
+    }
   }
 
   const duplicateIds = Array.from(idCounts.entries())
@@ -53,6 +59,13 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
     .map(([id]) => id);
   if (duplicateIds.length > 0) {
     return `Duplicate workspace ids: ${duplicateIds.join(", ")}`;
+  }
+
+  const duplicatedBotTokens = Array.from(botTokenCounts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([token]) => token);
+  if (duplicatedBotTokens.length > 0) {
+    return `Duplicate Slack bot tokens found across workspaces.`;
   }
 
   const missingTokenWorkspaces = config.workspaces.filter((workspace) => {
