@@ -22,6 +22,7 @@ export {
   getSlackTargetChannels,
   getDefaultCwd,
   getGitHubInfoForUser,
+  getUserGeneralSettings,
   resolveChannelCwd,
   getChannelSystemMessage,
   getChannelBaseBranch,
@@ -30,6 +31,7 @@ export {
   setChannelBaseBranch,
   setChannelSystemMessage,
   setGitHubInfoForUser,
+  setUserGeneralSettings,
   clearGitHubInfoForUser,
   setChannelModel,
   setChannelAgentProvider,
@@ -41,6 +43,7 @@ export {
   type UpdateConfig,
   type ChannelDetail,
   type UserConfig,
+  type UserGeneralSettings,
 } from "./local/ode";
 
 export {

@@ -16,9 +16,11 @@ type RouterDeps = {
   isThreadActive: (channelId: string, threadId: string) => boolean;
   markThreadActive: (channelId: string, threadId: string) => void;
   isGitHubCommand: (text: string) => boolean;
-  isSettingsCommand: (text: string) => boolean;
+  isChannelSettingsCommand: (text: string) => boolean;
+  isGeneralSettingsCommand: (text: string) => boolean;
   postGitHubLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
-  postSettingsLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
+  postChannelSettingsLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
+  postGeneralSettingsLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
   describeSettingsIssues: (channelId: string) => string[];
   getChannelAgentProvider: (channelId: string) => "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen";
   handleStopCommand: (channelId: string, threadId: string) => Promise<boolean>;
@@ -113,7 +115,7 @@ async function maybeNotifySettingsIssues(
     text: `Channel settings need attention:\n- ${settingsIssues.join("\n- ")}`,
     thread_ts: threadId,
   });
-  await deps.postSettingsLauncher(channelId, userId, client);
+  await deps.postChannelSettingsLauncher(channelId, userId, client);
   return true;
 }
 
@@ -132,7 +134,8 @@ async function maybeHandleLauncherCommand(params: {
     launch: (channelId: string, userId: string, client: any) => Promise<void>;
   }> = [
     { matches: deps.isGitHubCommand, launch: deps.postGitHubLauncher },
-    { matches: deps.isSettingsCommand, launch: deps.postSettingsLauncher },
+    { matches: deps.isChannelSettingsCommand, launch: deps.postChannelSettingsLauncher },
+    { matches: deps.isGeneralSettingsCommand, launch: deps.postGeneralSettingsLauncher },
   ];
 
   const handler = commandHandlers.find((entry) => entry.matches(cleanText));

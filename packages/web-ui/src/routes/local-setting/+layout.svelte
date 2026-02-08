@@ -8,7 +8,7 @@
 
   let pathname = "/local-setting";
   let normalizedPathname = pathname;
-  let activeSection: "profile" | "agents" | "slack" = "profile";
+  let activeSection: "general" | "agents" | "slack" = "general";
   let pendingSlackAppToken = "";
   let pendingSlackBotToken = "";
 
@@ -19,7 +19,7 @@
       ? "agents"
       : normalizedPathname.startsWith("/local-setting/slack-bot")
         ? "slack"
-        : "profile";
+        : "general";
 
   $: selectedWorkspace = getSelectedWorkspace($page.params.workspaceName ?? "", $localSettingStore.config.workspaces);
 
@@ -91,8 +91,8 @@
 
     <div class="layout">
       <aside class="sidebar card">
-        <button class="nav-item {activeSection === 'profile' ? 'active' : ''}" on:click={() => goto('/local-setting')}>
-          Profile
+        <button class="nav-item {activeSection === 'general' ? 'active' : ''}" on:click={() => goto('/local-setting')}>
+          General
         </button>
         <button class="nav-item {activeSection === 'agents' ? 'active' : ''}" on:click={() => goto('/local-setting/agents')}>
           Agents

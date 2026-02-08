@@ -233,7 +233,11 @@ function describeSettingsIssues(channelId: string): string[] {
   return issues;
 }
 
-function isSettingsCommand(text: string): boolean {
+function isChannelSettingsCommand(text: string): boolean {
+  return /^\/channel\b/i.test(text.trim());
+}
+
+function isGeneralSettingsCommand(text: string): boolean {
   return /^\/setting\b/i.test(text.trim());
 }
 
@@ -241,7 +245,7 @@ function isGitHubCommand(text: string): boolean {
   return /^\/gh\b/i.test(text.trim());
 }
 
-async function postSettingsLauncher(
+async function postChannelSettingsLauncher(
   channelId: string,
   userId: string,
   client: WebClient
@@ -264,6 +268,38 @@ async function postSettingsLauncher(
           {
             type: "button",
             action_id: "open_settings_modal",
+            text: { type: "plain_text", text: "Open settings" },
+            value: channelId,
+          },
+        ],
+      },
+    ],
+  });
+}
+
+async function postGeneralSettingsLauncher(
+  channelId: string,
+  userId: string,
+  client: WebClient
+): Promise<void> {
+  await client.chat.postEphemeral({
+    channel: channelId,
+    user: userId,
+    text: "Open general settings",
+    blocks: [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "Open general settings for status message format and git strategy.",
+        },
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            action_id: "open_general_settings_modal",
             text: { type: "plain_text", text: "Open settings" },
             value: channelId,
           },
@@ -554,9 +590,11 @@ export function setupMessageHandlers(): void {
       isThreadActive,
       markThreadActive,
       isGitHubCommand,
-      isSettingsCommand,
+      isChannelSettingsCommand,
+      isGeneralSettingsCommand,
       postGitHubLauncher,
-      postSettingsLauncher,
+      postChannelSettingsLauncher,
+      postGeneralSettingsLauncher,
       describeSettingsIssues,
       getChannelAgentProvider,
       handleStopCommand: (channelId, threadId) => coreRuntime.handleStopCommand(channelId, threadId),
