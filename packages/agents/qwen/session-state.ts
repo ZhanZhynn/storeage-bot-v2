@@ -1,27 +1,28 @@
 import {
-  applyClaudeRecordToState,
-  type ClaudeRawRecord,
-  type ClaudeStreamStateMaps,
-} from "@/agents/claude/session-state";
+  applyStreamRecordToState,
+  extractStreamRecord,
+  type StreamRawRecord,
+  type StreamStateMaps,
+} from "@/agents/shared/stream-session-state";
 import type { SessionMessageState } from "@/utils/session-inspector";
 
-export type QwenRawRecord = ClaudeRawRecord;
+export type QwenRawRecord = StreamRawRecord;
 
 export function extractQwenRecord(
   type: string,
   eventData: Record<string, unknown>,
   eventProps: Record<string, unknown>
 ): QwenRawRecord | null {
-  if (!type.startsWith("qwen.raw.")) return null;
-  const candidate = eventProps.record ?? eventData.record;
-  if (!candidate || typeof candidate !== "object") return null;
-  return candidate as QwenRawRecord;
+  return extractStreamRecord(type, eventData, eventProps, "qwen.raw.");
 }
 
 export function applyQwenRecordToState(
   state: SessionMessageState,
   record: QwenRawRecord,
-  streamState: ClaudeStreamStateMaps
+  streamState: StreamStateMaps
 ): void {
-  applyClaudeRecordToState(state, record, streamState);
+  applyStreamRecordToState(state, record, streamState, {
+    toolIdPrefix: "qwen-tool",
+    agentLabel: "Qwen",
+  });
 }
