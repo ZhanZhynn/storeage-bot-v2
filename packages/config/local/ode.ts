@@ -446,6 +446,11 @@ export type GitHubInfo = {
   gitEmail?: string;
 };
 
+export type UserGeneralSettings = {
+  defaultStatusMessageFormat: "minimum" | "medium" | "aggressive";
+  gitStrategy: "default" | "worktree";
+};
+
 export function getGitHubInfoForUser(userId: string): GitHubInfo | null {
   const info = loadOdeConfig().githubInfos?.[userId];
   if (!info) return null;
@@ -454,6 +459,29 @@ export function getGitHubInfoForUser(userId: string): GitHubInfo | null {
   const gitName = info.gitName?.trim() || undefined;
   const gitEmail = info.gitEmail?.trim() || undefined;
   return { token, gitName, gitEmail };
+}
+
+export function getUserGeneralSettings(): UserGeneralSettings {
+  const user = loadOdeConfig().user;
+  return {
+    defaultStatusMessageFormat:
+      user.defaultStatusMessageFormat === "minimum" || user.defaultStatusMessageFormat === "aggressive"
+        ? user.defaultStatusMessageFormat
+        : "medium",
+    gitStrategy: user.gitStrategy === "default" ? "default" : "worktree",
+  };
+}
+
+export function setUserGeneralSettings(settings: UserGeneralSettings): void {
+  const config = loadOdeConfig();
+  saveOdeConfig({
+    ...config,
+    user: {
+      ...config.user,
+      defaultStatusMessageFormat: settings.defaultStatusMessageFormat,
+      gitStrategy: settings.gitStrategy,
+    },
+  });
 }
 
 export function setGitHubInfoForUser(userId: string, info: GitHubInfo): void {

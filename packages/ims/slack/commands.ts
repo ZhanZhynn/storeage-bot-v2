@@ -16,12 +16,16 @@ import {
   getChannelSystemMessage,
   setChannelSystemMessage,
   setGitHubInfoForUser,
+  getUserGeneralSettings,
+  setUserGeneralSettings,
 } from "@/config";
 import { startServer as startOpenCodeServer } from "@/agents/opencode";
 import { startServer as startCodexServer } from "@/agents/codex";
 
 const SETTINGS_LAUNCH_ACTION = "open_settings_modal";
 const SETTINGS_MODAL_ID = "settings_modal";
+const GENERAL_SETTINGS_LAUNCH_ACTION = "open_general_settings_modal";
+const GENERAL_SETTINGS_MODAL_ID = "general_settings_modal";
 const GITHUB_LAUNCH_ACTION = "open_github_token_modal";
 const GITHUB_MODAL_ID = "github_token_modal";
 const GITHUB_TOKEN_BLOCK = "github_token";
@@ -40,8 +44,14 @@ const BASE_BRANCH_BLOCK = "base_branch";
 const BASE_BRANCH_ACTION = "base_branch_input";
 const CHANNEL_SYSTEM_MESSAGE_BLOCK = "channel_system_message";
 const CHANNEL_SYSTEM_MESSAGE_ACTION = "channel_system_message_input";
+const GENERAL_STATUS_MESSAGE_FORMAT_BLOCK = "general_status_message_format";
+const GENERAL_STATUS_MESSAGE_FORMAT_ACTION = "general_status_message_format_select";
+const GENERAL_GIT_STRATEGY_BLOCK = "general_git_strategy";
+const GENERAL_GIT_STRATEGY_ACTION = "general_git_strategy_select";
 
 type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "qwen";
+type StatusMessageFormat = "aggressive" | "medium" | "minimum";
+type GitStrategy = "default" | "worktree";
 
 const AGENT_PROVIDERS: AgentProvider[] = ["opencode", "claudecode", "codex", "kimi", "kiro", "qwen"];
 
@@ -53,6 +63,17 @@ const AGENT_PROVIDER_LABELS: Record<AgentProvider, string> = {
   kiro: "Kiro",
   qwen: "Qwen Code",
 };
+
+const STATUS_MESSAGE_FORMAT_OPTIONS: Array<{ label: string; value: StatusMessageFormat }> = [
+  { label: "Aggressive", value: "aggressive" },
+  { label: "Medium", value: "medium" },
+  { label: "Minimum", value: "minimum" },
+];
+
+const GIT_STRATEGY_OPTIONS: Array<{ label: string; value: GitStrategy }> = [
+  { label: "Worktree", value: "worktree" },
+  { label: "Default", value: "default" },
+];
 
 function parseAgentProvider(value: unknown): AgentProvider {
   if (typeof value !== "string") return "opencode";
@@ -284,6 +305,66 @@ function buildGitHubTokenModal(params: {
   };
 }
 
+function buildGeneralSettingsModal(params: {
+  channelId: string;
+  statusMessageFormat: StatusMessageFormat;
+  gitStrategy: GitStrategy;
+}) {
+  const { channelId, statusMessageFormat, gitStrategy } = params;
+  const statusMessageFormatOptions = STATUS_MESSAGE_FORMAT_OPTIONS.map((option) => ({
+    text: { type: "plain_text" as const, text: option.label },
+    value: option.value,
+  }));
+  const gitStrategyOptions = GIT_STRATEGY_OPTIONS.map((option) => ({
+    text: { type: "plain_text" as const, text: option.label },
+    value: option.value,
+  }));
+
+  return {
+    type: "modal" as const,
+    callback_id: GENERAL_SETTINGS_MODAL_ID,
+    private_metadata: channelId,
+    title: { type: "plain_text" as const, text: "General Settings" },
+    submit: { type: "plain_text" as const, text: "Save" },
+    close: { type: "plain_text" as const, text: "Cancel" },
+    blocks: [
+      {
+        type: "section" as const,
+        text: {
+          type: "mrkdwn" as const,
+          text: "Configure default status message format and git strategy.",
+        },
+      },
+      {
+        type: "input" as const,
+        block_id: GENERAL_STATUS_MESSAGE_FORMAT_BLOCK,
+        label: { type: "plain_text" as const, text: "Status Message Format" },
+        element: {
+          type: "static_select" as const,
+          action_id: GENERAL_STATUS_MESSAGE_FORMAT_ACTION,
+          options: statusMessageFormatOptions,
+          initial_option:
+            statusMessageFormatOptions.find((option) => option.value === statusMessageFormat)
+            ?? statusMessageFormatOptions[1],
+        },
+      },
+      {
+        type: "input" as const,
+        block_id: GENERAL_GIT_STRATEGY_BLOCK,
+        label: { type: "plain_text" as const, text: "Git Strategy" },
+        element: {
+          type: "static_select" as const,
+          action_id: GENERAL_GIT_STRATEGY_ACTION,
+          options: gitStrategyOptions,
+          initial_option:
+            gitStrategyOptions.find((option) => option.value === gitStrategy)
+            ?? gitStrategyOptions[0],
+        },
+      },
+    ],
+  };
+}
+
 export function setupInteractiveHandlers(): void {
   for (const slackApp of getApps()) {
     slackApp.action(SETTINGS_LAUNCH_ACTION, async ({ ack, body, client }) => {
@@ -339,6 +420,25 @@ export function setupInteractiveHandlers(): void {
       token: info?.token,
       gitName: info?.gitName,
       gitEmail: info?.gitEmail,
+    });
+
+    await client.views.open({
+      trigger_id: (body as any).trigger_id,
+      view,
+    });
+    });
+
+    slackApp.action(GENERAL_SETTINGS_LAUNCH_ACTION, async ({ ack, body, client }) => {
+    await ack();
+
+    const channelId = (body as any).actions?.[0]?.value
+      ?? (body as any).channel?.id
+      ?? "";
+    const generalSettings = getUserGeneralSettings();
+    const view = buildGeneralSettingsModal({
+      channelId,
+      statusMessageFormat: generalSettings.defaultStatusMessageFormat,
+      gitStrategy: generalSettings.gitStrategy,
     });
 
     await client.views.open({
@@ -526,6 +626,50 @@ export function setupInteractiveHandlers(): void {
       user: userId,
       text: "GitHub info updated.",
     });
+    });
+
+    slackApp.view(GENERAL_SETTINGS_MODAL_ID, async ({ ack, view, body, client }) => {
+    const values = view.state.values;
+    const selectedStatusMessageFormat = values?.[GENERAL_STATUS_MESSAGE_FORMAT_BLOCK]?.[GENERAL_STATUS_MESSAGE_FORMAT_ACTION]?.selected_option?.value;
+    const selectedGitStrategy = values?.[GENERAL_GIT_STRATEGY_BLOCK]?.[GENERAL_GIT_STRATEGY_ACTION]?.selected_option?.value;
+
+    const statusMessageFormat: StatusMessageFormat =
+      selectedStatusMessageFormat === "aggressive"
+      || selectedStatusMessageFormat === "minimum"
+      || selectedStatusMessageFormat === "medium"
+        ? selectedStatusMessageFormat
+        : "medium";
+    const gitStrategy: GitStrategy = selectedGitStrategy === "default" ? "default" : "worktree";
+
+    await ack();
+
+    try {
+      setUserGeneralSettings({
+        defaultStatusMessageFormat: statusMessageFormat,
+        gitStrategy,
+      });
+    } catch (err) {
+      const userId = (body as any).user?.id;
+      const channelId = view.private_metadata || (body as any).channel?.id;
+      if (userId && channelId) {
+        await client.chat.postEphemeral({
+          channel: channelId,
+          user: userId,
+          text: `Failed to update general settings: ${err instanceof Error ? err.message : String(err)}`,
+        });
+      }
+      return;
+    }
+
+    const userId = (body as any).user?.id;
+    const channelId = view.private_metadata || (body as any).channel?.id;
+    if (userId && channelId) {
+      await client.chat.postEphemeral({
+        channel: channelId,
+        user: userId,
+        text: "General settings updated.",
+      });
+    }
     });
 
   // Handle user choice button clicks (from Ode ask_user actions)
