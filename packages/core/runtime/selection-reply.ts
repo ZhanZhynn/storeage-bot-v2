@@ -20,6 +20,16 @@ type SelectionDeps = {
   agent: AgentAdapter;
 };
 
+function toKiloModel(modelValue: string | null | undefined): OpenCodeOptions["model"] | undefined {
+  const trimmed = modelValue?.trim();
+  if (!trimmed) return undefined;
+  const [providerID = "kilo", ...rest] = trimmed.split("/");
+  if (rest.length === 0) {
+    return { providerID: "kilo", modelID: trimmed };
+  }
+  return { providerID, modelID: rest.join("/") };
+}
+
 type HandleSelectionReplyParams = {
   deps: SelectionDeps;
   state: {
@@ -92,10 +102,12 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   const codexModel = providerId === "codex"
     ? (channelModel && channelModel.length > 0 ? channelModel : DEFAULT_CODEX_MODEL)
     : undefined;
-  const options: OpenCodeOptions | undefined = agent || codexModel
+  const kiloModel = providerId === "kilo" ? toKiloModel(channelModel) : undefined;
+  const options: OpenCodeOptions | undefined = agent || codexModel || kiloModel
     ? {
         ...(agent ? { agent } : {}),
         ...(codexModel ? { model: { providerID: "openai", modelID: codexModel } } : {}),
+        ...(kiloModel ? { model: kiloModel } : {}),
       }
     : undefined;
 

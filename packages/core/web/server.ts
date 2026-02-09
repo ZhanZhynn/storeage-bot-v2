@@ -41,6 +41,7 @@ type JsonResponse = {
     codex: boolean;
     kimi: boolean;
     kiro: boolean;
+    kilo: boolean;
     qwen: boolean;
   };
   providers?: unknown;
@@ -120,6 +121,30 @@ function extractOpenCodeModels(payload: unknown): string[] {
   }
 
   return Array.from(models).sort();
+}
+
+async function fetchKiloModels(): Promise<string[]> {
+  const child = Bun.spawn({
+    cmd: ["kilo", "models"],
+    cwd: process.cwd(),
+    stdout: "pipe",
+    stderr: "pipe",
+    env: process.env,
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  if (exitCode !== 0) {
+    const details = stderr.trim() || stdout.trim() || "Unknown error";
+    throw new Error(details);
+  }
+  return stdout
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .sort();
 }
 
 function parsePositiveInt(value: string | null, fallback: number, max?: number): number {
@@ -434,6 +459,9 @@ async function handleRequest(request: Request): Promise<Response> {
     const opencodeAvailable = Boolean(Bun.which("opencode"));
     let opencodeModels: string[] = [];
     let opencodeModelError: string | undefined;
+    const kiloAvailable = Boolean(Bun.which("kilo"));
+    let kiloModels: string[] = [];
+    let kiloModelError: string | undefined;
 
     if (opencodeAvailable) {
       try {
@@ -454,6 +482,17 @@ async function handleRequest(request: Request): Promise<Response> {
       }
     }
 
+    if (kiloAvailable) {
+      try {
+        kiloModels = await fetchKiloModels();
+      } catch (error) {
+        kiloModelError = error instanceof Error ? error.message : String(error);
+        log.warn("Failed to query Kilo models during agent check", {
+          error: kiloModelError,
+        });
+      }
+    }
+
     return jsonResponse(200, {
       ok: true,
       result: {
@@ -462,9 +501,12 @@ async function handleRequest(request: Request): Promise<Response> {
         codex: Boolean(Bun.which("codex")),
         kimi: Boolean(Bun.which("kimi")),
         kiro: Boolean(Bun.which("kiro-cli") || Bun.which("kiro")),
+        kilo: kiloAvailable,
         qwen: Boolean(Bun.which("qwen") || Bun.which("qwen-code")),
         opencodeModels,
         opencodeModelError,
+        kiloModels,
+        kiloModelError,
       },
     });
   }

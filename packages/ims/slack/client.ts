@@ -9,6 +9,7 @@ import {
   getChannelAgentProvider,
   getChannelModel,
   getOpenCodeModels,
+  getKiloModels,
   isAgentEnabled,
   getGitHubInfoForUser,
   getChannelSystemMessage,
@@ -221,6 +222,14 @@ function describeSettingsIssues(channelId: string): string[] {
       issues.push("Model not configured.");
     } else if (!modelSet.has(normalizeModel(model))) {
       issues.push("Model not available in configured OpenCode models.");
+    }
+  } else if (provider === "kilo") {
+    const models = getKiloModels();
+    const modelSet = new Set(models.map(normalizeModel));
+    if (!model) {
+      issues.push("Model not configured.");
+    } else if (!modelSet.has(normalizeModel(model))) {
+      issues.push("Model not available in configured Kilo models.");
     }
   }
 

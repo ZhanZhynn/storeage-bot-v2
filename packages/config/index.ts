@@ -12,6 +12,8 @@ export {
   setOpenCodeModels,
   getCodexModels,
   setCodexModels,
+  getKiloModels,
+  setKiloModels,
   DEFAULT_CODEX_MODEL,
   getUpdateConfig,
   getChannelDetails,

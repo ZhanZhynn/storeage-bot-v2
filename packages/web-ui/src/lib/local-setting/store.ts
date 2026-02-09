@@ -7,9 +7,12 @@ export type CliCheckResult = {
   codex: boolean;
   kimi: boolean;
   kiro: boolean;
+  kilo: boolean;
   qwen: boolean;
   opencodeModels?: string[];
   opencodeModelError?: string;
+  kiloModels?: string[];
+  kiloModelError?: string;
 };
 
 type LocalSettingState = {
@@ -70,14 +73,14 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
     return `Duplicate Slack bot tokens found across workspaces.`;
   }
 
-  const missingTokenWorkspaces = config.workspaces.filter((workspace) => {
+  const missingTokenWorkspaces = config.workspaces.filter((workspace: DashboardConfig["workspaces"][number]) => {
     const appToken = workspace.slackAppToken?.trim() ?? "";
     const botToken = workspace.slackBotToken?.trim() ?? "";
     return !appToken || !botToken;
   });
   if (missingTokenWorkspaces.length > 0) {
     const labels = missingTokenWorkspaces
-      .map((workspace) => workspace.name.trim() || workspace.id)
+      .map((workspace: DashboardConfig["workspaces"][number]) => workspace.name.trim() || workspace.id)
       .join(", ");
     return `Missing Slack app/bot token for: ${labels}`;
   }
@@ -114,6 +117,10 @@ function normalizeConfig(input: DashboardConfig): DashboardConfig {
       kiro: {
         enabled: input.agents?.kiro?.enabled ?? true,
       },
+      kilo: {
+        enabled: input.agents?.kilo?.enabled ?? true,
+        models: input.agents?.kilo?.models ?? [],
+      },
       qwen: {
         enabled: input.agents?.qwen?.enabled ?? true,
       },
@@ -134,14 +141,16 @@ function updateWorkspace(
 ): void {
   updateConfig((config) => ({
     ...config,
-    workspaces: config.workspaces.map((workspace) => (workspace.id === workspaceId ? updater(workspace) : workspace)),
+    workspaces: config.workspaces.map((workspace: DashboardConfig["workspaces"][number]) =>
+      workspace.id === workspaceId ? updater(workspace) : workspace
+    ),
   }));
 }
 
 function removeWorkspace(workspaceId: string): void {
   updateConfig((config) => ({
     ...config,
-    workspaces: config.workspaces.filter((workspace) => workspace.id !== workspaceId),
+    workspaces: config.workspaces.filter((workspace: DashboardConfig["workspaces"][number]) => workspace.id !== workspaceId),
   }));
 }
 
@@ -231,6 +240,7 @@ async function checkAgents(): Promise<void> {
     }
     const result = payload.result;
     const fetchedModels = Array.isArray(result.opencodeModels) ? result.opencodeModels : null;
+    const fetchedKiloModels = Array.isArray(result.kiloModels) ? result.kiloModels : null;
     store.update((state) => ({
       ...state,
       cliCheckResult: result,
@@ -260,6 +270,11 @@ async function checkAgents(): Promise<void> {
             ...state.config.agents.kiro,
             enabled: result.kiro,
           },
+          kilo: {
+            ...state.config.agents.kilo,
+            enabled: result.kilo,
+            models: fetchedKiloModels ?? state.config.agents.kilo.models,
+          },
           qwen: {
             ...state.config.agents.qwen,
             enabled: result.qwen,
@@ -268,9 +283,11 @@ async function checkAgents(): Promise<void> {
       },
       agentMessage: result.opencode && result.opencodeModelError
         ? `Checked local agent CLIs. OpenCode model fetch failed: ${result.opencodeModelError}`
-        : fetchedModels
-          ? `Checked local agent CLIs. Synced ${fetchedModels.length} OpenCode models.`
-          : "Checked local agent CLIs.",
+        : result.kilo && result.kiloModelError
+          ? `Checked local agent CLIs. Kilo model fetch failed: ${result.kiloModelError}`
+          : (fetchedModels || fetchedKiloModels)
+            ? `Checked local agent CLIs.${fetchedModels ? ` Synced ${fetchedModels.length} OpenCode models.` : ""}${fetchedKiloModels ? ` Synced ${fetchedKiloModels.length} Kilo models.` : ""}`
+            : "Checked local agent CLIs.",
     }));
   } catch (error) {
     store.update((state) => ({
@@ -302,7 +319,7 @@ async function syncSlackWorkspace(workspaceId: string): Promise<void> {
       isSyncingSlack: false,
       config: {
         ...state.config,
-        workspaces: state.config.workspaces.map((workspace) =>
+        workspaces: state.config.workspaces.map((workspace: DashboardConfig["workspaces"][number]) =>
           workspace.id === payload.workspace!.id ? payload.workspace! : workspace
         ),
       },
@@ -350,7 +367,7 @@ async function discoverSlackWorkspace(
     let addedWorkspace: DashboardConfig["workspaces"][number] | null = null;
     let duplicateId = "";
     store.update((state) => {
-      if (state.config.workspaces.some((workspace) => workspace.id === payload.workspace!.id)) {
+      if (state.config.workspaces.some((workspace: DashboardConfig["workspaces"][number]) => workspace.id === payload.workspace!.id)) {
         duplicateId = payload.workspace!.id;
         return {
           ...state,
