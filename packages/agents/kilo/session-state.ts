@@ -15,11 +15,29 @@ type KiloContentBlock = {
 export type KiloRawRecord = {
   type?: string;
   role?: string;
+  timestamp?: number;
   event?: {
     type?: string;
     index?: number;
     content_block?: Record<string, unknown>;
     delta?: Record<string, unknown>;
+  };
+  part?: {
+    id?: string;
+    sessionID?: string;
+    messageID?: string;
+    type?: string;
+    callID?: string;
+    tool?: string;
+    state?: {
+      status?: string;
+      input?: Record<string, unknown>;
+      output?: string;
+      title?: string;
+      metadata?: Record<string, unknown>;
+    };
+    text?: string;
+    reason?: string;
   };
   message?: {
     content?: KiloContentBlock[];
@@ -139,6 +157,48 @@ export function applyKiloRecordToState(
   }
 
   const role = typeof record.role === "string" ? record.role.trim().toLowerCase() : "";
+  const recordType = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+
+  if (recordType === "text") {
+    const text = typeof record.part?.text === "string" ? record.part.text.trim() : "";
+    if (text) {
+      state.currentText = text;
+      state.phaseStatus = "Drafting response";
+    }
+    return;
+  }
+
+  if (recordType === "tool_use") {
+    const toolName = record.part?.tool || "tool";
+    const toolId = record.part?.callID || record.part?.id || `kilo-tool-${Date.now()}`;
+    const toolState = record.part?.state || {};
+    const status = typeof toolState.status === "string" ? toolState.status : "running";
+    const tool: KiloInspectorToolState = {
+      id: toolId,
+      name: toolName,
+      status: status === "completed" || status === "error" ? status : "running",
+      input: toolState.input,
+      output: toolState.output,
+      title: toolState.title,
+      metadata: toolState.metadata,
+    };
+    toolById.set(toolId, tool);
+    updateTool(state, tool);
+    state.phaseStatus = tool.title
+      ? `${tool.status === "completed" ? "Finished tool" : "Running tool"}: ${tool.title}`
+      : `${tool.status === "completed" ? "Finished tool" : "Running tool"}: ${toolName}`;
+    return;
+  }
+
+  if (recordType === "step_start") {
+    state.phaseStatus = "Thinking";
+    return;
+  }
+
+  if (recordType === "step_finish") {
+    state.phaseStatus = record.part?.reason ? "Working" : "Finished step";
+    return;
+  }
 
   if (record.type === "assistant" || role === "assistant") {
     const blocks = getContentBlocks(record);
