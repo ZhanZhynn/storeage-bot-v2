@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { AgentProviderId } from "@/agents/registry";
 import { buildHarnessRunId, HarnessRedisStore } from "../redis-store";
 import { renderStatusesFromRun } from "../renderer";
+import { buildSessionMessageState } from "@/utils/session-inspector";
 
 const DEFAULT_OUTPUT_PATH = "packages/live-status-harness/reports/agent-live-status.md";
 const DEFAULT_OUTPUT_DIR = "packages/live-status-harness/reports";
@@ -214,6 +215,31 @@ async function runProvider(
   const events = await store.getRunEvents(runId);
   const statuses = renderStatusesFromRun(meta, events);
   const finalStatus = statuses[statuses.length - 1]?.text ?? "";
+  const finalState = buildSessionMessageState(
+    events
+      .slice()
+      .sort((a, b) => a.index - b.index)
+      .map((event) => {
+        const payload = event.event;
+        const data = payload && typeof payload === "object"
+          ? payload as Record<string, unknown>
+          : { value: payload };
+        const type = typeof (data as { type?: unknown }).type === "string"
+          ? (data as { type?: string }).type ?? "unknown"
+          : "unknown";
+        return {
+          timestamp: event.timestamp,
+          type,
+          data,
+        };
+      }),
+    {
+      workingDirectory: options.cwd,
+      baseState: { startedAt: meta.startedAt },
+    }
+  );
+  const inferredResult = finalState.currentText?.trim() ?? "";
+  const resultMessage = inferredResult || meta.finalText || "";
 
   return {
     provider,
@@ -221,7 +247,7 @@ async function runProvider(
     eventCount: events.length,
     statusCount: statuses.length,
     finalStatus,
-    resultMessage: meta.finalText ?? "",
+    resultMessage,
   };
 }
 
