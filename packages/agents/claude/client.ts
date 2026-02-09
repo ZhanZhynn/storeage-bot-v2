@@ -8,6 +8,7 @@ import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared"
 import {
   CliAgentRuntime,
   normalizeSessionEnvironment,
+  noopStartServer,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
 import type {
@@ -492,30 +493,13 @@ export async function sendMessage(
   }
 }
 
-export async function ensureSession(sessionId: string): Promise<void> {
-  await runtime.ensureSession(sessionId);
-}
+export const ensureSession = runtime.ensureSession.bind(runtime);
 
-export function subscribeToSession(sessionId: string, handler: (event: unknown) => void): () => void {
-  return runtime.subscribeToSession(sessionId, handler);
-}
+export const subscribeToSession = runtime.subscribeToSession.bind(runtime);
 
-export async function abortSession(sessionId: string, _directory?: string): Promise<void> {
-  await runtime.abortSession(sessionId);
-}
+export const abortSession = runtime.abortSession.bind(runtime);
 
-export async function cancelActiveRequest(
-  channelId: string,
-  sessionId: string,
-  _directory?: string
-): Promise<boolean> {
-  return runtime.cancelActiveRequest(channelId, sessionId);
-}
+export const cancelActiveRequest = runtime.cancelActiveRequest.bind(runtime);
 
-export function stopServer(): void {
-  runtime.stopServer();
-}
-
-export async function startServer(): Promise<void> {
-  return;
-}
+export const stopServer = runtime.stopServer.bind(runtime);
+export const startServer = noopStartServer;

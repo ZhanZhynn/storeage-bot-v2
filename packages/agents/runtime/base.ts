@@ -31,6 +31,10 @@ export function formatShellCommand(args: string[]): string {
     .join(" ");
 }
 
+export async function noopStartServer(): Promise<void> {
+  return;
+}
+
 export abstract class BaseAgentRuntime {
   protected readonly sessionLocks = new Map<string, Promise<unknown>>();
   protected readonly sessionEnvironments = new Map<string, SessionEnvironment>();
