@@ -29,6 +29,7 @@ export type DashboardConfig = {
     };
     kilo: {
       enabled: boolean;
+      models: string[];
     };
     qwen: {
       enabled: boolean;
@@ -81,7 +82,7 @@ export const defaultDashboardConfig: DashboardConfig = {
     codex: { enabled: true, models: [] },
     kimi: { enabled: true },
     kiro: { enabled: true },
-    kilo: { enabled: true },
+    kilo: { enabled: true, models: [] },
     qwen: { enabled: true },
   },
   workspaces: [],
@@ -271,6 +272,7 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
       },
       kilo: {
         enabled: kiloRecord.enabled !== false,
+        models: Array.from(new Set(asStringArray(kiloRecord.models).filter(Boolean))),
       },
       qwen: {
         enabled: qwenRecord.enabled !== false,

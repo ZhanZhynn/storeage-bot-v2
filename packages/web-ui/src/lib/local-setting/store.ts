@@ -11,6 +11,8 @@ export type CliCheckResult = {
   qwen: boolean;
   opencodeModels?: string[];
   opencodeModelError?: string;
+  kiloModels?: string[];
+  kiloModelError?: string;
 };
 
 type LocalSettingState = {
@@ -117,6 +119,7 @@ function normalizeConfig(input: DashboardConfig): DashboardConfig {
       },
       kilo: {
         enabled: input.agents?.kilo?.enabled ?? true,
+        models: input.agents?.kilo?.models ?? [],
       },
       qwen: {
         enabled: input.agents?.qwen?.enabled ?? true,
@@ -237,6 +240,7 @@ async function checkAgents(): Promise<void> {
     }
     const result = payload.result;
     const fetchedModels = Array.isArray(result.opencodeModels) ? result.opencodeModels : null;
+    const fetchedKiloModels = Array.isArray(result.kiloModels) ? result.kiloModels : null;
     store.update((state) => ({
       ...state,
       cliCheckResult: result,
@@ -269,6 +273,7 @@ async function checkAgents(): Promise<void> {
           kilo: {
             ...state.config.agents.kilo,
             enabled: result.kilo,
+            models: fetchedKiloModels ?? state.config.agents.kilo.models,
           },
           qwen: {
             ...state.config.agents.qwen,
@@ -278,9 +283,11 @@ async function checkAgents(): Promise<void> {
       },
       agentMessage: result.opencode && result.opencodeModelError
         ? `Checked local agent CLIs. OpenCode model fetch failed: ${result.opencodeModelError}`
-        : fetchedModels
-          ? `Checked local agent CLIs. Synced ${fetchedModels.length} OpenCode models.`
-          : "Checked local agent CLIs.",
+        : result.kilo && result.kiloModelError
+          ? `Checked local agent CLIs. Kilo model fetch failed: ${result.kiloModelError}`
+          : (fetchedModels || fetchedKiloModels)
+            ? `Checked local agent CLIs.${fetchedModels ? ` Synced ${fetchedModels.length} OpenCode models.` : ""}${fetchedKiloModels ? ` Synced ${fetchedKiloModels.length} Kilo models.` : ""}`
+            : "Checked local agent CLIs.",
     }));
   } catch (error) {
     store.update((state) => ({

@@ -7,6 +7,7 @@ import {
   getEnabledAgentProviders,
   getOpenCodeModels,
   getCodexModels,
+  getKiloModels,
   isAgentEnabled,
   getGitHubInfoForUser,
   setChannelAgentProvider,
@@ -112,6 +113,7 @@ function buildSettingsModal(params: {
   enabledProviders: AgentProvider[];
   opencodeModels: string[];
   codexModels: string[];
+  kiloModels: string[];
   selectedProvider?: AgentProvider;
   selectedModel?: string | null;
   workingDirectory?: string | null;
@@ -123,6 +125,7 @@ function buildSettingsModal(params: {
     enabledProviders,
     opencodeModels,
     codexModels,
+    kiloModels,
     selectedProvider = "opencode",
     selectedModel,
     workingDirectory,
@@ -137,7 +140,9 @@ function buildSettingsModal(params: {
     ? opencodeModels
     : selectedProvider === "codex"
       ? codexModels
-      : null;
+      : selectedProvider === "kilo"
+        ? kiloModels
+        : null;
   const modelOptions = providerModels && selectedProvider === "opencode"
     ? (opencodeModels.length > 0
       ? opencodeModels.map((model) => ({
@@ -153,6 +158,13 @@ function buildSettingsModal(params: {
             value: model,
           })),
         ]
+      : providerModels && selectedProvider === "kilo"
+        ? (kiloModels.length > 0
+          ? kiloModels.map((model) => ({
+              text: { type: "plain_text" as const, text: model },
+              value: model,
+            }))
+          : [{ text: { type: "plain_text" as const, text: "No models configured" }, value: "__none__" }])
       : [];
 
   const availableModels = selectedProvider === "codex"
@@ -161,11 +173,17 @@ function buildSettingsModal(params: {
   const matchedSelectedModel = findMatchingModel(availableModels, selectedModel);
   const initialModel = matchedSelectedModel
     ? matchedSelectedModel
-    : (selectedProvider === "codex" ? "__default__" : (opencodeModels[0] ?? "__none__"));
+    : (selectedProvider === "codex"
+      ? "__default__"
+      : selectedProvider === "kilo"
+        ? (kiloModels[0] ?? "__none__")
+        : (opencodeModels[0] ?? "__none__"));
   const introText = selectedProvider === "opencode"
     ? "Configure agent, model (OpenCode), working directory, and base branch for this channel."
     : selectedProvider === "codex"
       ? "Configure agent, optional Codex model, working directory, and base branch for this channel."
+      : selectedProvider === "kilo"
+        ? "Configure agent, model (Kilo), working directory, and base branch for this channel."
       : "Configure agent, working directory, and base branch for this channel.";
 
   const blocks: any[] = [
@@ -420,6 +438,7 @@ export function setupInteractiveHandlers(): void {
       enabledProviders,
       opencodeModels: getOpenCodeModels(),
       codexModels: getCodexModels(),
+      kiloModels: getKiloModels(),
       selectedProvider: toSelectableProvider(getChannelAgentProvider(channelId)),
       selectedModel: getChannelModel(channelId),
       workingDirectory: resolveChannelCwd(channelId).workingDirectory,
@@ -547,6 +566,7 @@ export function setupInteractiveHandlers(): void {
       enabledProviders: getSelectableProviders(),
       opencodeModels: getOpenCodeModels(),
       codexModels: getCodexModels(),
+      kiloModels: getKiloModels(),
       selectedProvider,
       selectedModel,
       workingDirectory,
@@ -591,6 +611,14 @@ export function setupInteractiveHandlers(): void {
       if (selectedModel && selectedModel !== "__default__" && !findMatchingModel(models, selectedModel)) {
         errors[MODEL_BLOCK] = "Model not available in local Codex model list.";
       }
+    } else if (selectedProvider === "kilo") {
+      if (!selectedModel || selectedModel === "__none__") {
+        errors[MODEL_BLOCK] = "Select a model.";
+      }
+      const models = getKiloModels();
+      if (selectedModel && !findMatchingModel(models, selectedModel)) {
+        errors[MODEL_BLOCK] = "Model not available in local Kilo model list.";
+      }
     }
 
     if (Object.keys(errors).length > 0) {
@@ -614,7 +642,11 @@ export function setupInteractiveHandlers(): void {
           setChannelModel(channelId, "");
         }
       }
-      if (selectedProvider === "claudecode" || selectedProvider === "kimi" || selectedProvider === "kiro" || selectedProvider === "kilo" || selectedProvider === "qwen") {
+      if (selectedProvider === "kilo" && selectedModel && selectedModel !== "__none__") {
+        const normalizedSelectedModel = findMatchingModel(getKiloModels(), selectedModel) ?? selectedModel;
+        setChannelModel(channelId, normalizedSelectedModel);
+      }
+      if (selectedProvider === "claudecode" || selectedProvider === "kimi" || selectedProvider === "kiro" || selectedProvider === "qwen") {
         setChannelModel(channelId, "");
       }
 

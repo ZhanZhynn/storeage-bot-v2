@@ -59,7 +59,8 @@ const agentsSchema = z.object({
   }).optional().default({ enabled: true }),
   kilo: z.object({
     enabled: z.boolean().optional().default(true),
-  }).optional().default({ enabled: true }),
+    models: z.array(z.string()).optional().default([]),
+  }).optional().default({ enabled: true, models: [] }),
   qwen: z.object({
     enabled: z.boolean().optional().default(true),
   }).optional().default({ enabled: true }),
@@ -69,7 +70,7 @@ const agentsSchema = z.object({
   codex: { enabled: true, models: [] },
   kimi: { enabled: true },
   kiro: { enabled: true },
-  kilo: { enabled: true },
+  kilo: { enabled: true, models: [] },
   qwen: { enabled: true },
 });
 
@@ -156,7 +157,7 @@ const EMPTY_TEMPLATE: OdeConfig = {
     codex: { enabled: true, models: [] },
     kimi: { enabled: true },
     kiro: { enabled: true },
-    kilo: { enabled: true },
+    kilo: { enabled: true, models: [] },
     qwen: { enabled: true },
   },
   completeOnboarding: false,
@@ -209,6 +210,9 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
   const codexModels = Array.from(new Set((config.agents?.codex?.models ?? [])
     .map((model) => model.trim())
     .filter(Boolean)));
+  const kiloModels = Array.from(new Set((config.agents?.kilo?.models ?? [])
+    .map((model) => model.trim())
+    .filter(Boolean)));
   const completeOnboarding = config.completeOnboarding === true;
   const workspaces = config.workspaces.map((workspace) => ({
     ...workspace,
@@ -248,6 +252,7 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
       },
       kilo: {
         enabled: config.agents?.kilo?.enabled ?? true,
+        models: kiloModels,
       },
       qwen: {
         enabled: config.agents?.qwen?.enabled ?? true,
@@ -394,6 +399,24 @@ export function setCodexModels(models: string[]): void {
       ...config.agents,
       codex: {
         ...config.agents.codex,
+        models,
+      },
+    },
+  });
+}
+
+export function getKiloModels(): string[] {
+  return getAgentsConfig().kilo.models ?? [];
+}
+
+export function setKiloModels(models: string[]): void {
+  const config = loadOdeConfig();
+  saveOdeConfig({
+    ...config,
+    agents: {
+      ...config.agents,
+      kilo: {
+        ...config.agents.kilo,
         models,
       },
     },
