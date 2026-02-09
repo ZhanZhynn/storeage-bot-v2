@@ -5,6 +5,13 @@ import {
 } from "@/config/local/settings";
 import { log } from "@/utils";
 import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
+import {
+  CliAgentRuntime,
+  formatShellCommand,
+  normalizeSessionEnvironment,
+  noopStartServer,
+  type SessionEnvironment as RuntimeSessionEnvironment,
+} from "../runtime/base";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -12,7 +19,7 @@ import type {
   OpenCodeSessionInfo,
 } from "../types";
 
-export type SessionEnvironment = Record<string, string>;
+export type SessionEnvironment = RuntimeSessionEnvironment;
 
 type QwenJsonRecord = {
   type?: string;
@@ -31,48 +38,8 @@ type QwenJsonRecord = {
   session_id?: string;
 };
 
-const activeRequests = new Map<string, { controller: AbortController; process?: ChildProcess }>();
-const sessionLocks = new Map<string, Promise<unknown>>();
-const sessionEnvironments = new Map<string, SessionEnvironment>();
-const sessionSubscribers = new Map<string, Set<(event: unknown) => void>>();
+const runtime = new CliAgentRuntime("Qwen");
 const newSessions = new Set<string>();
-
-async function withSessionLock<T>(sessionKey: string, fn: () => Promise<T>): Promise<T> {
-  const existing = sessionLocks.get(sessionKey);
-  if (existing) {
-    await existing.catch(() => {});
-  }
-
-  const promise = fn();
-  sessionLocks.set(sessionKey, promise);
-
-  try {
-    return await promise;
-  } finally {
-    sessionLocks.delete(sessionKey);
-  }
-}
-
-function normalizeSessionEnvironment(env?: SessionEnvironment | null): string {
-  if (!env) return "";
-  return Object.keys(env)
-    .sort()
-    .map((key) => `${key}=${env[key]}`)
-    .join("\n");
-}
-
-function formatShellCommand(args: string[]): string {
-  return args
-    .map((arg) => {
-      if (arg.length === 0) return "''";
-      if (/[^\w@%+=:,./-]/.test(arg)) {
-        const escaped = arg.replace(/'/g, `"'"'"`);
-        return `'${escaped}'`;
-      }
-      return arg;
-    })
-    .join(" ");
-}
 
 function resolveQwenBinary(): string {
   if (typeof Bun !== "undefined") {
@@ -113,21 +80,6 @@ function getRecordSessionId(record: QwenJsonRecord, fallbackSessionId: string): 
   return typeof record.session_id === "string" ? record.session_id : fallbackSessionId;
 }
 
-function publishSessionEvent(sessionId: string, event: unknown): void {
-  const handlers = sessionSubscribers.get(sessionId);
-  if (!handlers || handlers.size === 0) return;
-  for (const handler of handlers) {
-    try {
-      handler(event);
-    } catch (err) {
-      log.warn("Qwen session subscriber failed", {
-        sessionId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-}
-
 function publishQwenRecordAsSessionEvents(record: QwenJsonRecord, fallbackSessionId: string): void {
   const sessionId = getRecordSessionId(record, fallbackSessionId);
   const rawType = typeof record.type === "string" && record.type.trim()
@@ -141,9 +93,9 @@ function publishQwenRecordAsSessionEvents(record: QwenJsonRecord, fallbackSessio
       streamEventType: typeof record.event?.type === "string" ? record.event.type : undefined,
     },
   };
-  publishSessionEvent(sessionId, eventPayload);
+  runtime.publishSessionEvent(sessionId, eventPayload);
   if (sessionId !== fallbackSessionId) {
-    publishSessionEvent(fallbackSessionId, eventPayload);
+    runtime.publishSessionEvent(fallbackSessionId, eventPayload);
   }
 }
 
@@ -287,7 +239,7 @@ function parseQwenResponse(output: string): {
 
 export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
   const sessionId = crypto.randomUUID();
-  sessionEnvironments.set(sessionId, env ?? {});
+  runtime.setSessionEnvironment(sessionId, env ?? {});
   newSessions.add(sessionId);
   log.info("Created Qwen session", { sessionId, workingPath });
   return sessionId;
@@ -301,7 +253,7 @@ export async function getOrCreateSession(
 ): Promise<OpenCodeSessionInfo> {
   const existingSession = getThreadSessionId(channelId, threadId);
   if (existingSession) {
-    const existingEnv = normalizeSessionEnvironment(sessionEnvironments.get(existingSession));
+    const existingEnv = normalizeSessionEnvironment(runtime.getSessionEnvironment(existingSession));
     const desiredEnv = normalizeSessionEnvironment(env);
     if (existingEnv !== desiredEnv) {
       log.info("Qwen session environment changed; creating new session", {
@@ -314,9 +266,7 @@ export async function getOrCreateSession(
       return { sessionId, created: true };
     }
 
-    if (!sessionEnvironments.has(existingSession)) {
-      sessionEnvironments.set(existingSession, env);
-    }
+    runtime.setSessionEnvironment(existingSession, env);
 
     return { sessionId: existingSession, created: false };
   }
@@ -336,17 +286,10 @@ export async function sendMessage(
   context?: OpenCodeMessageContext
 ): Promise<OpenCodeMessage[]> {
   const sessionKey = `${channelId}:${sessionId}`;
-  const existingEntry = activeRequests.get(sessionKey);
-  if (existingEntry) {
-    existingEntry.controller.abort();
-    existingEntry.process?.kill("SIGTERM");
-  }
-
-  const entry = { controller: new AbortController() };
-  activeRequests.set(sessionKey, entry);
+  const entry = runtime.beginRequest(sessionKey) as { controller: AbortController; process?: ChildProcess };
 
   try {
-    return await withSessionLock(sessionKey, async () => {
+    return await runtime.withSessionLock(sessionKey, async () => {
       const agent = options?.agent;
       const approvalMode = agent?.trim().toLowerCase() === "plan" ? "plan" : undefined;
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
@@ -362,7 +305,7 @@ export async function sendMessage(
         approvalMode,
       });
       const command = buildQwenCommand(args);
-      const envOverrides = sessionEnvironments.get(sessionId) ?? {};
+      const envOverrides = runtime.getSessionEnvironment(sessionId);
 
       log.info("Running Qwen CLI", {
         cwd: workingPath,
@@ -380,7 +323,7 @@ export async function sendMessage(
       const parsed = parseQwenResponse(output);
       const responseSessionId = parsed.sessionId || latestSessionId;
       if (responseSessionId && responseSessionId !== sessionId && context?.slack?.threadId) {
-        sessionEnvironments.set(responseSessionId, envOverrides);
+        runtime.setSessionEnvironment(responseSessionId, envOverrides);
         setThreadSessionId(channelId, context.slack.threadId, responseSessionId);
       }
 
@@ -392,65 +335,17 @@ export async function sendMessage(
       return [{ text: parsed.text, messageType: "assistant" }];
     });
   } finally {
-    activeRequests.delete(sessionKey);
+    runtime.endRequest(sessionKey);
   }
 }
 
-export async function ensureSession(sessionId: string): Promise<void> {
-  if (!sessionEnvironments.has(sessionId)) {
-    sessionEnvironments.set(sessionId, {});
-  }
-}
+export const ensureSession = runtime.ensureSession.bind(runtime);
 
-export function subscribeToSession(sessionId: string, handler: (event: unknown) => void): () => void {
-  const handlers = sessionSubscribers.get(sessionId) ?? new Set<(event: unknown) => void>();
-  handlers.add(handler);
-  sessionSubscribers.set(sessionId, handlers);
+export const subscribeToSession = runtime.subscribeToSession.bind(runtime);
 
-  return () => {
-    const activeHandlers = sessionSubscribers.get(sessionId);
-    if (!activeHandlers) return;
-    activeHandlers.delete(handler);
-    if (activeHandlers.size === 0) {
-      sessionSubscribers.delete(sessionId);
-    }
-  };
-}
+export const abortSession = runtime.abortSession.bind(runtime);
 
-export async function abortSession(sessionId: string, _directory?: string): Promise<void> {
-  for (const [sessionKey, entry] of activeRequests) {
-    if (sessionKey.endsWith(`:${sessionId}`)) {
-      entry.controller.abort();
-      entry.process?.kill("SIGTERM");
-      activeRequests.delete(sessionKey);
-    }
-  }
-}
+export const cancelActiveRequest = runtime.cancelActiveRequest.bind(runtime);
 
-export async function cancelActiveRequest(
-  channelId: string,
-  sessionId: string,
-  _directory?: string
-): Promise<boolean> {
-  const sessionKey = `${channelId}:${sessionId}`;
-  const entry = activeRequests.get(sessionKey);
-  if (!entry) return false;
-
-  entry.controller.abort();
-  entry.process?.kill("SIGTERM");
-  activeRequests.delete(sessionKey);
-  return true;
-}
-
-export function stopServer(): void {
-  for (const entry of activeRequests.values()) {
-    entry.controller.abort();
-    entry.process?.kill("SIGTERM");
-  }
-  activeRequests.clear();
-  sessionSubscribers.clear();
-}
-
-export async function startServer(): Promise<void> {
-  return;
-}
+export const stopServer = runtime.stopServer.bind(runtime);
+export const startServer = noopStartServer;
