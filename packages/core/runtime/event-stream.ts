@@ -13,6 +13,7 @@ import type { AgentAdapter, IMAdapter } from "@/core/types";
 import { formatQuestionPrompt } from "@/core/runtime/helpers";
 import {
   buildSessionMessageState,
+  extractEventSessionId,
   getStatusMessageKey,
   type SessionEvent,
   type SessionMessageState,
@@ -85,6 +86,11 @@ export async function startEventStreamWatcher(
   let stopNotified = false;
   const unsubscribe = deps.agent.subscribeToSession(request.sessionId, (globalEvent: unknown) => {
     const event = (globalEvent as any).payload ?? globalEvent;
+    const eventSessionId = extractEventSessionId(event as Record<string, unknown> | undefined);
+    if (eventSessionId && eventSessionId !== request.sessionId) {
+      return;
+    }
+
     log.debug(`[${providerTag}] Event`, {
       sessionId: request.sessionId,
       type: (event as any)?.type ?? "unknown",

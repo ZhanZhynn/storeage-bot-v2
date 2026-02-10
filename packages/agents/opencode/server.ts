@@ -4,7 +4,7 @@ import {
   type EventPermissionAsked,
 } from "@opencode-ai/sdk/v2";
 import { spawn, type ChildProcess } from "child_process";
-import { log } from "@/utils";
+import { extractEventSessionId, log } from "@/utils";
 import { getOpenCodeModels, setOpenCodeModels } from "@/config";
 
 // Per-session OpenCode instances
@@ -333,7 +333,7 @@ function startSessionEventLoop(sessionId: string, session: SessionInstance): voi
 
         const event = (globalEvent as any).payload ?? globalEvent;
         const directory = (globalEvent as any).directory;
-        const eventSessionId = event?.properties?.sessionID ?? event?.properties?.part?.sessionID;
+        const eventSessionId = extractEventSessionId(event as Record<string, unknown> | undefined);
         if (eventSessionId && eventSessionId !== sessionId) {
           continue;
         }
