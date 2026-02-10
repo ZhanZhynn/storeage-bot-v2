@@ -299,9 +299,7 @@ async function main(): Promise<void> {
     log.debug("Bot is running in Socket Mode");
   }
 
-  log.info(
-    `Ode is ready! Waiting for messages, setting UI is accessible at ${getLocalSettingsUrl()}`,
-  );
+  console.log(`Ode is ready! Waiting for messages, setting UI is accessible at ${getLocalSettingsUrl()}`);
 }
 
 main().catch((err) => {
