@@ -24,7 +24,7 @@ Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Code
 
 - Configured OpenCode / Claude Code / Codex / Kimi Code... at least 1 coding cli.
 - Register a Slack Bot with Socket Mode enabled, have its APP TOKEN (xapp...) and BOT TOKEN (xbot..)
-  - Configuration and auth scope can be a little bit complicated if not so familiar with slack bots. If not sure, can use /static/slack-app-manifest.json to generate from manifest file.
+  - Configuration and auth scope can be a little bit complicated if not so familiar with slack bots. If not sure, download [`slack-app-manifest.json`](https://raw.githubusercontent.com/odefun/ode/main/static/slack-app-manifest.json) and generate from the manifest file.
 
 ### Installation and Running
 
