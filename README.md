@@ -21,8 +21,8 @@ Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Code
 * **Channel based settings** lets you configure multiple work directories easily in one machine and one slack workspace.
 * Ode also want to support as much chatting tools as possible, next is Discord and Lark.
 
-![Channel](static/channel-setting.png)
-*Run `@bot /setting` to trigger setting dialog.*
+![Threads](static/threads.png)
+*Each thread is a session, each channel can setup different directories or coding tools/models*
 
 ## Setup
 
@@ -46,6 +46,9 @@ ode
 ```
 
 Settings UI can be accessible via http://127.0.0.1:9293 or use `/setting` command in slack like `@bot /setting`.
+
+![Channel](static/channel-setting.png)
+*Run `@bot /setting` to trigger setting dialog.*
 
 ## Agent List
 

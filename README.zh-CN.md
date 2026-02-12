@@ -21,8 +21,8 @@ Ode 是一个编程代理工具，可将你的编码Agent（OpenCode、Claude Co
 * **基于频道的设置**，可在同一台机器和同一个Slack工作区中轻松配置多个工作目录。
 * 我们也希望后续支持尽可能多的聊天工具。
 
-![Channel](static/channel-setting.png)
-*Run `@bot /setting` to trigger setting dialog.*
+![Threads](static/threads.png)
+*Each thread is a session, each channel can setup different directories or coding tools/models*
 
 ## 安装与配置
 
@@ -46,6 +46,9 @@ ode
 ```
 
 设置界面可通过 http://127.0.0.1:9293 访问，或在 Slack 中使用 `/setting` 命令，例如 `@bot /setting`。
+
+![Channel](static/channel-setting.png)
+*Run `@bot /setting` to trigger setting dialog.*
 
 ## 代理列表
 
