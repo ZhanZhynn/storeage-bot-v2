@@ -19,17 +19,14 @@ type RouterDeps = {
   ) => void;
   isThreadActive: (channelId: string, threadId: string) => boolean;
   markThreadActive: (channelId: string, threadId: string) => void;
-  isGitHubCommand: (text: string) => boolean;
-  isChannelSettingsCommand: (text: string) => boolean;
   isGeneralSettingsCommand: (text: string) => boolean;
-  postGitHubLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
-  postChannelSettingsLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
   postGeneralSettingsLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
   describeSettingsIssues: (channelId: string) => string[];
   getChannelAgentProvider: (channelId: string) => "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen";
   handleStopCommand: (channelId: string, threadId: string) => Promise<boolean>;
   handleIncomingMessage: (context: {
     channelId: string;
+    replyThreadId: string;
     threadId: string;
     userId: string;
     messageId: string;
@@ -149,8 +146,6 @@ async function maybeHandleLauncherCommand(params: {
     matches: (text: string) => boolean;
     launch: (channelId: string, userId: string, client: any) => Promise<void>;
   }> = [
-    { matches: deps.isGitHubCommand, launch: deps.postGitHubLauncher },
-    { matches: deps.isChannelSettingsCommand, launch: deps.postChannelSettingsLauncher },
     { matches: deps.isGeneralSettingsCommand, launch: deps.postGeneralSettingsLauncher },
   ];
 
@@ -239,6 +234,7 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
     await deps.handleIncomingMessage(
       {
         channelId,
+        replyThreadId: threadId,
         threadId,
         userId,
         messageId,
