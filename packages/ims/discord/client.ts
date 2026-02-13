@@ -198,16 +198,6 @@ function buildLauncherCommandText(params: {
   return `Open settings: ${settingsUrl}`;
 }
 
-async function postLauncherCommandReply(params: {
-  channel: any;
-  command: "setting" | "channel" | "gh";
-  userId: string;
-  channelId: string;
-}): Promise<void> {
-  const text = buildLauncherCommandText(params);
-  await params.channel.send(text);
-}
-
 async function registerDiscordCommands(client: Client): Promise<void> {
   try {
     const guilds = await client.guilds.fetch();
@@ -256,11 +246,9 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
         const text = message.content.trim();
         const launcherCommand = parseLauncherCommand(text);
         if (launcherCommand) {
-          await postLauncherCommandReply({
-            channel: message.channel,
+          log.debug("Ignoring Discord message command in thread; slash command handles it", {
             command: launcherCommand,
-            userId: message.author.id,
-            channelId: parentId,
+            threadId,
           });
           return;
         }
@@ -293,10 +281,8 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
 
       const parentLauncherCommand = parseLauncherCommand(message.content);
       if (parentLauncherCommand) {
-        await postLauncherCommandReply({
-          channel: message.channel,
+        log.debug("Ignoring Discord message command in parent channel; slash command handles it", {
           command: parentLauncherCommand,
-          userId: message.author.id,
           channelId: parentId,
         });
         return;
@@ -308,10 +294,8 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
       const cleaned = cleanBotMention(message.content, client.user.id);
       const cleanedLauncherCommand = parseLauncherCommand(cleaned);
       if (cleanedLauncherCommand) {
-        await postLauncherCommandReply({
-          channel: message.channel,
+        log.debug("Ignoring Discord mention command; slash command handles it", {
           command: cleanedLauncherCommand,
-          userId: message.author.id,
           channelId: parentId,
         });
         return;
