@@ -6,6 +6,7 @@ import {
   GatewayIntentBits,
   ModalBuilder,
   Partials,
+  StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
 } from "discord.js";
@@ -41,7 +42,7 @@ import { log } from "@/utils";
 const DISCORD_MESSAGE_LIMIT = 2000;
 const DISCORD_THREAD_NAME_LIMIT = 100;
 const DISCORD_MODAL_GENERAL = "ode:modal:general";
-const DISCORD_MODAL_CHANNEL = "ode:modal:channel";
+const DISCORD_MODAL_CHANNEL = "ode:modal:channel_details";
 const DISCORD_MODAL_GITHUB = "ode:modal:github";
 const PROVIDERS = ["opencode", "claudecode", "codex", "kimi", "kiro", "kilo", "qwen"] as const;
 const DISCORD_LAUNCHER_COMMANDS = [
@@ -53,6 +54,7 @@ const DISCORD_LAUNCHER_COMMANDS = [
 
 const discordClients = new Map<string, Client>();
 const statusMessageThreadMap = new Map<string, string>();
+const channelSettingsDrafts = new Map<string, { provider: typeof PROVIDERS[number]; model: string }>();
 
 function splitForDiscord(text: string): string[] {
   if (text.length <= DISCORD_MESSAGE_LIMIT) return [text];
@@ -281,6 +283,87 @@ function hasModel(models: string[], selected: string): boolean {
   return models.some((model) => normalizeModel(model) === target);
 }
 
+function getProviderModels(provider: typeof PROVIDERS[number]): string[] {
+  if (provider === "opencode") return getOpenCodeModels();
+  if (provider === "codex") return getCodexModels();
+  if (provider === "kilo") return getKiloModels();
+  return [];
+}
+
+function draftKey(userId: string, channelId: string): string {
+  return `${userId}:${channelId}`;
+}
+
+function getInitialChannelDraft(channelId: string): { provider: typeof PROVIDERS[number]; model: string } {
+  const provider = getChannelAgentProvider(channelId);
+  return {
+    provider,
+    model: getChannelModel(channelId) || "",
+  };
+}
+
+function getDraftOrInitial(userId: string, channelId: string): { provider: typeof PROVIDERS[number]; model: string } {
+  return channelSettingsDrafts.get(draftKey(userId, channelId)) ?? getInitialChannelDraft(channelId);
+}
+
+function buildChannelSettingsPickerPayload(params: {
+  channelId: string;
+  userId: string;
+}): {
+  content: string;
+  components: Array<ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>>;
+} {
+  const { channelId, userId } = params;
+  const draft = getDraftOrInitial(userId, channelId);
+  const providerOptions = PROVIDERS.map((provider) => ({
+    label: provider,
+    value: provider,
+    default: provider === draft.provider,
+  }));
+
+  const providerSelect = new StringSelectMenuBuilder()
+    .setCustomId(`ode:channel:provider:${channelId}`)
+    .setPlaceholder("Select provider")
+    .addOptions(providerOptions);
+
+  const components: Array<ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>> = [
+    new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(providerSelect),
+  ];
+
+  const models = getProviderModels(draft.provider);
+  if (models.length > 0) {
+    const selectedModel = draft.model && hasModel(models, draft.model) ? draft.model : models[0]!;
+    const modelOptions = models.slice(0, 25).map((model) => ({
+      label: model.slice(0, 100),
+      value: model,
+      default: model === selectedModel,
+    }));
+    const modelSelect = new StringSelectMenuBuilder()
+      .setCustomId(`ode:channel:model:${channelId}`)
+      .setPlaceholder("Select model")
+      .addOptions(modelOptions);
+    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(modelSelect));
+  }
+
+  components.push(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ode:channel:edit:${channelId}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("Edit details"),
+      new ButtonBuilder()
+        .setCustomId(`ode:channel:save:${channelId}`)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel("Save provider/model")
+    )
+  );
+
+  return {
+    content: `Channel settings (draft)\nProvider: ${draft.provider}\nModel: ${draft.model || "(none)"}`,
+    components,
+  };
+}
+
 function parseGeneralStatusFormat(value: string): "aggressive" | "medium" | "minimum" | null {
   const normalized = value.trim().toLowerCase();
   if (normalized === "aggressive" || normalized === "medium" || normalized === "minimum") {
@@ -339,8 +422,6 @@ function buildGeneralSettingsModal(channelId: string): ModalBuilder {
 }
 
 function buildChannelSettingsModal(channelId: string): ModalBuilder {
-  const provider = getChannelAgentProvider(channelId);
-  const model = getChannelModel(channelId) || "";
   const baseBranch = getChannelBaseBranch(channelId) || "main";
   const workingDirectory = resolveChannelCwd(channelId).workingDirectory || "";
   const systemMessage = getChannelSystemMessage(channelId) || "";
@@ -350,22 +431,8 @@ function buildChannelSettingsModal(channelId: string): ModalBuilder {
     .setTitle("Channel Settings")
     .addComponents(
       textInputRow({
-        id: "provider",
-        label: "Provider",
-        required: true,
-        value: provider,
-        placeholder: PROVIDERS.join(" | "),
-      }),
-      textInputRow({
-        id: "model",
-        label: "Model (optional)",
-        required: false,
-        value: model,
-        placeholder: "Model id or blank",
-      }),
-      textInputRow({
         id: "working_directory",
-        label: "Working directory (optional)",
+        label: "Working directory",
         required: false,
         value: workingDirectory,
       }),
@@ -427,7 +494,11 @@ async function handleLauncherButtonInteraction(interaction: any): Promise<void> 
   }
 
   if (action === "channel") {
-    await interaction.showModal(buildChannelSettingsModal(channelId));
+    const payload = buildChannelSettingsPickerPayload({
+      channelId,
+      userId: interaction.user.id,
+    });
+    await interaction.reply({ ...payload, ephemeral: true });
     return;
   }
 
@@ -463,40 +534,9 @@ async function handleModalSubmitInteraction(interaction: any): Promise<void> {
   }
 
   if (modalKind === DISCORD_MODAL_CHANNEL) {
-    const providerInput = getModalValue(interaction, "provider");
-    const provider = parseProvider(providerInput);
-    if (!provider || !isAgentEnabled(provider)) {
-      await interaction.reply({
-        content: `Invalid provider. Use one of: ${PROVIDERS.join(", ")}.`,
-        ephemeral: true,
-      });
-      return;
-    }
-
-    const modelInput = getModalValue(interaction, "model").trim();
-    if (provider === "opencode" && modelInput && !hasModel(getOpenCodeModels(), modelInput)) {
-      await interaction.reply({ content: "Model is not in OpenCode models list.", ephemeral: true });
-      return;
-    }
-    if (provider === "codex" && modelInput && !hasModel(getCodexModels(), modelInput)) {
-      await interaction.reply({ content: "Model is not in Codex models list.", ephemeral: true });
-      return;
-    }
-    if (provider === "kilo" && modelInput && !hasModel(getKiloModels(), modelInput)) {
-      await interaction.reply({ content: "Model is not in Kilo models list.", ephemeral: true });
-      return;
-    }
-
     const workingDirectory = getModalValue(interaction, "working_directory").trim();
     const baseBranch = getModalValue(interaction, "base_branch").trim() || "main";
     const channelSystemMessage = getModalValue(interaction, "channel_system_message");
-
-    setChannelAgentProvider(channelId, provider);
-    if (provider === "claudecode" || provider === "kimi" || provider === "kiro" || provider === "qwen") {
-      setChannelModel(channelId, "");
-    } else {
-      setChannelModel(channelId, modelInput);
-    }
     setChannelWorkingDirectory(channelId, workingDirectory.length > 0 ? workingDirectory : null);
     setChannelBaseBranch(channelId, baseBranch);
     setChannelSystemMessage(channelId, channelSystemMessage);
@@ -516,6 +556,75 @@ async function handleModalSubmitInteraction(interaction: any): Promise<void> {
     });
     await interaction.reply({ content: "GitHub info updated.", ephemeral: true });
   }
+}
+
+async function handleChannelSettingsComponentInteraction(interaction: any): Promise<boolean> {
+  const customId = String(interaction.customId ?? "");
+  if (!customId.startsWith("ode:channel:")) return false;
+
+  const [, , action, channelIdRaw] = customId.split(":", 4);
+  const channelId = channelIdRaw || getResolvedChannelId(interaction);
+  if (!channelId) return true;
+
+  const userId = interaction.user.id;
+  const key = draftKey(userId, channelId);
+  const draft = getDraftOrInitial(userId, channelId);
+
+  if (action === "provider") {
+    const selected = interaction.values?.[0] as string | undefined;
+    const parsed = selected ? parseProvider(selected) : null;
+    if (!parsed || !isAgentEnabled(parsed)) {
+      await interaction.reply({ content: "Selected provider is invalid or disabled.", ephemeral: true });
+      return true;
+    }
+    const models = getProviderModels(parsed);
+    const nextDraft = {
+      provider: parsed,
+      model: models.length > 0 ? (hasModel(models, draft.model) ? draft.model : models[0]!) : "",
+    };
+    channelSettingsDrafts.set(key, nextDraft);
+    const payload = buildChannelSettingsPickerPayload({ channelId, userId });
+    await interaction.update(payload);
+    return true;
+  }
+
+  if (action === "model") {
+    const selected = interaction.values?.[0] as string | undefined;
+    if (selected) {
+      channelSettingsDrafts.set(key, {
+        provider: draft.provider,
+        model: selected,
+      });
+    }
+    const payload = buildChannelSettingsPickerPayload({ channelId, userId });
+    await interaction.update(payload);
+    return true;
+  }
+
+  if (action === "save") {
+    const models = getProviderModels(draft.provider);
+    if (models.length > 0 && draft.model && !hasModel(models, draft.model)) {
+      await interaction.reply({ content: "Selected model is no longer available.", ephemeral: true });
+      return true;
+    }
+
+    setChannelAgentProvider(channelId, draft.provider);
+    if (draft.provider === "claudecode" || draft.provider === "kimi" || draft.provider === "kiro" || draft.provider === "qwen") {
+      setChannelModel(channelId, "");
+    } else {
+      setChannelModel(channelId, draft.model);
+    }
+    channelSettingsDrafts.delete(key);
+    await interaction.reply({ content: "Channel provider/model updated.", ephemeral: true });
+    return true;
+  }
+
+  if (action === "edit") {
+    await interaction.showModal(buildChannelSettingsModal(channelId));
+    return true;
+  }
+
+  return true;
 }
 
 async function registerDiscordCommands(client: Client): Promise<void> {
@@ -655,8 +764,13 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
       client.on("interactionCreate", async (interaction: any) => {
         try {
       if (interaction.isButton && interaction.isButton()) {
+        if (await handleChannelSettingsComponentInteraction(interaction)) return;
         await handleLauncherButtonInteraction(interaction);
         return;
+      }
+
+      if (interaction.isStringSelectMenu && interaction.isStringSelectMenu()) {
+        if (await handleChannelSettingsComponentInteraction(interaction)) return;
       }
 
       if (interaction.isModalSubmit && interaction.isModalSubmit()) {
