@@ -1,4 +1,11 @@
-import { Client, GatewayIntentBits, Partials } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  Client,
+  GatewayIntentBits,
+  Partials,
+} from "discord.js";
 import { createCoreRuntime } from "@/core/runtime";
 import type { IMAdapter } from "@/core/types";
 import { createAgentAdapter } from "@/agents/adapter";
@@ -176,8 +183,18 @@ function getLocalSettingsUrl(): string {
   return `http://${getWebHost()}:${getWebPort()}/local-setting`;
 }
 
+type LauncherCommand = "setting" | "channel" | "gh";
+
+function getResolvedChannelId(target: any): string {
+  const channel = target?.channel;
+  if (channel?.isThread?.()) {
+    return channel.parentId ?? target.channelId;
+  }
+  return target.channelId;
+}
+
 function buildLauncherCommandText(params: {
-  command: "setting" | "channel" | "gh";
+  command: LauncherCommand;
   userId: string;
   channelId: string;
 }): string {
@@ -196,6 +213,77 @@ function buildLauncherCommandText(params: {
   }
 
   return `Open settings: ${settingsUrl}`;
+}
+
+function buildSettingsLinkRow(): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Link)
+      .setLabel("Open settings")
+      .setURL(getLocalSettingsUrl())
+  );
+}
+
+function buildSettingsChooserRows(channelId: string): ActionRowBuilder<ButtonBuilder>[] {
+  return [
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ode:launcher:setting:${channelId}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("General setting"),
+      new ButtonBuilder()
+        .setCustomId(`ode:launcher:channel:${channelId}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("Channel setting"),
+      new ButtonBuilder()
+        .setCustomId(`ode:launcher:gh:${channelId}`)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel("GitHub info")
+    ),
+    buildSettingsLinkRow(),
+  ];
+}
+
+function buildLauncherReplyPayload(params: {
+  command: LauncherCommand;
+  userId: string;
+  channelId: string;
+}): { content: string; components: ActionRowBuilder<ButtonBuilder>[] } {
+  const { command, userId, channelId } = params;
+  if (command === "setting") {
+    return {
+      content: "Choose which settings page to open.",
+      components: buildSettingsChooserRows(channelId),
+    };
+  }
+
+  return {
+    content: buildLauncherCommandText({ command, userId, channelId }),
+    components: [buildSettingsLinkRow()],
+  };
+}
+
+async function handleLauncherButtonInteraction(interaction: any): Promise<void> {
+  const customId = String(interaction.customId ?? "");
+  if (!customId.startsWith("ode:launcher:")) return;
+
+  const [, , commandRaw, channelIdRaw] = customId.split(":", 4);
+  const command = commandRaw as LauncherCommand;
+  if (!["setting", "channel", "gh"].includes(command)) return;
+
+  const channelId = channelIdRaw || getResolvedChannelId(interaction);
+  const payload = buildLauncherReplyPayload({
+    command,
+    userId: interaction.user.id,
+    channelId,
+  });
+
+  if (interaction.deferred || interaction.replied) {
+    await interaction.followUp({ ...payload, ephemeral: true });
+    return;
+  }
+
+  await interaction.reply({ ...payload, ephemeral: true });
 }
 
 async function registerDiscordCommands(client: Client): Promise<void> {
@@ -325,19 +413,25 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
 
   client.on("interactionCreate", async (interaction: any) => {
     try {
+      if (interaction.isButton && interaction.isButton()) {
+        await handleLauncherButtonInteraction(interaction);
+        return;
+      }
+
       if (!interaction.isChatInputCommand || !interaction.isChatInputCommand()) return;
       const commandName = String(interaction.commandName || "").toLowerCase();
       if (!["setting", "channel", "gh"].includes(commandName)) return;
 
-      const channel = interaction.channel;
-      const resolvedChannelId = channel?.isThread?.() ? (channel.parentId ?? interaction.channelId) : interaction.channelId;
-      const text = buildLauncherCommandText({
-        command: commandName as "setting" | "channel" | "gh",
+      const payload = buildLauncherReplyPayload({
+        command: commandName as LauncherCommand,
         userId: interaction.user.id,
-        channelId: resolvedChannelId,
+        channelId: getResolvedChannelId(interaction),
       });
 
-      await interaction.reply({ content: text, ephemeral: true });
+      await interaction.reply({
+        ...payload,
+        ephemeral: true,
+      });
     } catch (error) {
       log.error("Discord interaction handler failed", { error: String(error) });
     }
