@@ -4,6 +4,7 @@ import {
   ButtonStyle,
   Client,
   GatewayIntentBits,
+  MessageFlags,
   ModalBuilder,
   Partials,
   StringSelectMenuBuilder,
@@ -36,11 +37,12 @@ import {
   setGitHubInfoForUser,
   setUserGeneralSettings,
 } from "@/config";
+import { findReplyThreadIdByStatusMessageTs } from "@/config/local/sessions";
 import { isThreadActive, markThreadActive } from "@/config/local/settings";
 import { log } from "@/utils";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
-const DISCORD_THREAD_NAME_LIMIT = 100;
+const DISCORD_THREAD_NAME_LIMIT = 25;
 const DISCORD_MODAL_CHANNEL = "ode:modal:channel_details";
 const DISCORD_MODAL_GITHUB = "ode:modal:github";
 const STATUS_FORMAT_OPTIONS = ["aggressive", "medium", "minimum"] as const;
@@ -132,10 +134,15 @@ async function updateMessage(
   _asMarkdown = true
 ): Promise<void> {
   try {
-    const threadId = statusMessageThreadMap.get(messageId) || channelId;
+    const mappedThreadId = statusMessageThreadMap.get(messageId);
+    const persistedThreadId = findReplyThreadIdByStatusMessageTs(messageId);
+    const threadId = mappedThreadId || persistedThreadId || channelId;
     if (!threadId) {
       log.warn("Cannot update Discord message without known thread", { messageId });
       return;
+    }
+    if (!mappedThreadId && persistedThreadId) {
+      statusMessageThreadMap.set(messageId, persistedThreadId);
     }
     const channel = await resolveTextChannel(threadId);
     const message = await channel.messages.fetch(messageId);
@@ -144,13 +151,14 @@ async function updateMessage(
     log.warn("Failed to update Discord message", {
       messageId,
       channelId,
+      resolvedChannelId: statusMessageThreadMap.get(messageId) || findReplyThreadIdByStatusMessageTs(messageId) || channelId,
       error: String(error),
     });
   }
 }
 
 async function deleteMessage(_channelId: string, messageId: string): Promise<void> {
-  const threadId = statusMessageThreadMap.get(messageId);
+  const threadId = statusMessageThreadMap.get(messageId) || findReplyThreadIdByStatusMessageTs(messageId);
   if (!threadId) return;
   const channel = await resolveTextChannel(threadId);
   const message = await channel.messages.fetch(messageId);
@@ -539,7 +547,7 @@ async function handleLauncherButtonInteraction(interaction: any): Promise<void> 
       channelId,
       userId: interaction.user.id,
     });
-    await interaction.reply({ ...payload, ephemeral: true });
+    await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -548,7 +556,7 @@ async function handleLauncherButtonInteraction(interaction: any): Promise<void> 
       channelId,
       userId: interaction.user.id,
     });
-    await interaction.reply({ ...payload, ephemeral: true });
+    await interaction.reply({ ...payload, flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -573,7 +581,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<void> {
     setChannelBaseBranch(channelId, baseBranch);
     setChannelSystemMessage(channelId, channelSystemMessage);
 
-    await interaction.reply({ content: "Channel settings updated.", ephemeral: true });
+    await interaction.reply({ content: "Channel settings updated.", flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -586,7 +594,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<void> {
       gitName,
       gitEmail,
     });
-    await interaction.reply({ content: "GitHub info updated.", ephemeral: true });
+    await interaction.reply({ content: "GitHub info updated.", flags: MessageFlags.Ephemeral });
   }
 }
 
@@ -606,7 +614,7 @@ async function handleGeneralSettingsComponentInteraction(interaction: any): Prom
     const selected = interaction.values?.[0] as string | undefined;
     const parsed = selected ? parseGeneralStatusFormat(selected) : null;
     if (!parsed) {
-      await interaction.reply({ content: "Invalid status format.", ephemeral: true });
+      await interaction.reply({ content: "Invalid status format.", flags: MessageFlags.Ephemeral });
       return true;
     }
     generalSettingsDrafts.set(key, {
@@ -622,7 +630,7 @@ async function handleGeneralSettingsComponentInteraction(interaction: any): Prom
     const selected = interaction.values?.[0] as string | undefined;
     const parsed = selected ? parseGitStrategy(selected) : null;
     if (!parsed) {
-      await interaction.reply({ content: "Invalid git strategy.", ephemeral: true });
+      await interaction.reply({ content: "Invalid git strategy.", flags: MessageFlags.Ephemeral });
       return true;
     }
     generalSettingsDrafts.set(key, {
@@ -640,7 +648,7 @@ async function handleGeneralSettingsComponentInteraction(interaction: any): Prom
       gitStrategy: draft.gitStrategy,
     });
     generalSettingsDrafts.delete(key);
-    await interaction.reply({ content: "General settings updated.", ephemeral: true });
+    await interaction.reply({ content: "General settings updated.", flags: MessageFlags.Ephemeral });
     return true;
   }
 
@@ -663,7 +671,7 @@ async function handleChannelSettingsComponentInteraction(interaction: any): Prom
     const selected = interaction.values?.[0] as string | undefined;
     const parsed = selected ? parseProvider(selected) : null;
     if (!parsed || !isAgentEnabled(parsed)) {
-      await interaction.reply({ content: "Selected provider is invalid or disabled.", ephemeral: true });
+      await interaction.reply({ content: "Selected provider is invalid or disabled.", flags: MessageFlags.Ephemeral });
       return true;
     }
     const models = getProviderModels(parsed);
@@ -693,7 +701,7 @@ async function handleChannelSettingsComponentInteraction(interaction: any): Prom
   if (action === "save") {
     const models = getProviderModels(draft.provider);
     if (models.length > 0 && draft.model && !hasModel(models, draft.model)) {
-      await interaction.reply({ content: "Selected model is no longer available.", ephemeral: true });
+      await interaction.reply({ content: "Selected model is no longer available.", flags: MessageFlags.Ephemeral });
       return true;
     }
 
@@ -704,7 +712,7 @@ async function handleChannelSettingsComponentInteraction(interaction: any): Prom
       setChannelModel(channelId, draft.model);
     }
     channelSettingsDrafts.delete(key);
-    await interaction.reply({ content: "Channel provider/model updated.", ephemeral: true });
+    await interaction.reply({ content: "Channel provider/model updated.", flags: MessageFlags.Ephemeral });
     return true;
   }
 
@@ -881,7 +889,7 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
 
           await interaction.reply({
             ...payload,
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         } catch (error) {
           log.error("Discord interaction handler failed", { error: String(error) });

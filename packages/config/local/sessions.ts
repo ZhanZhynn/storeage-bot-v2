@@ -284,6 +284,22 @@ export function getSessionsWithPendingRequests(): PersistedSession[] {
   );
 }
 
+export function findReplyThreadIdByStatusMessageTs(messageTs: string): string | null {
+  if (activeSessions.size === 0) {
+    loadAllSessions();
+  }
+
+  for (const session of activeSessions.values()) {
+    const activeRequest = session.activeRequest;
+    if (!activeRequest) continue;
+    if (activeRequest.statusMessageTs === messageTs) {
+      return activeRequest.replyThreadId || null;
+    }
+  }
+
+  return null;
+}
+
 // Deduplication
 function buildMessageDedupKey(channelId: string, threadId: string, messageTs: string): string {
   return `${channelId}:${threadId}:${messageTs}`;
