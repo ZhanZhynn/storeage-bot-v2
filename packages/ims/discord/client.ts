@@ -29,7 +29,7 @@ const DISCORD_LAUNCHER_COMMANDS = [
   },
 ] as const;
 
-let discordClient: Client | null = null;
+const discordClients = new Map<string, Client>();
 const statusMessageThreadMap = new Map<string, string>();
 
 function splitForDiscord(text: string): string[] {
@@ -44,12 +44,22 @@ function splitForDiscord(text: string): string[] {
 }
 
 async function resolveTextChannel(channelId: string) {
-  if (!discordClient) throw new Error("Discord client is not initialized");
-  const channel = await discordClient.channels.fetch(channelId);
-  if (!channel || !channel.isTextBased()) {
-    throw new Error(`Discord channel ${channelId} is not text-based`);
+  if (discordClients.size === 0) {
+    throw new Error("Discord client is not initialized");
   }
-  return channel as any;
+
+  for (const client of discordClients.values()) {
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (channel && channel.isTextBased()) {
+        return channel as any;
+      }
+    } catch {
+      // Try next client
+    }
+  }
+
+  throw new Error(`Discord channel ${channelId} is not text-based or inaccessible`);
 }
 
 async function buildDiscordContext(
@@ -91,12 +101,12 @@ async function sendMessage(
 }
 
 async function updateMessage(
-  _channelId: string,
+  channelId: string,
   messageId: string,
   text: string,
   _asMarkdown = true
 ): Promise<void> {
-  const threadId = statusMessageThreadMap.get(messageId);
+  const threadId = statusMessageThreadMap.get(messageId) || channelId;
   if (!threadId) {
     log.warn("Cannot update Discord message without known thread", { messageId });
     return;
@@ -290,154 +300,174 @@ async function registerDiscordCommands(client: Client): Promise<void> {
 }
 
 export async function startDiscordRuntime(reason: string): Promise<boolean> {
-  if (discordClient) return true;
+  if (discordClients.size > 0) return true;
   const configuredTokens = getDiscordBotTokens();
-  const token = configuredTokens[0]?.token?.trim() || process.env.DISCORD_BOT_TOKEN?.trim();
-  if (!token) {
+  const envToken = process.env.DISCORD_BOT_TOKEN?.trim() || "";
+  const tokens = Array.from(new Set([
+    ...configuredTokens.map((entry) => entry.token?.trim() || "").filter(Boolean),
+    ...(envToken ? [envToken] : []),
+  ]));
+
+  if (tokens.length === 0) {
     log.debug("Discord runtime skipped (Discord bot token missing)", { reason });
     return false;
   }
 
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-    ],
-    partials: [Partials.Channel, Partials.Message],
-  });
+  let startedCount = 0;
 
-  client.on("messageCreate", async (message: any) => {
+  for (const token of tokens) {
     try {
-      if (!client.user) return;
-      if (message.author.bot) return;
-      if (!message.guildId) return;
+      const client = new Client({
+        intents: [
+          GatewayIntentBits.Guilds,
+          GatewayIntentBits.GuildMessages,
+          GatewayIntentBits.MessageContent,
+        ],
+        partials: [Partials.Channel, Partials.Message],
+      });
 
-      const configuredChannels = getDiscordTargetChannels();
+      client.on("messageCreate", async (message: any) => {
+        try {
+          if (!client.user) return;
+          if (message.author.bot) return;
+          if (!message.guildId) return;
 
-      if (message.channel.isThread()) {
-        const parentId = message.channel.parentId;
-        if (!parentId) return;
-        if (configuredChannels && !configuredChannels.includes(parentId)) return;
+          const configuredChannels = getDiscordTargetChannels();
 
-        const threadId = message.channel.id;
-        const text = message.content.trim();
-        const launcherCommand = parseLauncherCommand(text);
-        if (launcherCommand) {
-          log.debug("Ignoring Discord message command in thread; slash command handles it", {
-            command: launcherCommand,
-            threadId,
-          });
-          return;
-        }
-        const mentioned = message.mentions.users.has(client.user.id);
-        const active = isThreadActive(parentId, threadId);
-        if (!mentioned && !active) return;
-        if (!text) return;
+          if (message.channel.isThread()) {
+            const parentId = message.channel.parentId;
+            if (!parentId) return;
+            if (configuredChannels && !configuredChannels.includes(parentId)) return;
 
-        if (isStopCommand(text)) {
-          const stopped = await coreRuntime.handleStopCommand(parentId, threadId);
-          if (stopped) {
-            await message.channel.send("Request stopped.");
+            const threadId = message.channel.id;
+            const text = message.content.trim();
+            const launcherCommand = parseLauncherCommand(text);
+            if (launcherCommand) {
+              log.debug("Ignoring Discord message command in thread; slash command handles it", {
+                command: launcherCommand,
+                threadId,
+              });
+              return;
+            }
+            const mentioned = message.mentions.users.has(client.user.id);
+            const active = isThreadActive(parentId, threadId);
+            if (!mentioned && !active) return;
+            if (!text) return;
+
+            if (isStopCommand(text)) {
+              const stopped = await coreRuntime.handleStopCommand(parentId, threadId);
+              if (stopped) {
+                await message.channel.send("Request stopped.");
+              }
+              return;
+            }
+
+            markThreadActive(parentId, threadId);
+            await coreRuntime.handleIncomingMessage({
+              channelId: parentId,
+              replyThreadId: threadId,
+              threadId,
+              userId: message.author.id,
+              messageId: message.id,
+            }, text);
+            return;
           }
-          return;
+
+          const parentId = message.channel.id;
+          if (configuredChannels && !configuredChannels.includes(parentId)) return;
+
+          const parentLauncherCommand = parseLauncherCommand(message.content);
+          if (parentLauncherCommand) {
+            log.debug("Ignoring Discord message command in parent channel; slash command handles it", {
+              command: parentLauncherCommand,
+              channelId: parentId,
+            });
+            return;
+          }
+
+          const isMentioned = message.mentions.users.has(client.user.id);
+          if (!isMentioned) return;
+
+          const cleaned = cleanBotMention(message.content, client.user.id);
+          const cleanedLauncherCommand = parseLauncherCommand(cleaned);
+          if (cleanedLauncherCommand) {
+            log.debug("Ignoring Discord mention command; slash command handles it", {
+              command: cleanedLauncherCommand,
+              channelId: parentId,
+            });
+            return;
+          }
+          if (!cleaned) {
+            await message.reply("Please include a request after mentioning me.");
+            return;
+          }
+
+          const thread = await message.startThread({
+            name: `ode-${Date.now()}`,
+            autoArchiveDuration: 60,
+          });
+
+          markThreadActive(parentId, thread.id);
+          await coreRuntime.handleIncomingMessage({
+            channelId: parentId,
+            replyThreadId: thread.id,
+            threadId: thread.id,
+            userId: message.author.id,
+            messageId: message.id,
+          }, cleaned);
+        } catch (error) {
+          log.error("Discord message handler failed", { error: String(error) });
         }
-
-        markThreadActive(parentId, threadId);
-        await coreRuntime.handleIncomingMessage({
-          channelId: parentId,
-          replyThreadId: threadId,
-          threadId,
-          userId: message.author.id,
-          messageId: message.id,
-        }, text);
-        return;
-      }
-
-      const parentId = message.channel.id;
-      if (configuredChannels && !configuredChannels.includes(parentId)) return;
-
-      const parentLauncherCommand = parseLauncherCommand(message.content);
-      if (parentLauncherCommand) {
-        log.debug("Ignoring Discord message command in parent channel; slash command handles it", {
-          command: parentLauncherCommand,
-          channelId: parentId,
-        });
-        return;
-      }
-
-      const isMentioned = message.mentions.users.has(client.user.id);
-      if (!isMentioned) return;
-
-      const cleaned = cleanBotMention(message.content, client.user.id);
-      const cleanedLauncherCommand = parseLauncherCommand(cleaned);
-      if (cleanedLauncherCommand) {
-        log.debug("Ignoring Discord mention command; slash command handles it", {
-          command: cleanedLauncherCommand,
-          channelId: parentId,
-        });
-        return;
-      }
-      if (!cleaned) {
-        await message.reply("Please include a request after mentioning me.");
-        return;
-      }
-
-      const thread = await message.startThread({
-        name: `ode-${Date.now()}`,
-        autoArchiveDuration: 60,
       });
 
-      markThreadActive(parentId, thread.id);
-      await coreRuntime.handleIncomingMessage({
-        channelId: parentId,
-        replyThreadId: thread.id,
-        threadId: thread.id,
-        userId: message.author.id,
-        messageId: message.id,
-      }, cleaned);
-    } catch (error) {
-      log.error("Discord message handler failed", { error: String(error) });
-    }
-  });
+      client.on("interactionCreate", async (interaction: any) => {
+        try {
+          if (interaction.isButton && interaction.isButton()) {
+            await handleLauncherButtonInteraction(interaction);
+            return;
+          }
 
-  client.on("interactionCreate", async (interaction: any) => {
-    try {
-      if (interaction.isButton && interaction.isButton()) {
-        await handleLauncherButtonInteraction(interaction);
-        return;
-      }
+          if (!interaction.isChatInputCommand || !interaction.isChatInputCommand()) return;
+          const commandName = String(interaction.commandName || "").toLowerCase();
+          if (commandName !== "setting") return;
 
-      if (!interaction.isChatInputCommand || !interaction.isChatInputCommand()) return;
-      const commandName = String(interaction.commandName || "").toLowerCase();
-      if (commandName !== "setting") return;
+          const payload = buildLauncherReplyPayload({
+            command: commandName as LauncherCommand,
+            userId: interaction.user.id,
+            channelId: getResolvedChannelId(interaction),
+          });
 
-      const payload = buildLauncherReplyPayload({
-        command: commandName as LauncherCommand,
-        userId: interaction.user.id,
-        channelId: getResolvedChannelId(interaction),
+          await interaction.reply({
+            ...payload,
+            ephemeral: true,
+          });
+        } catch (error) {
+          log.error("Discord interaction handler failed", { error: String(error) });
+        }
       });
 
-      await interaction.reply({
-        ...payload,
-        ephemeral: true,
+      await client.login(token);
+      await registerDiscordCommands(client);
+      discordClients.set(token, client);
+      startedCount += 1;
+      log.info("Discord runtime started", {
+        reason,
+        botUserId: client.user?.id ?? "unknown",
       });
     } catch (error) {
-      log.error("Discord interaction handler failed", { error: String(error) });
+      log.error("Discord runtime failed for token", { reason, error: String(error) });
     }
-  });
+  }
 
-  await client.login(token);
-  await registerDiscordCommands(client);
-  discordClient = client;
-  log.info("Discord runtime started", { reason, botUserId: client.user?.id ?? "unknown" });
-  return true;
+  return startedCount > 0;
 }
 
 export async function stopDiscordRuntime(reason: string): Promise<void> {
-  if (!discordClient) return;
-  discordClient.destroy();
-  discordClient = null;
+  if (discordClients.size === 0) return;
+  for (const client of discordClients.values()) {
+    client.destroy();
+  }
+  discordClients.clear();
   statusMessageThreadMap.clear();
   log.debug("Discord runtime stopped", { reason });
 }

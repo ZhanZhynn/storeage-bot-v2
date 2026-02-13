@@ -28,7 +28,7 @@ export async function recoverPendingRequests(im: IMAdapter): Promise<void> {
     }
 
     await im.updateMessage(
-      request.channelId,
+      request.replyThreadId || request.channelId,
       request.statusMessageTs,
       "_Bot restarted - please resend your message_",
       false
