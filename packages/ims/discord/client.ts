@@ -634,7 +634,7 @@ async function registerDiscordCommands(client: Client): Promise<void> {
       const guild = await client.guilds.fetch(guildPreview.id);
       await guild.commands.set([...DISCORD_LAUNCHER_COMMANDS]);
     }
-    log.info("Discord slash commands registered", { count: DISCORD_LAUNCHER_COMMANDS.length });
+    log.debug("Discord slash commands registered", { count: DISCORD_LAUNCHER_COMMANDS.length });
   } catch (error) {
     log.warn("Failed to register Discord slash commands", { error: String(error) });
   }
@@ -801,7 +801,7 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
       await registerDiscordCommands(client);
       discordClients.set(token, client);
       startedCount += 1;
-      log.info("Discord runtime started", {
+      log.debug("Discord runtime started", {
         reason,
         botUserId: client.user?.id ?? "unknown",
       });
