@@ -41,9 +41,10 @@ import { log } from "@/utils";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
 const DISCORD_THREAD_NAME_LIMIT = 100;
-const DISCORD_MODAL_GENERAL = "ode:modal:general";
 const DISCORD_MODAL_CHANNEL = "ode:modal:channel_details";
 const DISCORD_MODAL_GITHUB = "ode:modal:github";
+const STATUS_FORMAT_OPTIONS = ["aggressive", "medium", "minimum"] as const;
+const GIT_STRATEGY_OPTIONS = ["worktree", "default"] as const;
 const PROVIDERS = ["opencode", "claudecode", "codex", "kimi", "kiro", "kilo", "qwen"] as const;
 const DISCORD_LAUNCHER_COMMANDS = [
   {
@@ -55,6 +56,10 @@ const DISCORD_LAUNCHER_COMMANDS = [
 const discordClients = new Map<string, Client>();
 const statusMessageThreadMap = new Map<string, string>();
 const channelSettingsDrafts = new Map<string, { provider: typeof PROVIDERS[number]; model: string }>();
+const generalSettingsDrafts = new Map<string, {
+  statusFormat: typeof STATUS_FORMAT_OPTIONS[number];
+  gitStrategy: typeof GIT_STRATEGY_OPTIONS[number];
+}>();
 
 function splitForDiscord(text: string): string[] {
   if (text.length <= DISCORD_MESSAGE_LIMIT) return [text];
@@ -359,7 +364,7 @@ function buildChannelSettingsPickerPayload(params: {
   );
 
   return {
-    content: `Channel settings (draft)\nProvider: ${draft.provider}\nModel: ${draft.model || "(none)"}`,
+    content: `Channel settings (draft)\nProvider: ${draft.provider}\nModel: ${draft.model || "(none)"}\nWorking dir: ${resolveChannelCwd(channelId).workingDirectory || "(not set)"}`,
     components,
   };
 }
@@ -376,6 +381,70 @@ function parseGitStrategy(value: string): "default" | "worktree" | null {
   const normalized = value.trim().toLowerCase();
   if (normalized === "default" || normalized === "worktree") return normalized;
   return null;
+}
+
+function getInitialGeneralDraft(): {
+  statusFormat: typeof STATUS_FORMAT_OPTIONS[number];
+  gitStrategy: typeof GIT_STRATEGY_OPTIONS[number];
+} {
+  const settings = getUserGeneralSettings();
+  return {
+    statusFormat: settings.defaultStatusMessageFormat,
+    gitStrategy: settings.gitStrategy,
+  };
+}
+
+function getGeneralDraftOrInitial(userId: string, channelId: string): {
+  statusFormat: typeof STATUS_FORMAT_OPTIONS[number];
+  gitStrategy: typeof GIT_STRATEGY_OPTIONS[number];
+} {
+  return generalSettingsDrafts.get(draftKey(userId, channelId)) ?? getInitialGeneralDraft();
+}
+
+function buildGeneralSettingsPickerPayload(params: {
+  channelId: string;
+  userId: string;
+}): {
+  content: string;
+  components: Array<ActionRowBuilder<StringSelectMenuBuilder> | ActionRowBuilder<ButtonBuilder>>;
+} {
+  const draft = getGeneralDraftOrInitial(params.userId, params.channelId);
+
+  const statusSelect = new StringSelectMenuBuilder()
+    .setCustomId(`ode:general:status:${params.channelId}`)
+    .setPlaceholder("Status format")
+    .addOptions(
+      STATUS_FORMAT_OPTIONS.map((value) => ({
+        label: value,
+        value,
+        default: value === draft.statusFormat,
+      }))
+    );
+
+  const gitSelect = new StringSelectMenuBuilder()
+    .setCustomId(`ode:general:git:${params.channelId}`)
+    .setPlaceholder("Git strategy")
+    .addOptions(
+      GIT_STRATEGY_OPTIONS.map((value) => ({
+        label: value,
+        value,
+        default: value === draft.gitStrategy,
+      }))
+    );
+
+  return {
+    content: `General settings (draft)\nStatus: ${draft.statusFormat}\nGit strategy: ${draft.gitStrategy}`,
+    components: [
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(statusSelect),
+      new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(gitSelect),
+      new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`ode:general:save:${params.channelId}`)
+          .setStyle(ButtonStyle.Primary)
+          .setLabel("Save general settings")
+      ),
+    ],
+  };
 }
 
 function textInputRow(params: {
@@ -396,29 +465,6 @@ function textInputRow(params: {
   if (params.placeholder) input.setPlaceholder(params.placeholder);
 
   return new ActionRowBuilder<TextInputBuilder>().addComponents(input);
-}
-
-function buildGeneralSettingsModal(channelId: string): ModalBuilder {
-  const settings = getUserGeneralSettings();
-  return new ModalBuilder()
-    .setCustomId(`${DISCORD_MODAL_GENERAL}:${channelId}`)
-    .setTitle("General Settings")
-    .addComponents(
-      textInputRow({
-        id: "status_format",
-        label: "Status format",
-        required: true,
-        value: settings.defaultStatusMessageFormat,
-        placeholder: "aggressive | medium | minimum",
-      }),
-      textInputRow({
-        id: "git_strategy",
-        label: "Git strategy",
-        required: true,
-        value: settings.gitStrategy,
-        placeholder: "worktree | default",
-      })
-    );
 }
 
 function buildChannelSettingsModal(channelId: string): ModalBuilder {
@@ -489,7 +535,11 @@ async function handleLauncherButtonInteraction(interaction: any): Promise<void> 
   if (!channelId) return;
 
   if (action === "general") {
-    await interaction.showModal(buildGeneralSettingsModal(channelId));
+    const payload = buildGeneralSettingsPickerPayload({
+      channelId,
+      userId: interaction.user.id,
+    });
+    await interaction.reply({ ...payload, ephemeral: true });
     return;
   }
 
@@ -515,24 +565,6 @@ async function handleModalSubmitInteraction(interaction: any): Promise<void> {
   const modalKind = `${parts[0]}:${parts[1]}:${parts[2]}`;
   const channelId = parts[3] || getResolvedChannelId(interaction);
 
-  if (modalKind === DISCORD_MODAL_GENERAL) {
-    const statusFormat = parseGeneralStatusFormat(getModalValue(interaction, "status_format"));
-    const gitStrategy = parseGitStrategy(getModalValue(interaction, "git_strategy"));
-    if (!statusFormat || !gitStrategy) {
-      await interaction.reply({
-        content: "Invalid values. Status format: aggressive|medium|minimum. Git strategy: worktree|default.",
-        ephemeral: true,
-      });
-      return;
-    }
-    setUserGeneralSettings({
-      defaultStatusMessageFormat: statusFormat,
-      gitStrategy,
-    });
-    await interaction.reply({ content: "General settings updated.", ephemeral: true });
-    return;
-  }
-
   if (modalKind === DISCORD_MODAL_CHANNEL) {
     const workingDirectory = getModalValue(interaction, "working_directory").trim();
     const baseBranch = getModalValue(interaction, "base_branch").trim() || "main";
@@ -556,6 +588,63 @@ async function handleModalSubmitInteraction(interaction: any): Promise<void> {
     });
     await interaction.reply({ content: "GitHub info updated.", ephemeral: true });
   }
+}
+
+async function handleGeneralSettingsComponentInteraction(interaction: any): Promise<boolean> {
+  const customId = String(interaction.customId ?? "");
+  if (!customId.startsWith("ode:general:")) return false;
+
+  const [, , action, channelIdRaw] = customId.split(":", 4);
+  const channelId = channelIdRaw || getResolvedChannelId(interaction);
+  if (!channelId) return true;
+
+  const userId = interaction.user.id;
+  const key = draftKey(userId, channelId);
+  const draft = getGeneralDraftOrInitial(userId, channelId);
+
+  if (action === "status") {
+    const selected = interaction.values?.[0] as string | undefined;
+    const parsed = selected ? parseGeneralStatusFormat(selected) : null;
+    if (!parsed) {
+      await interaction.reply({ content: "Invalid status format.", ephemeral: true });
+      return true;
+    }
+    generalSettingsDrafts.set(key, {
+      statusFormat: parsed,
+      gitStrategy: draft.gitStrategy,
+    });
+    const payload = buildGeneralSettingsPickerPayload({ channelId, userId });
+    await interaction.update(payload);
+    return true;
+  }
+
+  if (action === "git") {
+    const selected = interaction.values?.[0] as string | undefined;
+    const parsed = selected ? parseGitStrategy(selected) : null;
+    if (!parsed) {
+      await interaction.reply({ content: "Invalid git strategy.", ephemeral: true });
+      return true;
+    }
+    generalSettingsDrafts.set(key, {
+      statusFormat: draft.statusFormat,
+      gitStrategy: parsed,
+    });
+    const payload = buildGeneralSettingsPickerPayload({ channelId, userId });
+    await interaction.update(payload);
+    return true;
+  }
+
+  if (action === "save") {
+    setUserGeneralSettings({
+      defaultStatusMessageFormat: draft.statusFormat,
+      gitStrategy: draft.gitStrategy,
+    });
+    generalSettingsDrafts.delete(key);
+    await interaction.reply({ content: "General settings updated.", ephemeral: true });
+    return true;
+  }
+
+  return true;
 }
 
 async function handleChannelSettingsComponentInteraction(interaction: any): Promise<boolean> {
@@ -764,12 +853,14 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
       client.on("interactionCreate", async (interaction: any) => {
         try {
       if (interaction.isButton && interaction.isButton()) {
+        if (await handleGeneralSettingsComponentInteraction(interaction)) return;
         if (await handleChannelSettingsComponentInteraction(interaction)) return;
         await handleLauncherButtonInteraction(interaction);
         return;
       }
 
       if (interaction.isStringSelectMenu && interaction.isStringSelectMenu()) {
+        if (await handleGeneralSettingsComponentInteraction(interaction)) return;
         if (await handleChannelSettingsComponentInteraction(interaction)) return;
       }
 
