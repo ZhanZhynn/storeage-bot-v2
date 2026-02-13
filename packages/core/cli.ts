@@ -16,6 +16,8 @@ const CLI_ENTRY = new URL(import.meta.url).pathname;
 const BUN_EXECUTABLE: string = process.argv[0] ?? process.execPath;
 const READY_WAIT_MS = 2 * 60 * 1000;
 const READY_POLL_MS = 500;
+const STOP_WAIT_MS = 30 * 1000;
+const STOP_POLL_MS = 500;
 const DAEMON_SPAWN_THROTTLE_MS = 3000;
 const LOG_TAIL_BYTES = 200_000;
 const LOG_TAIL_LINES = 40;
@@ -36,6 +38,7 @@ function printHelp(): void {
       "  ode [--foreground]",
       "  ode status",
       "  ode restart",
+      "  ode stop",
       "  ode onboarding",
       "  ode upgrade",
       "  ode --version",
@@ -44,6 +47,7 @@ function printHelp(): void {
       "  ode",
       "  ode status",
       "  ode restart",
+      "  ode stop",
       "  ode --foreground",
     ].join("\n"),
   );
@@ -118,6 +122,16 @@ async function waitForReadyMessage(timeoutMs: number): Promise<string | null> {
     await delay(READY_POLL_MS);
   }
   return null;
+}
+
+async function waitForStopped(timeoutMs: number): Promise<boolean> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const state = daemonState();
+    if (!managerRunning(state) && !runtimeRunning(state)) return true;
+    await delay(STOP_POLL_MS);
+  }
+  return false;
 }
 
 async function startBackground(): Promise<void> {
@@ -208,6 +222,36 @@ async function restartDaemonCommand(): Promise<void> {
   console.log(ready ?? `Restart requested. Follow logs at ${getDaemonLogPath()}`);
 }
 
+async function stopDaemonCommand(): Promise<void> {
+  const state = daemonState();
+  const managerAlive = managerRunning(state);
+  const runtimeAlive = runtimeRunning(state);
+
+  if (!managerAlive && !runtimeAlive) {
+    console.log("Daemon already stopped.");
+    return;
+  }
+
+  if (managerAlive && state.managerPid) {
+    try {
+      process.kill(state.managerPid, "SIGTERM");
+      console.log(`Sent shutdown signal to daemon (pid ${state.managerPid}).`);
+    } catch (error) {
+      console.warn(`Failed to signal daemon (pid ${state.managerPid}): ${String(error)}`);
+    }
+  } else if (runtimeAlive && state.runtimePid) {
+    try {
+      process.kill(state.runtimePid, "SIGTERM");
+      console.log(`Sent shutdown signal to runtime (pid ${state.runtimePid}).`);
+    } catch (error) {
+      console.warn(`Failed to signal runtime (pid ${state.runtimePid}): ${String(error)}`);
+    }
+  }
+
+  const stopped = await waitForStopped(STOP_WAIT_MS);
+  console.log(stopped ? "Daemon stopped." : `Stop requested. Follow logs at ${getDaemonLogPath()}`);
+}
+
 if (args.includes("--help") || args.includes("-h")) {
   printHelp();
   process.exit(0);
@@ -245,6 +289,11 @@ if (command === "status") {
 
 if (command === "restart") {
   await restartDaemonCommand();
+  process.exit(0);
+}
+
+if (command === "stop") {
+  await stopDaemonCommand();
   process.exit(0);
 }
 
