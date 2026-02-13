@@ -187,12 +187,10 @@ function buildMeaningfulThreadName(text: string): string {
     .trim();
 
   if (!cleaned) {
-    return `ode-${Date.now()}`;
+    return `thread-${Date.now()}`;
   }
 
-  const maxTopicLength = DISCORD_THREAD_NAME_LIMIT - "ode-".length;
-  const topic = cleaned.slice(0, maxTopicLength).trim();
-  return `ode-${topic}`;
+  return cleaned.slice(0, DISCORD_THREAD_NAME_LIMIT).trim();
 }
 
 function parseLauncherCommand(text: string): "setting" | null {
