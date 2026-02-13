@@ -215,7 +215,7 @@ if (command === "__runtime") {
 
 if (command === "daemon") {
   await runDaemon();
-  process.exit(0);
+  await new Promise(() => {});
 }
 
 if (args.includes("--version") || command === "version") {
