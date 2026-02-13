@@ -22,6 +22,7 @@ import { isThreadActive, markThreadActive } from "@/config/local/settings";
 import { log } from "@/utils";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
+const DISCORD_THREAD_NAME_LIMIT = 100;
 const DISCORD_LAUNCHER_COMMANDS = [
   {
     name: "setting",
@@ -175,6 +176,23 @@ function cleanBotMention(content: string, botUserId: string): string {
 
 function isStopCommand(text: string): boolean {
   return text.trim().toLowerCase() === "stop";
+}
+
+function buildMeaningfulThreadName(text: string): string {
+  const cleaned = text
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/[`*_~>#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return `ode-${Date.now()}`;
+  }
+
+  const maxTopicLength = DISCORD_THREAD_NAME_LIMIT - "ode-".length;
+  const topic = cleaned.slice(0, maxTopicLength).trim();
+  return `ode-${topic}`;
 }
 
 function parseLauncherCommand(text: string): "setting" | null {
@@ -406,10 +424,10 @@ export async function startDiscordRuntime(reason: string): Promise<boolean> {
             return;
           }
 
-          const thread = await message.startThread({
-            name: `ode-${Date.now()}`,
-            autoArchiveDuration: 60,
-          });
+      const thread = await message.startThread({
+        name: buildMeaningfulThreadName(cleaned),
+        autoArchiveDuration: 60,
+      });
 
           markThreadActive(parentId, thread.id);
           await coreRuntime.handleIncomingMessage({
