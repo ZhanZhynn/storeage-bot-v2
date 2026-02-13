@@ -14,6 +14,8 @@ const rawArgs = process.argv.slice(2);
 const CURRENT_VERSION = packageJson.version ?? "0.0.0";
 const CLI_ENTRY = new URL(import.meta.url).pathname;
 const BUN_EXECUTABLE: string = process.argv[0] ?? process.execPath;
+const EXECUTABLE_PATH: string = process.execPath;
+const INSTALLED_BINARY = isInstalledBinary();
 const READY_WAIT_MS = 2 * 60 * 1000;
 const READY_POLL_MS = 500;
 const STOP_WAIT_MS = 30 * 1000;
@@ -102,10 +104,14 @@ function ensureDaemonRunning(): void {
   const now = Date.now();
   if (now - lastDaemonSpawnAttemptAt < DAEMON_SPAWN_THROTTLE_MS) return;
   lastDaemonSpawnAttemptAt = now;
-  const child = spawn(BUN_EXECUTABLE, [CLI_ENTRY, "daemon"], {
+  const child = spawn(
+    INSTALLED_BINARY ? EXECUTABLE_PATH : BUN_EXECUTABLE,
+    INSTALLED_BINARY ? ["daemon"] : [CLI_ENTRY, "daemon"],
+    {
     detached: true,
     stdio: "ignore",
-  });
+    },
+  );
   child.unref();
 }
 

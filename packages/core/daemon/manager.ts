@@ -4,6 +4,7 @@ import { clearPendingUpgradeRestart, clearRuntimeReadyState } from "./control";
 import { ensureDaemonDir, getDaemonLogPath } from "./paths";
 import { isProcessAlive, patchDaemonState, readDaemonState } from "./state";
 import { getActiveThreads } from "@/config/local/settings";
+import { isInstalledBinary } from "@/core/upgrade";
 
 const RESTART_DELAY_MS = 3000;
 const IDLE_CHECK_INTERVAL_MS = 60 * 1000;
@@ -16,8 +17,23 @@ let idleTimer: NodeJS.Timeout | null = null;
 let shuttingDown = false;
 let logStream: WriteStream | null = null;
 
-const cliEntry: string = process.argv[1] ?? new URL("../cli.ts", import.meta.url).pathname;
+const cliEntry: string = new URL("../cli.ts", import.meta.url).pathname;
 const bunExecutable: string = process.argv[0] ?? process.execPath;
+const installedBinary = isInstalledBinary();
+
+function resolveRuntimeCommand(): { command: string; args: string[] } {
+  if (installedBinary) {
+    return {
+      command: process.execPath,
+      args: ["__runtime"],
+    };
+  }
+
+  return {
+    command: bunExecutable,
+    args: [cliEntry, "__runtime"],
+  };
+}
 
 function rotateLogsIfNeeded(): void {
   const logPath = getDaemonLogPath();
@@ -80,7 +96,8 @@ function startRuntime(reason: string): void {
   if (runtimeChild) return;
   clearRuntimeReadyState();
   writeManagerLog(`Starting runtime (${reason})`);
-  const child = spawn(bunExecutable, [cliEntry, "__runtime"], {
+  const runtime = resolveRuntimeCommand();
+  const child = spawn(runtime.command, runtime.args, {
     env: {
       ...process.env,
       ODE_DAEMONIZED: "1",
