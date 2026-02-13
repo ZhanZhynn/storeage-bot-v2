@@ -16,8 +16,10 @@ const CLI_ENTRY = new URL(import.meta.url).pathname;
 const BUN_EXECUTABLE: string = process.argv[0] ?? process.execPath;
 const READY_WAIT_MS = 2 * 60 * 1000;
 const READY_POLL_MS = 500;
+const DAEMON_SPAWN_THROTTLE_MS = 3000;
 const LOG_TAIL_BYTES = 200_000;
 const LOG_TAIL_LINES = 40;
+let lastDaemonSpawnAttemptAt = 0;
 
 const foregroundRequested = rawArgs.includes("--foreground");
 const args = foregroundRequested
@@ -93,6 +95,9 @@ function runtimeRunning(state: DaemonState = daemonState()): boolean {
 function ensureDaemonRunning(): void {
   const state = daemonState();
   if (managerRunning(state)) return;
+  const now = Date.now();
+  if (now - lastDaemonSpawnAttemptAt < DAEMON_SPAWN_THROTTLE_MS) return;
+  lastDaemonSpawnAttemptAt = now;
   const child = spawn(BUN_EXECUTABLE, [CLI_ENTRY, "daemon"], {
     detached: true,
     stdio: "ignore",
@@ -210,7 +215,7 @@ if (args.includes("--help") || args.includes("-h")) {
 
 if (command === "__runtime") {
   await import("./index");
-  process.exit(0);
+  await new Promise(() => {});
 }
 
 if (command === "daemon") {
@@ -250,7 +255,7 @@ if (command === "start") {
 
 if (foregroundRequested) {
   await import("./index");
-  process.exit(0);
+  await new Promise(() => {});
 }
 
 await startBackground();
