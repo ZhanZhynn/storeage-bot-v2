@@ -15,6 +15,8 @@ import {
   isLocalMode,
   getWebHost,
   getWebPort,
+  getDiscordBotTokens,
+  getWorkspaces,
 } from "@/config";
 import { getAnyServerUrl, startServer as startOpenCodeServer } from "@/agents/opencode";
 import {
@@ -49,6 +51,67 @@ type JsonResponse = {
   providers?: unknown;
   result?: unknown;
 };
+
+function getDiscordWorkspaceTokenByChannel(channelId: string): string | undefined {
+  if (!channelId) return undefined;
+  for (const workspace of getWorkspaces()) {
+    if (workspace.type !== "discord") continue;
+    const token = workspace.discordBotToken?.trim();
+    if (!token) continue;
+    if (workspace.channelDetails.some((channel) => channel.id === channelId)) {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+function getDiscordWorkspaceTokenByGuild(guildId: string): string | undefined {
+  if (!guildId) return undefined;
+  for (const workspace of getWorkspaces()) {
+    if (workspace.type !== "discord") continue;
+    const token = workspace.discordBotToken?.trim();
+    if (!token) continue;
+    if (workspace.id === guildId) {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+function resolveDiscordBotTokenFromConfig(payload: Record<string, unknown>): string | undefined {
+  const channelId = typeof payload.channelId === "string" ? payload.channelId.trim() : "";
+  if (channelId) {
+    const channelToken = getDiscordWorkspaceTokenByChannel(channelId);
+    if (channelToken) return channelToken;
+  }
+
+  const guildId = typeof payload.guildId === "string" ? payload.guildId.trim() : "";
+  if (guildId) {
+    const guildToken = getDiscordWorkspaceTokenByGuild(guildId);
+    if (guildToken) return guildToken;
+  }
+
+  for (const entry of getDiscordBotTokens()) {
+    const token = entry.token?.trim();
+    if (token) return token;
+  }
+
+  return undefined;
+}
+
+function attachDiscordBotToken(payload: unknown): void {
+  if (!payload || typeof payload !== "object") return;
+  const record = payload as Record<string, unknown>;
+  const existing = typeof record.botToken === "string" ? record.botToken.trim() : "";
+  if (existing) {
+    record.botToken = existing;
+    return;
+  }
+  const resolved = resolveDiscordBotTokenFromConfig(record);
+  if (resolved) {
+    record.botToken = resolved;
+  }
+}
 
 function extractProviderModelIds(providerId: string, models: unknown): string[] {
   if (Array.isArray(models)) {
@@ -578,6 +641,10 @@ async function handleRequest(request: Request): Promise<Response> {
     const platform = payload && typeof payload === "object" && "platform" in payload
       ? String((payload as { platform?: unknown }).platform ?? "slack").toLowerCase()
       : "slack";
+
+    if (platform === "discord") {
+      attachDiscordBotToken(payload);
+    }
 
     const response = platform === "discord"
       ? await handleDiscordActionPayload(payload)
