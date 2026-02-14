@@ -41,13 +41,13 @@
   $: duplicateWorkspaceIds = getDuplicateWorkspaceIds($localSettingStore.config.workspaces);
   $: duplicateSlackBotTokens = getDuplicateSlackBotTokens($localSettingStore.config.workspaces);
   $: duplicateDiscordBotTokens = getDuplicateDiscordBotTokens($localSettingStore.config.workspaces);
-  $: duplicateLarkAppIds = getDuplicateLarkAppIds($localSettingStore.config.workspaces);
+  $: duplicateLarkAppKeys = getDuplicateLarkAppKeys($localSettingStore.config.workspaces);
   $: selectedWorkspaceErrors = getWorkspaceErrors(
     selectedWorkspace,
     duplicateWorkspaceIds,
     duplicateSlackBotTokens,
     duplicateDiscordBotTokens,
-    duplicateLarkAppIds
+    duplicateLarkAppKeys
   );
   $: enabledProviders = agentProviders.filter((provider) => isProviderEnabled(provider));
   $: maybeCanonicalizeWorkspaceRoute();
@@ -93,18 +93,19 @@
 
   function onWorkspaceFieldInput(
     workspaceId: string,
-    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppId" | "larkAppSecret",
+    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppKey" | "larkAppId" | "larkAppSecret",
     value: string
   ): void {
     localSettingStore.updateWorkspace(workspaceId, (workspace) => ({
       ...workspace,
       [field]: value,
+      ...(field === "larkAppKey" ? { larkAppId: value } : {}),
     }));
   }
 
   function onWorkspaceTextInput(
     workspaceId: string,
-    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppId" | "larkAppSecret",
+    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppKey" | "larkAppId" | "larkAppSecret",
     event: Event
   ): void {
     onWorkspaceFieldInput(workspaceId, field, (event.currentTarget as HTMLInputElement).value);
@@ -218,10 +219,11 @@
       return errors;
     }
     if (workspace.type === "lark") {
-      if (!(workspace.larkAppId?.trim() ?? "")) {
-        errors.push("Lark App ID is required.");
-      } else if (duplicateLarkIds.has((workspace.larkAppId ?? "").trim())) {
-        errors.push("Lark App ID must be unique across workspaces.");
+      const appKey = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
+      if (!appKey) {
+        errors.push("Lark App Key is required.");
+      } else if (duplicateLarkIds.has(appKey)) {
+        errors.push("Lark App Key must be unique across workspaces.");
       }
       if (!(workspace.larkAppSecret?.trim() ?? "")) {
         errors.push("Lark App Secret is required.");
@@ -261,11 +263,11 @@
     return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([token]) => token));
   }
 
-  function getDuplicateLarkAppIds(workspaces: DashboardConfig["workspaces"]): Set<string> {
+  function getDuplicateLarkAppKeys(workspaces: DashboardConfig["workspaces"]): Set<string> {
     const counts = new Map<string, number>();
     for (const workspace of workspaces) {
       if (workspace.type !== "lark") continue;
-      const appId = workspace.larkAppId?.trim() ?? "";
+      const appId = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
       if (!appId) continue;
       counts.set(appId, (counts.get(appId) ?? 0) + 1);
     }
@@ -326,12 +328,12 @@
         on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "discordBotToken", event)}
       />
     {:else}
-      <label for="workspace-lark-app-id">Lark App ID</label>
+      <label for="workspace-lark-app-key">Lark App Key</label>
       <input
-        id="workspace-lark-app-id"
+        id="workspace-lark-app-key"
         type="text"
-        value={selectedWorkspace.larkAppId ?? ""}
-        on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "larkAppId", event)}
+        value={selectedWorkspace.larkAppKey ?? selectedWorkspace.larkAppId ?? ""}
+        on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "larkAppKey", event)}
       />
 
       <label for="workspace-lark-app-secret">Lark App Secret</label>

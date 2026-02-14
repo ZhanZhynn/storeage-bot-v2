@@ -378,13 +378,13 @@ function buildLarkChannelDetails(
 }
 
 export const discoverLarkWorkspace = async (
-  larkAppId: string,
+  larkAppKey: string,
   larkAppSecret: string
 ): Promise<DashboardConfig["workspaces"][number]> => {
-  const appId = larkAppId.trim();
+  const appId = larkAppKey.trim();
   const appSecret = larkAppSecret.trim();
   if (!appId) {
-    throw new Error("Missing Lark app id");
+    throw new Error("Missing Lark app key");
   }
   if (!appSecret) {
     throw new Error("Missing Lark app secret");
@@ -420,6 +420,7 @@ export const discoverLarkWorkspace = async (
     channels: channelDetails.length,
     members: 0,
     lastSync: new Date().toISOString(),
+    larkAppKey: appId,
     larkAppId: appId,
     larkAppSecret: appSecret,
     channelDetails,
@@ -438,7 +439,7 @@ export const syncLarkWorkspace = async (workspaceId: string): Promise<DashboardC
     throw new Error("Workspace is not Lark type");
   }
 
-  const appId = workspace.larkAppId?.trim() ?? "";
+  const appId = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
   const appSecret = workspace.larkAppSecret?.trim() ?? "";
   if (!appId || !appSecret) {
     throw new Error("Missing Lark app credentials");

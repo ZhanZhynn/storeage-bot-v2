@@ -108,6 +108,7 @@ const workspaceSchema = z.object({
   slackAppToken: z.string().optional().default(""),
   slackBotToken: z.string().optional().default(""),
   discordBotToken: z.string().optional().default(""),
+  larkAppKey: z.string().optional().default(""),
   larkAppId: z.string().optional().default(""),
   larkAppSecret: z.string().optional().default(""),
   channelDetails: z.array(channelDetailSchema).optional().default([]),
@@ -503,7 +504,7 @@ export function getLarkAppCredentials(): Array<{
   const candidates = active.length > 0 ? active : getWorkspaces().filter((workspace) => workspace.type === "lark");
   return candidates
     .map((workspace) => ({
-      appId: workspace.larkAppId?.trim() ?? "",
+      appId: workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "",
       appSecret: workspace.larkAppSecret?.trim() ?? "",
       workspaceId: workspace.id,
       workspaceName: workspace.name,

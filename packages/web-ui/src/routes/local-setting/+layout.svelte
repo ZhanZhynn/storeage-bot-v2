@@ -13,7 +13,7 @@
   let pendingSlackAppToken = "";
   let pendingSlackBotToken = "";
   let pendingDiscordBotToken = "";
-  let pendingLarkAppId = "";
+  let pendingLarkAppKey = "";
   let pendingLarkAppSecret = "";
   let isAddWorkspaceDialogOpen = false;
 
@@ -32,7 +32,7 @@
     const workspace = pendingWorkspaceType === "discord"
       ? await localSettingStore.discoverDiscordWorkspace(pendingDiscordBotToken)
       : pendingWorkspaceType === "lark"
-        ? await localSettingStore.discoverLarkWorkspace(pendingLarkAppId, pendingLarkAppSecret)
+        ? await localSettingStore.discoverLarkWorkspace(pendingLarkAppKey, pendingLarkAppSecret)
         : await localSettingStore.discoverSlackWorkspace(
           pendingSlackAppToken,
           pendingSlackBotToken
@@ -41,7 +41,7 @@
     pendingSlackAppToken = "";
     pendingSlackBotToken = "";
     pendingDiscordBotToken = "";
-    pendingLarkAppId = "";
+    pendingLarkAppKey = "";
     pendingLarkAppSecret = "";
     pendingWorkspaceType = "slack";
     isAddWorkspaceDialogOpen = false;
@@ -68,8 +68,8 @@
     pendingDiscordBotToken = (event.currentTarget as HTMLInputElement).value;
   }
 
-  function onPendingLarkAppIdInput(event: Event): void {
-    pendingLarkAppId = (event.currentTarget as HTMLInputElement).value;
+  function onPendingLarkAppKeyInput(event: Event): void {
+    pendingLarkAppKey = (event.currentTarget as HTMLInputElement).value;
   }
 
   function onPendingLarkAppSecretInput(event: Event): void {
@@ -228,12 +228,12 @@
           placeholder="Bot token"
         />
       {:else}
-        <label for="new-workspace-lark-app-id">Lark App ID</label>
+        <label for="new-workspace-lark-app-key">Lark App Key</label>
         <input
-          id="new-workspace-lark-app-id"
+          id="new-workspace-lark-app-key"
           type="text"
-          value={pendingLarkAppId}
-          on:input={onPendingLarkAppIdInput}
+          value={pendingLarkAppKey}
+          on:input={onPendingLarkAppKeyInput}
           placeholder="cli_xxx"
         />
 

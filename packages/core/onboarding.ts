@@ -306,7 +306,7 @@ async function setupWorkspaces(rl: Interface, config: OdeConfig): Promise<OdeCon
         ? await discoverDiscordWorkspace(await askRequired(rl, "Paste Discord bot token: "))
         : workspaceType === "lark"
           ? await discoverLarkWorkspace(
-            await askRequired(rl, "Paste Lark app id: "),
+            await askRequired(rl, "Paste Lark app key: "),
             await askRequired(rl, "Paste Lark app secret: ")
           )
         : await discoverSlackWorkspace(
@@ -319,7 +319,8 @@ async function setupWorkspaces(rl: Interface, config: OdeConfig): Promise<OdeCon
         slackAppToken: discoveredWorkspace.slackAppToken ?? "",
         slackBotToken: discoveredWorkspace.slackBotToken ?? "",
         discordBotToken: discoveredWorkspace.discordBotToken ?? "",
-        larkAppId: discoveredWorkspace.larkAppId ?? "",
+        larkAppKey: discoveredWorkspace.larkAppKey ?? discoveredWorkspace.larkAppId ?? "",
+        larkAppId: discoveredWorkspace.larkAppKey ?? discoveredWorkspace.larkAppId ?? "",
         larkAppSecret: discoveredWorkspace.larkAppSecret ?? "",
         channelDetails: discoveredWorkspace.channelDetails.map((channel) => ({
           ...channel,

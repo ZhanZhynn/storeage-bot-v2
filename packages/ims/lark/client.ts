@@ -44,7 +44,7 @@ function getLarkCredentialsForChannel(channelId: string): LarkCredentials | null
   if (channel.length > 0) {
     for (const workspace of getWorkspaces()) {
       if (workspace.type !== "lark") continue;
-      const appId = workspace.larkAppId?.trim() ?? "";
+      const appId = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
       const appSecret = workspace.larkAppSecret?.trim() ?? "";
       if (!appId || !appSecret) continue;
       if (workspace.channelDetails.some((entry) => entry.id === channel)) {

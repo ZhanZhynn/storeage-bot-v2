@@ -47,7 +47,7 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
   const idCounts = new Map<string, number>();
   const slackBotTokenCounts = new Map<string, number>();
   const discordBotTokenCounts = new Map<string, number>();
-  const larkAppIdCounts = new Map<string, number>();
+  const larkAppKeyCounts = new Map<string, number>();
   for (const workspace of config.workspaces) {
     const workspaceId = workspace.id.trim();
     if (!workspaceId) {
@@ -61,9 +61,9 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
         discordBotTokenCounts.set(botToken, (discordBotTokenCounts.get(botToken) ?? 0) + 1);
       }
     } else if (workspace.type === "lark") {
-      const appId = workspace.larkAppId?.trim() ?? "";
-      if (appId) {
-        larkAppIdCounts.set(appId, (larkAppIdCounts.get(appId) ?? 0) + 1);
+      const appKey = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
+      if (appKey) {
+        larkAppKeyCounts.set(appKey, (larkAppKeyCounts.get(appKey) ?? 0) + 1);
       }
     } else {
       const botToken = workspace.slackBotToken?.trim() ?? "";
@@ -94,11 +94,11 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
     return `Duplicate Discord bot tokens found across workspaces.`;
   }
 
-  const duplicatedLarkAppIds = Array.from(larkAppIdCounts.entries())
+  const duplicatedLarkAppKeys = Array.from(larkAppKeyCounts.entries())
     .filter(([, count]) => count > 1)
-    .map(([appId]) => appId);
-  if (duplicatedLarkAppIds.length > 0) {
-    return `Duplicate Lark app ids found across workspaces.`;
+    .map(([appKey]) => appKey);
+  if (duplicatedLarkAppKeys.length > 0) {
+    return `Duplicate Lark app keys found across workspaces.`;
   }
 
   const missingTokenWorkspaces = config.workspaces.filter((workspace: DashboardConfig["workspaces"][number]) => {
@@ -106,7 +106,7 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
       return !(workspace.discordBotToken?.trim() ?? "");
     }
     if (workspace.type === "lark") {
-      const appId = workspace.larkAppId?.trim() ?? "";
+      const appId = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
       const appSecret = workspace.larkAppSecret?.trim() ?? "";
       return !appId || !appSecret;
     }
@@ -583,15 +583,15 @@ async function discoverDiscordWorkspace(
 }
 
 async function discoverLarkWorkspace(
-  larkAppId: string,
+  larkAppKey: string,
   larkAppSecret: string
 ): Promise<DashboardConfig["workspaces"][number] | null> {
-  const appId = larkAppId.trim();
+  const appId = larkAppKey.trim();
   const appSecret = larkAppSecret.trim();
   if (!appId || !appSecret) {
     store.update((state) => ({
       ...state,
-      message: "Validation failed: Lark app id and app secret are required.",
+      message: "Validation failed: Lark app key and app secret are required.",
     }));
     return null;
   }
@@ -601,7 +601,7 @@ async function discoverLarkWorkspace(
     const response = await fetch("/api/lark-discover", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ larkAppId: appId, larkAppSecret: appSecret }),
+      body: JSON.stringify({ larkAppKey: appId, larkAppSecret: appSecret }),
     });
     const payload = (await response.json()) as {
       ok?: boolean;
