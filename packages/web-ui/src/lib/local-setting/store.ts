@@ -47,6 +47,7 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
   const idCounts = new Map<string, number>();
   const slackBotTokenCounts = new Map<string, number>();
   const discordBotTokenCounts = new Map<string, number>();
+  const larkAppIdCounts = new Map<string, number>();
   for (const workspace of config.workspaces) {
     const workspaceId = workspace.id.trim();
     if (!workspaceId) {
@@ -58,6 +59,11 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
       const botToken = workspace.discordBotToken?.trim() ?? "";
       if (botToken) {
         discordBotTokenCounts.set(botToken, (discordBotTokenCounts.get(botToken) ?? 0) + 1);
+      }
+    } else if (workspace.type === "lark") {
+      const appId = workspace.larkAppId?.trim() ?? "";
+      if (appId) {
+        larkAppIdCounts.set(appId, (larkAppIdCounts.get(appId) ?? 0) + 1);
       }
     } else {
       const botToken = workspace.slackBotToken?.trim() ?? "";
@@ -88,9 +94,21 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
     return `Duplicate Discord bot tokens found across workspaces.`;
   }
 
+  const duplicatedLarkAppIds = Array.from(larkAppIdCounts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([appId]) => appId);
+  if (duplicatedLarkAppIds.length > 0) {
+    return `Duplicate Lark app ids found across workspaces.`;
+  }
+
   const missingTokenWorkspaces = config.workspaces.filter((workspace: DashboardConfig["workspaces"][number]) => {
     if (workspace.type === "discord") {
       return !(workspace.discordBotToken?.trim() ?? "");
+    }
+    if (workspace.type === "lark") {
+      const appId = workspace.larkAppId?.trim() ?? "";
+      const appSecret = workspace.larkAppSecret?.trim() ?? "";
+      return !appId || !appSecret;
     }
     const appToken = workspace.slackAppToken?.trim() ?? "";
     const botToken = workspace.slackBotToken?.trim() ?? "";
@@ -388,6 +406,42 @@ async function syncDiscordWorkspace(workspaceId: string): Promise<void> {
   }
 }
 
+async function syncLarkWorkspace(workspaceId: string): Promise<void> {
+  store.update((state) => ({ ...state, isSyncingSlack: true, message: "" }));
+  try {
+    const response = await fetch("/api/lark-sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId }),
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      workspace?: DashboardConfig["workspaces"][number];
+    };
+    if (!response.ok || !payload.ok || !payload.workspace) {
+      throw new Error(payload.error || "Lark sync failed");
+    }
+    store.update((state) => ({
+      ...state,
+      isSyncingSlack: false,
+      config: {
+        ...state.config,
+        workspaces: state.config.workspaces.map((workspace: DashboardConfig["workspaces"][number]) =>
+          workspace.id === payload.workspace!.id ? payload.workspace! : workspace
+        ),
+      },
+      message: "Lark workspace synced.",
+    }));
+  } catch (error) {
+    store.update((state) => ({
+      ...state,
+      isSyncingSlack: false,
+      message: `Lark sync failed: ${error instanceof Error ? error.message : String(error)}`,
+    }));
+  }
+}
+
 async function discoverSlackWorkspace(
   slackAppToken: string,
   slackBotToken: string
@@ -528,6 +582,77 @@ async function discoverDiscordWorkspace(
   }
 }
 
+async function discoverLarkWorkspace(
+  larkAppId: string,
+  larkAppSecret: string
+): Promise<DashboardConfig["workspaces"][number] | null> {
+  const appId = larkAppId.trim();
+  const appSecret = larkAppSecret.trim();
+  if (!appId || !appSecret) {
+    store.update((state) => ({
+      ...state,
+      message: "Validation failed: Lark app id and app secret are required.",
+    }));
+    return null;
+  }
+
+  store.update((state) => ({ ...state, isAddingWorkspace: true, message: "" }));
+  try {
+    const response = await fetch("/api/lark-discover", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ larkAppId: appId, larkAppSecret: appSecret }),
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      workspace?: DashboardConfig["workspaces"][number];
+    };
+    if (!response.ok || !payload.ok || !payload.workspace) {
+      throw new Error(payload.error || "Failed to discover Lark workspace");
+    }
+
+    let addedWorkspace: DashboardConfig["workspaces"][number] | null = null;
+    let duplicateId = "";
+    store.update((state) => {
+      if (state.config.workspaces.some((workspace: DashboardConfig["workspaces"][number]) => workspace.id === payload.workspace!.id)) {
+        duplicateId = payload.workspace!.id;
+        return {
+          ...state,
+          isAddingWorkspace: false,
+        };
+      }
+      addedWorkspace = payload.workspace!;
+      return {
+        ...state,
+        isAddingWorkspace: false,
+        config: {
+          ...state.config,
+          workspaces: [...state.config.workspaces, payload.workspace!],
+        },
+        message: `Added Lark workspace: ${payload.workspace!.name || payload.workspace!.id}`,
+      };
+    });
+
+    if (duplicateId) {
+      store.update((state) => ({
+        ...state,
+        message: `Workspace already exists: ${duplicateId}`,
+      }));
+      return null;
+    }
+
+    return addedWorkspace;
+  } catch (error) {
+    store.update((state) => ({
+      ...state,
+      isAddingWorkspace: false,
+      message: `Add workspace failed: ${error instanceof Error ? error.message : String(error)}`,
+    }));
+    return null;
+  }
+}
+
 export const localSettingStore = {
   subscribe: store.subscribe,
   loadConfig,
@@ -535,8 +660,10 @@ export const localSettingStore = {
   checkAgents,
   syncSlackWorkspace,
   syncDiscordWorkspace,
+  syncLarkWorkspace,
   discoverSlackWorkspace,
   discoverDiscordWorkspace,
+  discoverLarkWorkspace,
   updateConfig,
   updateWorkspace,
   removeWorkspace,

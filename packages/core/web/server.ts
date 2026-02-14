@@ -3,9 +3,11 @@ import { join, resolve, sep } from "path";
 import { EMBEDDED_ASSETS, HAS_EMBEDDED_ASSETS } from "./embedded-assets";
 import {
   discoverDiscordWorkspace,
+  discoverLarkWorkspace,
   discoverSlackWorkspace,
   readLocalSettings,
   syncDiscordWorkspace,
+  syncLarkWorkspace,
   syncSlackWorkspace,
   writeLocalSettings,
 } from "./local-settings";
@@ -16,6 +18,7 @@ import {
   getWebHost,
   getWebPort,
   getDiscordBotTokens,
+  getLarkAppCredentials,
   getWorkspaces,
 } from "@/config";
 import { getAnyServerUrl, startServer as startOpenCodeServer } from "@/agents/opencode";
@@ -25,7 +28,7 @@ import {
   getSessionMeta,
   type SessionEvent,
 } from "@/config/local/redis";
-import { handleDiscordActionPayload, handleSlackActionPayload } from "@/ims";
+import { handleDiscordActionPayload, handleLarkActionPayload, handleLarkEventPayload, handleSlackActionPayload } from "@/ims";
 import { log } from "@/utils";
 
 const DEFAULT_WEB_BUILD_DIR = join(process.cwd(), "packages", "web-ui", "build");
@@ -110,6 +113,72 @@ function attachDiscordBotToken(payload: unknown): void {
   const resolved = resolveDiscordBotTokenFromConfig(record);
   if (resolved) {
     record.botToken = resolved;
+  }
+}
+
+function getLarkWorkspaceCredentialsByChannel(channelId: string): { appId: string; appSecret: string } | undefined {
+  if (!channelId) return undefined;
+  for (const workspace of getWorkspaces()) {
+    if (workspace.type !== "lark") continue;
+    const appId = workspace.larkAppId?.trim();
+    const appSecret = workspace.larkAppSecret?.trim();
+    if (!appId || !appSecret) continue;
+    if (workspace.channelDetails.some((channel) => channel.id === channelId)) {
+      return { appId, appSecret };
+    }
+  }
+  return undefined;
+}
+
+function getLarkWorkspaceCredentialsByWorkspace(workspaceId: string): { appId: string; appSecret: string } | undefined {
+  if (!workspaceId) return undefined;
+  for (const workspace of getWorkspaces()) {
+    if (workspace.type !== "lark") continue;
+    const appId = workspace.larkAppId?.trim();
+    const appSecret = workspace.larkAppSecret?.trim();
+    if (!appId || !appSecret) continue;
+    if (workspace.id === workspaceId) {
+      return { appId, appSecret };
+    }
+  }
+  return undefined;
+}
+
+function attachLarkCredentials(payload: unknown): void {
+  if (!payload || typeof payload !== "object") return;
+  const record = payload as Record<string, unknown>;
+  const existingAppId = typeof record.appId === "string" ? record.appId.trim() : "";
+  const existingAppSecret = typeof record.appSecret === "string" ? record.appSecret.trim() : "";
+  if (existingAppId && existingAppSecret) {
+    record.appId = existingAppId;
+    record.appSecret = existingAppSecret;
+    return;
+  }
+
+  const channelId = typeof record.channelId === "string" ? record.channelId.trim() : "";
+  if (channelId) {
+    const byChannel = getLarkWorkspaceCredentialsByChannel(channelId);
+    if (byChannel) {
+      record.appId = byChannel.appId;
+      record.appSecret = byChannel.appSecret;
+      return;
+    }
+  }
+
+  const workspaceId = typeof record.workspaceId === "string" ? record.workspaceId.trim() : "";
+  if (workspaceId) {
+    const byWorkspace = getLarkWorkspaceCredentialsByWorkspace(workspaceId);
+    if (byWorkspace) {
+      record.appId = byWorkspace.appId;
+      record.appSecret = byWorkspace.appSecret;
+      return;
+    }
+  }
+
+  const first = getLarkAppCredentials()[0];
+  if (first) {
+    record.appId = first.appId;
+    record.appSecret = first.appSecret;
   }
 }
 
@@ -238,6 +307,7 @@ function validateWorkspaceConfig(config: typeof defaultDashboardConfig): string 
   const idCounts = new Map<string, number>();
   const slackBotTokenCounts = new Map<string, number>();
   const discordBotTokenCounts = new Map<string, number>();
+  const larkAppIdCounts = new Map<string, number>();
   for (const workspace of config.workspaces) {
     const workspaceId = workspace.id.trim();
     if (!workspaceId) {
@@ -251,6 +321,17 @@ function validateWorkspaceConfig(config: typeof defaultDashboardConfig): string 
         return `Missing Discord bot token for workspace: ${label}`;
       }
       discordBotTokenCounts.set(botToken, (discordBotTokenCounts.get(botToken) ?? 0) + 1);
+      continue;
+    }
+
+    if (workspace.type === "lark") {
+      const appId = workspace.larkAppId?.trim() ?? "";
+      const appSecret = workspace.larkAppSecret?.trim() ?? "";
+      if (!appId || !appSecret) {
+        const label = workspace.name.trim() || workspace.id;
+        return `Missing Lark app id/app secret for workspace: ${label}`;
+      }
+      larkAppIdCounts.set(appId, (larkAppIdCounts.get(appId) ?? 0) + 1);
       continue;
     }
 
@@ -278,6 +359,11 @@ function validateWorkspaceConfig(config: typeof defaultDashboardConfig): string 
   const duplicateDiscordBotTokenCount = Array.from(discordBotTokenCounts.values()).filter((count) => count > 1).length;
   if (duplicateDiscordBotTokenCount > 0) {
     return "Duplicate Discord bot tokens found across workspaces";
+  }
+
+  const duplicateLarkAppIdCount = Array.from(larkAppIdCounts.values()).filter((count) => count > 1).length;
+  if (duplicateLarkAppIdCount > 0) {
+    return "Duplicate Lark app ids found across workspaces";
   }
 
   return null;
@@ -567,6 +653,55 @@ async function handleRequest(request: Request): Promise<Response> {
     }
   }
 
+  if (pathname === "/api/lark-discover") {
+    if (request.method !== "POST") {
+      return jsonResponse(405, { ok: false, error: "Method not allowed" });
+    }
+    try {
+      const payload = (await request.json()) as Record<string, unknown>;
+      const larkAppId = typeof payload.larkAppId === "string" ? payload.larkAppId : "";
+      const larkAppSecret = typeof payload.larkAppSecret === "string" ? payload.larkAppSecret : "";
+      const workspace = await discoverLarkWorkspace(larkAppId, larkAppSecret);
+      return jsonResponse(200, { ok: true, workspace });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Lark workspace discovery failed";
+      const status = message.startsWith("Missing Lark") ? 400 : 500;
+      return jsonResponse(status, { ok: false, error: message });
+    }
+  }
+
+  if (pathname === "/api/lark-sync") {
+    if (request.method !== "POST") {
+      return jsonResponse(405, { ok: false, error: "Method not allowed" });
+    }
+    try {
+      const payload = (await request.json()) as Record<string, unknown>;
+      const workspaceId = typeof payload.workspaceId === "string" ? payload.workspaceId : "";
+      if (!workspaceId) {
+        return jsonResponse(400, { ok: false, error: "Missing workspaceId" });
+      }
+      const workspace = await syncLarkWorkspace(workspaceId);
+      return jsonResponse(200, { ok: true, workspace });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Lark sync failed";
+      return jsonResponse(500, { ok: false, error: message });
+    }
+  }
+
+  if (pathname === "/api/lark/event" || pathname === "/api/lark-event") {
+    if (request.method !== "POST") {
+      return jsonResponse(405, { ok: false, error: "Method not allowed" });
+    }
+    try {
+      const payload = await request.json();
+      const response = await handleLarkEventPayload(payload);
+      return jsonResponse(response.status, response.body as JsonResponse);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Lark event handling failed";
+      return jsonResponse(500, { ok: false, error: message });
+    }
+  }
+
   if (pathname === "/api/agent-check") {
     if (request.method !== "GET") {
       return jsonResponse(405, { ok: false, error: "Method not allowed" });
@@ -644,11 +779,15 @@ async function handleRequest(request: Request): Promise<Response> {
 
     if (platform === "discord") {
       attachDiscordBotToken(payload);
+    } else if (platform === "lark") {
+      attachLarkCredentials(payload);
     }
 
     const response = platform === "discord"
       ? await handleDiscordActionPayload(payload)
-      : await handleSlackActionPayload(payload);
+      : platform === "lark"
+        ? await handleLarkActionPayload(payload)
+        : await handleSlackActionPayload(payload);
     return jsonResponse(response.ok ? 200 : 400, response);
   }
 

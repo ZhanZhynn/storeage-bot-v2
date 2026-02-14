@@ -9,10 +9,12 @@
   let pathname = "/local-setting";
   let normalizedPathname = pathname;
   let activeSection: "general" | "agents" | "workspace" = "general";
-  let pendingWorkspaceType: "slack" | "discord" = "slack";
+  let pendingWorkspaceType: "slack" | "discord" | "lark" = "slack";
   let pendingSlackAppToken = "";
   let pendingSlackBotToken = "";
   let pendingDiscordBotToken = "";
+  let pendingLarkAppId = "";
+  let pendingLarkAppSecret = "";
   let isAddWorkspaceDialogOpen = false;
 
   $: pathname = $page.url.pathname;
@@ -29,14 +31,18 @@
   async function addWorkspace(): Promise<void> {
     const workspace = pendingWorkspaceType === "discord"
       ? await localSettingStore.discoverDiscordWorkspace(pendingDiscordBotToken)
-      : await localSettingStore.discoverSlackWorkspace(
-        pendingSlackAppToken,
-        pendingSlackBotToken
-      );
+      : pendingWorkspaceType === "lark"
+        ? await localSettingStore.discoverLarkWorkspace(pendingLarkAppId, pendingLarkAppSecret)
+        : await localSettingStore.discoverSlackWorkspace(
+          pendingSlackAppToken,
+          pendingSlackBotToken
+        );
     if (!workspace) return;
     pendingSlackAppToken = "";
     pendingSlackBotToken = "";
     pendingDiscordBotToken = "";
+    pendingLarkAppId = "";
+    pendingLarkAppSecret = "";
     pendingWorkspaceType = "slack";
     isAddWorkspaceDialogOpen = false;
     await goto(getWorkspacePath(workspace));
@@ -60,6 +66,14 @@
 
   function onPendingDiscordBotTokenInput(event: Event): void {
     pendingDiscordBotToken = (event.currentTarget as HTMLInputElement).value;
+  }
+
+  function onPendingLarkAppIdInput(event: Event): void {
+    pendingLarkAppId = (event.currentTarget as HTMLInputElement).value;
+  }
+
+  function onPendingLarkAppSecretInput(event: Event): void {
+    pendingLarkAppSecret = (event.currentTarget as HTMLInputElement).value;
   }
 
   function removeWorkspace(workspaceId: string): void {
@@ -183,6 +197,7 @@
       <select id="new-workspace-type" bind:value={pendingWorkspaceType}>
         <option value="slack">Slack</option>
         <option value="discord">Discord</option>
+        <option value="lark">Lark</option>
       </select>
 
       {#if pendingWorkspaceType === "slack"}
@@ -203,7 +218,7 @@
           on:input={onPendingSlackBotTokenInput}
           placeholder="xoxb-..."
         />
-      {:else}
+      {:else if pendingWorkspaceType === "discord"}
         <label for="new-workspace-discord-bot-token">Discord Bot Token</label>
         <input
           id="new-workspace-discord-bot-token"
@@ -211,6 +226,24 @@
           value={pendingDiscordBotToken}
           on:input={onPendingDiscordBotTokenInput}
           placeholder="Bot token"
+        />
+      {:else}
+        <label for="new-workspace-lark-app-id">Lark App ID</label>
+        <input
+          id="new-workspace-lark-app-id"
+          type="text"
+          value={pendingLarkAppId}
+          on:input={onPendingLarkAppIdInput}
+          placeholder="cli_xxx"
+        />
+
+        <label for="new-workspace-lark-app-secret">Lark App Secret</label>
+        <input
+          id="new-workspace-lark-app-secret"
+          type="text"
+          value={pendingLarkAppSecret}
+          on:input={onPendingLarkAppSecretInput}
+          placeholder="app secret"
         />
       {/if}
 

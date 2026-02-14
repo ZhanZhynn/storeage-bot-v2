@@ -6,8 +6,12 @@ import type { OpenCodeMessageContext, OpenCodeOptions, PromptPart, SlackContext 
 import { getSlackActionApiUrl } from "@/config";
 
 export function buildSystemPrompt(slack?: SlackContext): string {
-  const platform = slack?.platform === "discord" ? "discord" : "slack";
-  const platformLabel = platform === "discord" ? "Discord" : "Slack";
+  const platform = slack?.platform === "discord"
+    ? "discord"
+    : slack?.platform === "lark"
+      ? "lark"
+      : "slack";
+  const platformLabel = platform === "discord" ? "Discord" : platform === "lark" ? "Lark" : "Slack";
   const lines = [
     "COMMUNICATION STYLE:",
     "- Be concise and conversational - this is chat, not documentation",
@@ -50,6 +54,8 @@ export function buildSystemPrompt(slack?: SlackContext): string {
       lines.push(
         platform === "discord"
           ? "- Payload: {\"platform\":\"discord\",\"action\":\"post_message\",\"channelId\":\"...\",\"messageId\":\"...\",\"text\":\"...\"}"
+          : platform === "lark"
+            ? "- Payload: {\"platform\":\"lark\",\"action\":\"post_message\",\"channelId\":\"...\",\"threadId\":\"...\",\"text\":\"...\"}"
           : "- Payload: {\"action\":\"post_message\",\"channelId\":\"...\",\"threadId\":\"...\",\"messageId\":\"...\",\"text\":\"...\"}"
       );
     }
@@ -57,6 +63,10 @@ export function buildSystemPrompt(slack?: SlackContext): string {
       lines.push("- Supported actions: get_guilds, get_channels, post_message, update_message, create_thread_from_message, get_thread_messages, ask_user, add_reaction, get_user_info, upload_file.");
       lines.push("- Required fields: channelId for message/reaction/question/upload actions; threadId for get_thread_messages; messageId + emoji for reactions; userId (or \"@me\") for get_user_info; filePath for upload_file.");
       lines.push("- add_reaction schema: { platform: \"discord\", action: \"add_reaction\", channelId: string, messageId: string, emoji: \"thumbsup\" | \"eyes\" | \"ok_hand\" }");
+    } else if (platform === "lark") {
+      lines.push("- Supported actions: get_channels, post_message, update_message, get_thread_messages, ask_user, add_reaction, get_user_info, upload_file.");
+      lines.push("- Required fields: channelId for post_message/ask_user/upload_file; messageId + text for update_message; threadId for get_thread_messages; messageId + emoji for add_reaction; userId for get_user_info; filePath for upload_file.");
+      lines.push("- post_message schema: { platform: \"lark\", action: \"post_message\", channelId: string, threadId?: string, text: string }");
     } else {
       lines.push("- Supported actions: post_message, add_reaction, get_thread_messages, ask_user, get_user_info, upload_file.");
       lines.push("- Required fields: channelId; threadId for thread actions; messageId + emoji for reactions; userId for get_user_info.");
@@ -68,6 +78,8 @@ export function buildSystemPrompt(slack?: SlackContext): string {
     lines.push(
       platform === "discord"
         ? "- When asking the user to choose options, use ask_user action and do NOT also output text - the posted question is enough."
+        : platform === "lark"
+          ? "- When asking the user to choose options, use ask_user action and do NOT also output text - the posted question is enough."
         : "- When asking the user to choose options, you can send an ask_user Slack action, do NOT also output text - the buttons are enough."
     );
     lines.push("- Only output text OR use a messaging tool, never both.");
@@ -76,6 +88,8 @@ export function buildSystemPrompt(slack?: SlackContext): string {
     lines.push(
       platform === "discord"
         ? "- Discord supports markdown like **bold**, _italic_, and code fences."
+        : platform === "lark"
+          ? "- Lark supports markdown-style formatting in text messages."
         : "- Slack uses *bold* and _italic_ (not **bold** or *italic*)"
     );
     lines.push("- Use ` for inline code and ``` for code blocks");

@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-Ode 是一个编程代理工具，可将你的编码Agent（OpenCode、Claude Code、Codex 等）连接到你常用的聊天应用中。非常适合个人开发者或团队在移动场景下协作开发。
+Ode 是一个编程代理工具，可将你的编码Agent（OpenCode、Claude Code、Codex 等）连接到你常用的聊天应用中（Slack、Discord、Lark）。非常适合个人开发者或团队在移动场景下协作开发。
 
 ![Ode demo](static/ode-demo.png)
 
@@ -46,6 +46,9 @@ ode
 ```
 
 设置界面可通过 http://127.0.0.1:9293 访问，或在 Slack 中使用 `/setting` 命令，例如 `@bot /setting`。
+
+Lark 开放平台事件订阅回调地址可使用：`POST /api/lark/event`。
+在 Lark 聊天里发送 `/setting` 可收到设置卡片并快速打开本地设置页面。
 
 ![Channel](static/channel-setting.png)
 *Run `@bot /setting` to trigger setting dialog.*

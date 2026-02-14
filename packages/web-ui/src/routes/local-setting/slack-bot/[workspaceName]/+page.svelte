@@ -41,11 +41,13 @@
   $: duplicateWorkspaceIds = getDuplicateWorkspaceIds($localSettingStore.config.workspaces);
   $: duplicateSlackBotTokens = getDuplicateSlackBotTokens($localSettingStore.config.workspaces);
   $: duplicateDiscordBotTokens = getDuplicateDiscordBotTokens($localSettingStore.config.workspaces);
+  $: duplicateLarkAppIds = getDuplicateLarkAppIds($localSettingStore.config.workspaces);
   $: selectedWorkspaceErrors = getWorkspaceErrors(
     selectedWorkspace,
     duplicateWorkspaceIds,
     duplicateSlackBotTokens,
-    duplicateDiscordBotTokens
+    duplicateDiscordBotTokens,
+    duplicateLarkAppIds
   );
   $: enabledProviders = agentProviders.filter((provider) => isProviderEnabled(provider));
   $: maybeCanonicalizeWorkspaceRoute();
@@ -91,7 +93,7 @@
 
   function onWorkspaceFieldInput(
     workspaceId: string,
-    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken",
+    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppId" | "larkAppSecret",
     value: string
   ): void {
     localSettingStore.updateWorkspace(workspaceId, (workspace) => ({
@@ -102,7 +104,7 @@
 
   function onWorkspaceTextInput(
     workspaceId: string,
-    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken",
+    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppId" | "larkAppSecret",
     event: Event
   ): void {
     onWorkspaceFieldInput(workspaceId, field, (event.currentTarget as HTMLInputElement).value);
@@ -197,7 +199,8 @@
     workspace: DashboardConfig["workspaces"][number] | null,
     duplicateIds: Set<string>,
     duplicateBotTokens: Set<string>,
-    duplicateDiscordTokens: Set<string>
+    duplicateDiscordTokens: Set<string>,
+    duplicateLarkIds: Set<string>
   ): string[] {
     if (!workspace) return [];
     const errors: string[] = [];
@@ -211,6 +214,17 @@
         errors.push("Discord Bot Token is required.");
       } else if (duplicateDiscordTokens.has((workspace.discordBotToken ?? "").trim())) {
         errors.push("Discord Bot Token must be unique across workspaces.");
+      }
+      return errors;
+    }
+    if (workspace.type === "lark") {
+      if (!(workspace.larkAppId?.trim() ?? "")) {
+        errors.push("Lark App ID is required.");
+      } else if (duplicateLarkIds.has((workspace.larkAppId ?? "").trim())) {
+        errors.push("Lark App ID must be unique across workspaces.");
+      }
+      if (!(workspace.larkAppSecret?.trim() ?? "")) {
+        errors.push("Lark App Secret is required.");
       }
       return errors;
     }
@@ -246,6 +260,17 @@
     }
     return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([token]) => token));
   }
+
+  function getDuplicateLarkAppIds(workspaces: DashboardConfig["workspaces"]): Set<string> {
+    const counts = new Map<string, number>();
+    for (const workspace of workspaces) {
+      if (workspace.type !== "lark") continue;
+      const appId = workspace.larkAppId?.trim() ?? "";
+      if (!appId) continue;
+      counts.set(appId, (counts.get(appId) ?? 0) + 1);
+    }
+    return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([appId]) => appId));
+  }
 </script>
 
 {#if selectedWorkspace}
@@ -259,9 +284,16 @@
         >
           {$localSettingStore.isSyncingSlack ? "Syncing..." : "Sync"}
         </button>
-      {:else}
+      {:else if selectedWorkspace.type === "discord"}
         <button
           on:click={() => void localSettingStore.syncDiscordWorkspace(selectedWorkspace.id)}
+          disabled={$localSettingStore.isSyncingSlack || $localSettingStore.isAddingWorkspace || $localSettingStore.isLoading || $localSettingStore.isSaving}
+        >
+          {$localSettingStore.isSyncingSlack ? "Syncing..." : "Sync"}
+        </button>
+      {:else}
+        <button
+          on:click={() => void localSettingStore.syncLarkWorkspace(selectedWorkspace.id)}
           disabled={$localSettingStore.isSyncingSlack || $localSettingStore.isAddingWorkspace || $localSettingStore.isLoading || $localSettingStore.isSaving}
         >
           {$localSettingStore.isSyncingSlack ? "Syncing..." : "Sync"}
@@ -285,13 +317,29 @@
         value={selectedWorkspace.slackBotToken ?? ""}
         on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "slackBotToken", event)}
       />
-    {:else}
+    {:else if selectedWorkspace.type === "discord"}
       <label for="workspace-discord-bot-token">Discord Bot Token</label>
       <input
         id="workspace-discord-bot-token"
         type="text"
         value={selectedWorkspace.discordBotToken ?? ""}
         on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "discordBotToken", event)}
+      />
+    {:else}
+      <label for="workspace-lark-app-id">Lark App ID</label>
+      <input
+        id="workspace-lark-app-id"
+        type="text"
+        value={selectedWorkspace.larkAppId ?? ""}
+        on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "larkAppId", event)}
+      />
+
+      <label for="workspace-lark-app-secret">Lark App Secret</label>
+      <input
+        id="workspace-lark-app-secret"
+        type="text"
+        value={selectedWorkspace.larkAppSecret ?? ""}
+        on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "larkAppSecret", event)}
       />
     {/if}
 

@@ -75,6 +75,20 @@ describe("agent cli command formatting", () => {
     expect(systemPrompt).toContain("Supported actions: get_guilds, get_channels, post_message");
   });
 
+  it("builds Lark action instructions for Lark context", () => {
+    const systemPrompt = buildSystemPrompt({
+      platform: "lark",
+      channelId: "oc_123",
+      threadId: "om_456",
+      userId: "ou_789",
+    });
+
+    expect(systemPrompt).toContain("LARK CONTEXT:");
+    expect(systemPrompt).toContain("LARK ACTIONS:");
+    expect(systemPrompt).toContain('"platform":"lark"');
+    expect(systemPrompt).toContain("Supported actions: get_channels, post_message, update_message, get_thread_messages, ask_user, add_reaction, get_user_info, upload_file.");
+  });
+
   it("builds the OpenCode curl command", () => {
     const command = buildOpenCodeCommand("http://127.0.0.1:8080", "session-2", {
       directory: "/tmp/project",
