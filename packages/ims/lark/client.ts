@@ -128,11 +128,15 @@ async function larkApi<T>(
     code?: number;
     msg?: string;
     data?: T;
+    [key: string]: unknown;
   };
   if ((payload.code ?? -1) !== 0) {
     throw new Error(payload.msg || "Lark API error");
   }
-  return (payload.data ?? ({} as T)) as T;
+  if (payload.data !== undefined) {
+    return payload.data as T;
+  }
+  return payload as unknown as T;
 }
 
 async function sendLarkMessage(params: {
