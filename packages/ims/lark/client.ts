@@ -109,7 +109,7 @@ async function getLarkTenantAccessToken(creds: LarkCredentials): Promise<string>
 
 async function larkApi<T>(
   token: string,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
+  method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
   body?: Record<string, unknown>
 ): Promise<T> {
@@ -322,15 +322,40 @@ async function updateMessage(
       }
     );
   } catch (error) {
+    const patchMessage = error instanceof Error ? error.message : String(error);
+    if (!patchMessage.includes("400")) {
+      log.warn("Failed to update Lark message", {
+        channelId,
+        messageId,
+        error: patchMessage,
+      });
+      return;
+    }
+
+    try {
+      await larkApi<Record<string, unknown>>(
+        token,
+        "PUT",
+        `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`,
+        {
+          msg_type: "text",
+          content: JSON.stringify({ text }),
+        }
+      );
+      return;
+    } catch (fallbackError) {
+      log.warn("Failed to update Lark message with PATCH/POST fallback", {
+        channelId,
+        messageId,
+        error: String(fallbackError),
+      });
+    }
+
     log.warn("Failed to update Lark message", {
       channelId,
       messageId,
-      error: String(error),
+      error: patchMessage,
     });
-    const mapped = sentMessageThreadMap.get(messageId);
-    if (mapped) {
-      await sendMessage(mapped.channelId, mapped.threadId, text, true);
-    }
   }
 }
 
@@ -432,6 +457,11 @@ async function getBotOpenIdForChannel(channelId: string): Promise<string | null>
     botOpenIdCache.set(creds.appId, openId);
     return openId;
   }
+  logLarkEvent("Lark bot open_id missing from bot/v3/info response", {
+    channelId,
+    appId: creds.appId,
+    responseKeys: Object.keys((data as Record<string, unknown>) ?? {}),
+  });
   return null;
 }
 
@@ -463,7 +493,13 @@ function parseMentionedOpenIds(mentions: unknown): string[] {
       ids.push(directKey.trim());
     }
 
-    const idRecord = record.id;
+    const idValue = record.id;
+    if (typeof idValue === "string" && idValue.trim().length > 0) {
+      ids.push(idValue.trim());
+      continue;
+    }
+
+    const idRecord = idValue;
     if (!idRecord || typeof idRecord !== "object") continue;
     const openId = (idRecord as Record<string, unknown>).open_id;
     if (typeof openId === "string" && openId.trim().length > 0) {
@@ -551,7 +587,7 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
   }
 
   const botOpenId = await getBotOpenIdForChannel(channelId);
-  if (botOpenId && senderOpenId === botOpenId) {
+  if (isThreadReply && botOpenId && senderOpenId === botOpenId) {
     logLarkEvent("Lark inbound ignored: self message", {
       channelId,
       messageId,
@@ -582,6 +618,8 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
     channelId,
     messageId,
     botOpenId: botOpenId ?? "",
+    rawText,
+    mentions,
     mentionCount: mentions.length,
     isMentioned,
     activeThread: active,
