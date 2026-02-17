@@ -46,7 +46,7 @@ function isLarkEventDebugEnabled(): boolean {
 
 function logLarkEvent(message: string, payload: Record<string, unknown>): void {
   if (!isLarkEventDebugEnabled()) return;
-  log.info(message, payload);
+  log.debug(message, payload);
 }
 
 function getLarkCredentialsForChannel(channelId: string): LarkCredentials | null {
