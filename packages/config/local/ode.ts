@@ -98,7 +98,7 @@ const updateSchema = z.object({
 
 const workspaceSchema = z.object({
   id: z.string(),
-  type: z.enum(["slack", "discord"]).optional().default("slack"),
+  type: z.enum(["slack", "discord", "lark"]).optional().default("slack"),
   name: z.string().optional().default(""),
   domain: z.string().optional().default(""),
   status: z.enum(["active", "paused"]).optional().default("active"),
@@ -108,6 +108,9 @@ const workspaceSchema = z.object({
   slackAppToken: z.string().optional().default(""),
   slackBotToken: z.string().optional().default(""),
   discordBotToken: z.string().optional().default(""),
+  larkAppKey: z.string().optional().default(""),
+  larkAppId: z.string().optional().default(""),
+  larkAppSecret: z.string().optional().default(""),
   channelDetails: z.array(channelDetailSchema).optional().default([]),
 });
 
@@ -218,7 +221,12 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
   const completeOnboarding = config.completeOnboarding === true;
   const workspaces = config.workspaces.map((workspace) => ({
     ...workspace,
-    type: workspace.type === "discord" ? "discord" as const : "slack" as const,
+    type:
+      workspace.type === "discord"
+        ? "discord" as const
+        : workspace.type === "lark"
+          ? "lark" as const
+          : "slack" as const,
     channelDetails: workspace.channelDetails.map((channel) => ({
       ...channel,
       baseBranch: normalizeBaseBranch(channel.baseBranch),
@@ -481,6 +489,32 @@ export function getDiscordBotTokens(): Array<{ token: string; workspaceId: strin
 export function getDiscordTargetChannels(): string[] | null {
   const channels = getWorkspaces()
     .filter((workspace) => workspace.type === "discord")
+    .flatMap((workspace) => workspace.channelDetails);
+  const ids = channels.map((channel) => channel.id).filter(Boolean);
+  return ids.length > 0 ? ids : null;
+}
+
+export function getLarkAppCredentials(): Array<{
+  appId: string;
+  appSecret: string;
+  workspaceId: string;
+  workspaceName?: string;
+}> {
+  const active = getWorkspaces().filter((workspace) => workspace.type === "lark" && workspace.status === "active");
+  const candidates = active.length > 0 ? active : getWorkspaces().filter((workspace) => workspace.type === "lark");
+  return candidates
+    .map((workspace) => ({
+      appId: workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "",
+      appSecret: workspace.larkAppSecret?.trim() ?? "",
+      workspaceId: workspace.id,
+      workspaceName: workspace.name,
+    }))
+    .filter((entry) => entry.appId.length > 0 && entry.appSecret.length > 0);
+}
+
+export function getLarkTargetChannels(): string[] | null {
+  const channels = getWorkspaces()
+    .filter((workspace) => workspace.type === "lark")
     .flatMap((workspace) => workspace.channelDetails);
   const ids = channels.map((channel) => channel.id).filter(Boolean);
   return ids.length > 0 ? ids : null;

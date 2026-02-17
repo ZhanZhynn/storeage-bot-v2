@@ -9,6 +9,8 @@ import {
   resetSlackState,
   startDiscordRuntime,
   stopDiscordRuntime,
+  startLarkRuntime,
+  stopLarkRuntime,
 } from "@/ims";
 import { type ChildProcess } from "child_process";
 import { watchFile, unwatchFile } from "fs";
@@ -123,6 +125,8 @@ async function refreshSlackRuntime(reason: string): Promise<void> {
     await stopSlackRuntime("missing app token");
     await stopDiscordRuntime("config change");
     await startDiscordRuntime(reason);
+    await stopLarkRuntime("config change");
+    await startLarkRuntime(reason);
     return;
   }
 
@@ -130,6 +134,8 @@ async function refreshSlackRuntime(reason: string): Promise<void> {
     await startSlackRuntime(reason);
     await stopDiscordRuntime("config change");
     await startDiscordRuntime(reason);
+    await stopLarkRuntime("config change");
+    await startLarkRuntime(reason);
     return;
   }
 
@@ -143,6 +149,8 @@ async function refreshSlackRuntime(reason: string): Promise<void> {
     await startSlackRuntime(reason);
     await stopDiscordRuntime("config change");
     await startDiscordRuntime(reason);
+    await stopLarkRuntime("config change");
+    await startLarkRuntime(reason);
     return;
   }
 
@@ -152,6 +160,8 @@ async function refreshSlackRuntime(reason: string): Promise<void> {
 
   await stopDiscordRuntime("config change");
   await startDiscordRuntime(reason);
+  await stopLarkRuntime("config change");
+  await startLarkRuntime(reason);
 }
 
 async function runAutoUpgradeCheck(reason: string): Promise<void> {
@@ -271,6 +281,7 @@ async function main(): Promise<void> {
 
   await startSlackRuntime("startup");
   await startDiscordRuntime("startup");
+  await startLarkRuntime("startup");
 
   if (slackApps.length > 0) {
     log.debug("Slack app created");
@@ -286,6 +297,7 @@ async function main(): Promise<void> {
       stopOAuthServer();
       await stopSlackRuntime("shutdown");
       await stopDiscordRuntime("shutdown");
+      await stopLarkRuntime("shutdown");
       if (webDevServer) {
         webDevServer.kill();
         webDevServer = null;

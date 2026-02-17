@@ -2,7 +2,7 @@
 
 [简体中文文档](README.zh-CN.md)
 
-Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Codex and much more) to your favorite chat apps. Perfect for personal or team developers working on the go.
+Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Codex and much more) to your favorite chat apps (Slack, Discord, and Lark). Perfect for personal or team developers working on the go.
 
 ![Ode demo](static/ode-demo.png)
 
@@ -21,7 +21,7 @@ Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Code
 * **Channel based settings** lets you configure multiple work directories easily in one machine and one slack workspace.
 * **Work in parallel**, multiple threads can work together and isolated by worktree, multiple channels can also work together, just send messages.
 * **Team focused**, just allow people to join channel to give them permissions to work together.
-* Ode also want to support as much chatting tools as possible, next is Discord and Lark.
+* Ode supports multiple chat tools including Slack, Discord, and Lark.
 
 ![Threads](static/threads.png)
 *Each thread is a session, each channel can setup different directories or coding tools/models*
@@ -48,6 +48,10 @@ ode
 ```
 
 Settings UI can be accessible via http://127.0.0.1:9293 or use `/setting` command in slack like `@bot /setting`.
+
+For Lark event subscriptions (Open Platform app), use callback endpoint: `POST /api/lark/event`.
+In Lark chats, send `/setting` to get a settings card and open local settings quickly.
+By default Ode also starts Lark long-connection mode (WS) when Lark app credentials are configured, so local testing can work without a public callback URL. Set `LARK_LONG_CONNECTION=false` to disable it.
 
 ![Channel](static/channel-setting.png)
 *Run `@bot /setting` to trigger setting dialog.*

@@ -24,6 +24,8 @@ export {
   getSlackTargetChannels,
   getDiscordBotTokens,
   getDiscordTargetChannels,
+  getLarkAppCredentials,
+  getLarkTargetChannels,
   getDefaultCwd,
   getGitHubInfoForUser,
   getUserGeneralSettings,
