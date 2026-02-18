@@ -1,4 +1,14 @@
 import type { SessionMessageState, SessionTool } from "@/utils/session-inspector";
+import {
+  applyAnthropicStyleStreamEvent,
+  applyAssistantBlocks,
+  applyUserToolResults,
+  extractPrefixedRecord,
+  extractSessionTitle,
+  type StreamStateMaps,
+  type StreamToolState,
+  updateTool,
+} from "@/agents/session-state/shared";
 
 type KiloContentBlock = {
   type?: string;
@@ -49,84 +59,9 @@ export type KiloRawRecord = {
   session_id?: string;
 };
 
-export type KiloInspectorToolState = SessionTool & {
-  inputBuffer?: string;
-};
+export type KiloInspectorToolState = StreamToolState;
 
-export type KiloStreamStateMaps = {
-  textByIndex: Map<number, string>;
-  thinkingByIndex: Map<number, string>;
-  toolByIndex: Map<number, KiloInspectorToolState>;
-  toolById: Map<string, KiloInspectorToolState>;
-};
-
-function updateTool(state: SessionMessageState, tool: SessionTool): void {
-  const existingIdx = state.tools.findIndex((current) => current.id === tool.id);
-  if (existingIdx >= 0) {
-    state.tools[existingIdx] = tool;
-    return;
-  }
-  state.tools.push(tool);
-}
-
-function tryParseObject(input: string): Record<string, unknown> | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function composeIndexedText(parts: Map<number, string>): string {
-  if (parts.size === 0) return "";
-  const sorted = [...parts.entries()].sort((a, b) => a[0] - b[0]);
-  return sorted.map(([, text]) => text).join("");
-}
-
-function extractSessionTitle(value: unknown): string | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const queue: unknown[] = [value];
-  while (queue.length > 0) {
-    const current = queue.shift();
-    if (!current || typeof current !== "object") continue;
-
-    if (Array.isArray(current)) {
-      for (const item of current) queue.push(item);
-      continue;
-    }
-
-    const record = current as Record<string, unknown>;
-    const directTitle = record.title;
-    if (typeof directTitle === "string") {
-      const trimmed = directTitle.trim();
-      if (trimmed && !trimmed.startsWith("New session")) {
-        return trimmed;
-      }
-    }
-
-    const info = record.info;
-    if (info && typeof info === "object" && !Array.isArray(info)) {
-      const infoTitle = (info as Record<string, unknown>).title;
-      if (typeof infoTitle === "string") {
-        const trimmed = infoTitle.trim();
-        if (trimmed && !trimmed.startsWith("New session")) {
-          return trimmed;
-        }
-      }
-    }
-
-    for (const nested of Object.values(record)) {
-      if (nested && typeof nested === "object") queue.push(nested);
-    }
-  }
-
-  return undefined;
-}
+export type KiloStreamStateMaps = StreamStateMaps<KiloInspectorToolState>;
 
 function getContentBlocks(record: KiloRawRecord): KiloContentBlock[] {
   if (Array.isArray(record.message?.content)) return record.message?.content;
@@ -139,10 +74,7 @@ export function extractKiloRecord(
   eventData: Record<string, unknown>,
   eventProps: Record<string, unknown>
 ): KiloRawRecord | null {
-  if (!type.startsWith("kilo.raw.")) return null;
-  const candidate = eventProps.record ?? eventData.record;
-  if (!candidate || typeof candidate !== "object") return null;
-  return candidate as KiloRawRecord;
+  return extractPrefixedRecord<KiloRawRecord>(type, "kilo.raw.", eventData, eventProps);
 }
 
 export function applyKiloRecordToState(
@@ -203,74 +135,17 @@ export function applyKiloRecordToState(
   if (record.type === "assistant" || role === "assistant") {
     const blocks = getContentBlocks(record);
     const fallbackText = typeof record.content === "string" ? record.content.trim() : "";
-    const text = blocks
-      .filter((block) => block?.type === "text")
-      .map((block) => block.text ?? "")
-      .join("")
-      .trim();
+    const text = blocks.filter((block) => block?.type === "text").map((block) => block.text ?? "").join("").trim();
     if (text || fallbackText) {
       state.currentText = text || fallbackText;
       state.phaseStatus = "Drafting response";
     }
-
-    for (const block of blocks) {
-      if (block?.type !== "tool_use") continue;
-      const toolId = typeof block.id === "string" && block.id.trim()
-        ? block.id
-        : `kilo-tool-${Date.now()}`;
-      const toolName = typeof block.name === "string" && block.name.trim()
-        ? block.name
-        : "tool";
-      const input = block.input && typeof block.input === "object"
-        ? (block.input as Record<string, unknown>)
-        : undefined;
-
-      const existing = toolById.get(toolId);
-      const tool: KiloInspectorToolState = {
-        id: toolId,
-        name: toolName,
-        status: existing?.status === "completed" || existing?.status === "error"
-          ? existing.status
-          : "running",
-        input: input ?? existing?.input,
-        output: existing?.output,
-        error: existing?.error,
-        title: existing?.title,
-        metadata: existing?.metadata,
-      };
-      toolById.set(toolId, tool);
-      updateTool(state, tool);
-      if (tool.status === "running") {
-        state.phaseStatus = `Running tool: ${toolName}`;
-      }
-    }
+    applyAssistantBlocks(state, blocks, { toolById }, "kilo-tool");
     return;
   }
 
   if (record.type === "user" || role === "tool") {
-    const blocks = getContentBlocks(record);
-    for (const block of blocks) {
-      if (block?.type !== "tool_result") continue;
-      const toolId = typeof block.tool_use_id === "string" && block.tool_use_id.trim()
-        ? block.tool_use_id
-        : "";
-      if (!toolId) continue;
-
-      const existing = toolById.get(toolId);
-      if (!existing) continue;
-
-      const hasError = block.is_error === true;
-      const output = typeof block.content === "string" ? block.content : undefined;
-      const updated: KiloInspectorToolState = {
-        ...existing,
-        status: hasError ? "error" : "completed",
-        output,
-        error: hasError ? output : existing.error,
-      };
-      toolById.set(toolId, updated);
-      updateTool(state, updated);
-      state.phaseStatus = `${hasError ? "Tool failed" : "Finished tool"}: ${updated.name}`;
-    }
+    applyUserToolResults(state, getContentBlocks(record), { toolById });
     return;
   }
 
@@ -279,140 +154,13 @@ export function applyKiloRecordToState(
     return;
   }
 
-  if (record.type !== "stream_event" || !record.event?.type) {
+  if (record.type !== "stream_event") {
     return;
   }
-
-  const eventType = record.event.type;
-  const index = typeof record.event.index === "number" ? record.event.index : undefined;
-
-  switch (eventType) {
-    case "message_start": {
-      state.phaseStatus = "Thinking";
-      return;
-    }
-    case "content_block_start": {
-      const block = record.event.content_block;
-      if (block?.type === "tool_use") {
-        const toolId = typeof block.id === "string" && block.id.trim()
-          ? block.id
-          : typeof index === "number"
-            ? `kilo-tool-${index}`
-            : `kilo-tool-${Date.now()}`;
-        const toolName = typeof block.name === "string" && block.name.trim()
-          ? block.name
-          : "tool";
-        const input = block.input && typeof block.input === "object"
-          ? (block.input as Record<string, unknown>)
-          : undefined;
-        const tool: KiloInspectorToolState = {
-          id: toolId,
-          name: toolName,
-          status: "running",
-          input,
-        };
-        toolById.set(toolId, tool);
-        if (typeof index === "number") {
-          toolByIndex.set(index, tool);
-        }
-        updateTool(state, tool);
-        state.phaseStatus = `Running tool: ${toolName}`;
-        return;
-      }
-
-      if (block?.type === "thinking") {
-        const thinking = typeof block.thinking === "string" ? block.thinking : "";
-        if (thinking) {
-          state.thinkingText = thinking;
-          if (typeof index === "number") {
-            thinkingByIndex.set(index, thinking);
-          }
-        }
-        state.phaseStatus = "Thinking";
-        return;
-      }
-
-      state.phaseStatus = "Drafting response";
-      return;
-    }
-    case "content_block_delta": {
-      const delta = record.event.delta;
-      if (delta?.type === "text_delta") {
-        const chunk = typeof delta.text === "string" ? delta.text : "";
-        if (!chunk) return;
-        if (typeof index === "number") {
-          const next = `${textByIndex.get(index) ?? ""}${chunk}`;
-          textByIndex.set(index, next);
-          state.currentText = composeIndexedText(textByIndex);
-        } else {
-          state.currentText = `${state.currentText}${chunk}`;
-        }
-        state.phaseStatus = "Drafting response";
-        return;
-      }
-
-      if (delta?.type === "input_json_delta") {
-        if (typeof index !== "number") {
-          state.phaseStatus = "Running tool";
-          return;
-        }
-        const tool = toolByIndex.get(index);
-        if (!tool) {
-          state.phaseStatus = "Running tool";
-          return;
-        }
-        const chunk = typeof delta.partial_json === "string" ? delta.partial_json : "";
-        if (chunk) {
-          tool.inputBuffer = `${tool.inputBuffer ?? ""}${chunk}`;
-          const parsedInput = tryParseObject(tool.inputBuffer);
-          if (parsedInput) {
-            tool.input = parsedInput;
-          }
-        }
-        tool.status = "running";
-        toolById.set(tool.id, tool);
-        toolByIndex.set(index, tool);
-        updateTool(state, tool);
-        state.phaseStatus = `Running tool: ${tool.name}`;
-        return;
-      }
-
-      if (delta?.type === "thinking_delta") {
-        const chunk = typeof delta.thinking === "string" ? delta.thinking : "";
-        if (!chunk) return;
-        if (typeof index === "number") {
-          const next = `${thinkingByIndex.get(index) ?? ""}${chunk}`;
-          thinkingByIndex.set(index, next);
-          state.thinkingText = next;
-        } else {
-          state.thinkingText = `${state.thinkingText ?? ""}${chunk}`;
-        }
-        state.phaseStatus = "Thinking";
-      }
-      return;
-    }
-    case "content_block_stop": {
-      if (typeof index !== "number") {
-        state.phaseStatus = "Finished step";
-        return;
-      }
-      const tool = toolByIndex.get(index);
-      if (!tool) {
-        state.phaseStatus = "Finished step";
-        return;
-      }
-      tool.status = "completed";
-      toolById.set(tool.id, tool);
-      toolByIndex.set(index, tool);
-      updateTool(state, tool);
-      state.phaseStatus = `Finished tool: ${tool.name}`;
-      return;
-    }
-    case "message_stop": {
-      state.phaseStatus = "Finalizing response";
-      return;
-    }
-    default:
-      return;
-  }
+  applyAnthropicStyleStreamEvent(state, record, {
+    textByIndex,
+    thinkingByIndex,
+    toolByIndex,
+    toolById,
+  }, "kilo-tool");
 }
