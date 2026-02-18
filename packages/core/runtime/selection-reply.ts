@@ -78,20 +78,7 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   markMessageProcessed(channelId, threadId, messageTs);
 
   const providerId = deps.agent.getProviderForSession(sessionId);
-
-  const providerLabel = providerId === "opencode"
-    ? "OpenCode"
-    : providerId === "claudecode"
-      ? "Claude Code"
-      : providerId === "codex"
-        ? "Codex"
-        : providerId === "kimi"
-          ? "Kimi"
-          : providerId === "kiro"
-            ? "Kiro"
-            : providerId === "kilo"
-              ? "Kilo"
-              : "Qwen";
+  const providerLabel = deps.agent.getDisplayNameForSession(sessionId);
 
   const statusTs = await deps.im.sendMessage(channelId, threadId, `${providerLabel} is working...`, false);
   if (!statusTs) {

@@ -53,20 +53,7 @@ export async function runOpenRequest(params: {
     publishFinalText,
   } = params;
 
-  const providerId = deps.agent.getProviderForSession(sessionId);
-  const providerLabel = providerId === "opencode"
-    ? "OpenCode"
-    : providerId === "claudecode"
-      ? "Claude Code"
-      : providerId === "codex"
-        ? "Codex"
-        : providerId === "kimi"
-          ? "Kimi"
-          : providerId === "kiro"
-            ? "Kiro"
-            : providerId === "kilo"
-              ? "Kilo"
-              : "Qwen";
+  const providerLabel = deps.agent.getDisplayNameForSession(sessionId);
 
   const statusTs = await deps.im.sendMessage(
     context.channelId,
