@@ -77,7 +77,23 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   }
   markMessageProcessed(channelId, threadId, messageTs);
 
-  const statusTs = await deps.im.sendMessage(channelId, threadId, "_Processing..._", false);
+  const providerId = deps.agent.getProviderForSession(sessionId);
+
+  const providerLabel = providerId === "opencode"
+    ? "OpenCode"
+    : providerId === "claudecode"
+      ? "Claude Code"
+      : providerId === "codex"
+        ? "Codex"
+        : providerId === "kimi"
+          ? "Kimi"
+          : providerId === "kiro"
+            ? "Kiro"
+            : providerId === "kilo"
+              ? "Kilo"
+              : "Qwen";
+
+  const statusTs = await deps.im.sendMessage(channelId, threadId, `${providerLabel} is working...`, false);
   if (!statusTs) {
     log.error("Failed to send status message for button selection");
     return;
@@ -97,7 +113,6 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   const threadOwnerUserId = session?.threadOwnerUserId ?? userId;
   const normalizedSelection = selection.trimStart().toLowerCase();
   const agent = /^plan\b/.test(normalizedSelection) ? "plan" : undefined;
-  const providerId = deps.agent.getProviderForSession(sessionId);
   const channelModel = getChannelModel(channelId)?.trim();
   const codexModel = providerId === "codex"
     ? (channelModel && channelModel.length > 0 ? channelModel : DEFAULT_CODEX_MODEL)

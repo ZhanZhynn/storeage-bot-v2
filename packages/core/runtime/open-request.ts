@@ -26,7 +26,6 @@ export async function runOpenRequest(params: {
   sessionId: string;
   cwd: string;
   message: string;
-  phaseLabel: string;
   stateMachine: CoreStateMachine;
   agentContext: Awaited<ReturnType<IMAdapter["buildAgentContext"]>>;
   options?: OpenCodeOptions;
@@ -46,7 +45,6 @@ export async function runOpenRequest(params: {
     sessionId,
     cwd,
     message,
-    phaseLabel,
     stateMachine,
     agentContext,
     options,
@@ -55,10 +53,25 @@ export async function runOpenRequest(params: {
     publishFinalText,
   } = params;
 
+  const providerId = deps.agent.getProviderForSession(sessionId);
+  const providerLabel = providerId === "opencode"
+    ? "OpenCode"
+    : providerId === "claudecode"
+      ? "Claude Code"
+      : providerId === "codex"
+        ? "Codex"
+        : providerId === "kimi"
+          ? "Kimi"
+          : providerId === "kiro"
+            ? "Kiro"
+            : providerId === "kilo"
+              ? "Kilo"
+              : "Qwen";
+
   const statusTs = await deps.im.sendMessage(
     context.channelId,
     context.replyThreadId,
-    `_${phaseLabel}..._`,
+    `${providerLabel} is working...`,
     false
   );
 

@@ -50,6 +50,7 @@ export type AgentStatusMessageParams = {
 };
 
 export interface IMAdapter {
+  maxEditableMessageChars?: number;
   sendMessage(channelId: string, threadId: string, text: string, asMarkdown?: boolean): Promise<string | undefined>;
   updateMessage(channelId: string, messageTs: string, text: string, asMarkdown?: boolean): Promise<void>;
   deleteMessage(channelId: string, messageTs: string): Promise<void>;
