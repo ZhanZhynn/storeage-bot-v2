@@ -831,6 +831,4 @@ export async function stopLarkRuntime(reason: string): Promise<void> {
   log.debug("Lark runtime stopped", { reason });
 }
 
-export async function recoverPendingRequests(): Promise<void> {
-  await coreRuntime.recoverPendingRequests();
-}
+export const recoverPendingRequests = coreRuntime.recoverPendingRequests;

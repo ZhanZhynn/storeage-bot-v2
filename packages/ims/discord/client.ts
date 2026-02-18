@@ -963,6 +963,4 @@ export async function stopDiscordRuntime(reason: string): Promise<void> {
   log.debug("Discord runtime stopped", { reason });
 }
 
-export async function recoverPendingRequests(): Promise<void> {
-  await coreRuntime.recoverPendingRequests();
-}
+export const recoverPendingRequests = coreRuntime.recoverPendingRequests;

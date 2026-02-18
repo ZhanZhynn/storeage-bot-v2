@@ -3,9 +3,7 @@ import {
   setupMessageHandlers,
   setupInteractiveHandlers,
   stopOAuthServer,
-  recoverPendingRequests,
-  recoverDiscordPendingRequests,
-  recoverLarkPendingRequests,
+  recoverPendingRequestsAcrossPlatforms,
   initializeWorkspaceAuth,
   clearSlackAuthState,
   resetSlackState,
@@ -325,9 +323,7 @@ async function main(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 1000));
 
   // Recover any interrupted requests from previous run
-  await recoverPendingRequests();
-  await recoverDiscordPendingRequests();
-  await recoverLarkPendingRequests();
+  await recoverPendingRequestsAcrossPlatforms();
 
   if (slackApps.length > 0) {
     log.debug("Bot is running in Socket Mode");
