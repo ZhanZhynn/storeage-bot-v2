@@ -1,7 +1,6 @@
 import {
   applyClaudeRecordToState,
   extractClaudeRecord,
-  type ClaudeInspectorToolState,
 } from "@/agents/claude/session-state";
 import { applyCodexRecordToState, extractCodexRecord } from "@/agents/codex/session-state";
 import { applyKiroRecordToState, extractKiroRecord } from "@/agents/kiro/session-state";
@@ -9,6 +8,7 @@ import { applyKimiRecordToState, extractKimiRecord } from "@/agents/kimi/session
 import { applyKiloRecordToState, extractKiloRecord } from "@/agents/kilo/session-state";
 import { applyQwenRecordToState, extractQwenRecord } from "@/agents/qwen/session-state";
 import { applyGooseRecordToState, extractGooseRecord } from "@/agents/goose/session-state";
+import type { StreamStateMaps, StreamToolState } from "@/agents/session-state/shared";
 
 export type SessionEvent = {
   timestamp: number;
@@ -57,6 +57,15 @@ export type SessionStateOptions = {
   workingDirectory?: string;
   endIndex?: number;
   baseState?: Partial<SessionMessageState>;
+};
+
+type ProviderParser = {
+  extract: (
+    type: string,
+    eventData: Record<string, unknown>,
+    eventProps: Record<string, unknown>
+  ) => unknown | null;
+  apply: (record: unknown) => void;
 };
 
 function unwrapEventData(data: unknown): Record<string, unknown> {
@@ -130,17 +139,25 @@ export function buildSessionMessageState(
   const relevantEvents =
     typeof endIndex === "number" ? events.slice(0, endIndex + 1) : events;
 
-  const claudeTextByIndex = new Map<number, string>();
-  const claudeThinkingByIndex = new Map<number, string>();
-  const claudeToolByIndex = new Map<number, ClaudeInspectorToolState>();
-  const claudeToolById = new Map<string, ClaudeInspectorToolState>();
+  const sharedStreamState: StreamStateMaps<StreamToolState> = {
+    textByIndex: new Map<number, string>(),
+    thinkingByIndex: new Map<number, string>(),
+    toolByIndex: new Map<number, StreamToolState>(),
+    toolById: new Map<string, StreamToolState>(),
+  };
   const codexToolById = new Map<string, SessionTool>();
   const kimiToolById = new Map<string, SessionTool>();
   const kiloToolById = new Map<string, SessionTool>();
   const kiroTodoById = new Map<string, SessionTodo>();
+  const kiloStreamState: StreamStateMaps<StreamToolState> = {
+    textByIndex: sharedStreamState.textByIndex,
+    thinkingByIndex: sharedStreamState.thinkingByIndex,
+    toolByIndex: sharedStreamState.toolByIndex,
+    toolById: kiloToolById,
+  };
 
   for (const existingTool of state.tools) {
-    claudeToolById.set(existingTool.id, { ...existingTool });
+    sharedStreamState.toolById.set(existingTool.id, { ...existingTool });
     codexToolById.set(existingTool.id, { ...existingTool });
     kimiToolById.set(existingTool.id, { ...existingTool });
     kiloToolById.set(existingTool.id, { ...existingTool });
@@ -151,70 +168,65 @@ export function buildSessionMessageState(
     kiroTodoById.set(key, { ...existingTodo });
   }
 
+  const providerParsers: ProviderParser[] = [
+    {
+      extract: extractClaudeRecord,
+      apply: (record) => {
+        applyClaudeRecordToState(state, record as Parameters<typeof applyClaudeRecordToState>[1], sharedStreamState);
+      },
+    },
+    {
+      extract: extractCodexRecord,
+      apply: (record) => {
+        applyCodexRecordToState(state, record as Parameters<typeof applyCodexRecordToState>[1], codexToolById);
+      },
+    },
+    {
+      extract: extractKiroRecord,
+      apply: (record) => {
+        applyKiroRecordToState(state, record as Parameters<typeof applyKiroRecordToState>[1], kiroTodoById);
+      },
+    },
+    {
+      extract: extractKimiRecord,
+      apply: (record) => {
+        applyKimiRecordToState(state, record as Parameters<typeof applyKimiRecordToState>[1], kimiToolById);
+      },
+    },
+    {
+      extract: extractKiloRecord,
+      apply: (record) => {
+        applyKiloRecordToState(state, record as Parameters<typeof applyKiloRecordToState>[1], kiloStreamState);
+      },
+    },
+    {
+      extract: extractQwenRecord,
+      apply: (record) => {
+        applyQwenRecordToState(state, record as Parameters<typeof applyQwenRecordToState>[1], sharedStreamState);
+      },
+    },
+    {
+      extract: extractGooseRecord,
+      apply: (record) => {
+        applyGooseRecordToState(state, record as Parameters<typeof applyGooseRecordToState>[1], sharedStreamState);
+      },
+    },
+  ];
+
   for (const event of relevantEvents) {
     const eventData = unwrapEventData(event.data);
     const eventProps = getEventProperties(eventData);
     const type = event.type;
 
-    const claudeRecord = extractClaudeRecord(type, eventData, eventProps);
-    if (claudeRecord) {
-      applyClaudeRecordToState(state, claudeRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: claudeToolById,
-      });
-      continue;
+    let handledByProvider = false;
+    for (const parser of providerParsers) {
+      const record = parser.extract(type, eventData, eventProps);
+      if (!record) continue;
+      parser.apply(record);
+      handledByProvider = true;
+      break;
     }
-
-    const codexRecord = extractCodexRecord(type, eventData, eventProps);
-    if (codexRecord) {
-      applyCodexRecordToState(state, codexRecord, codexToolById);
-      continue;
-    }
-
-    const kiroRecord = extractKiroRecord(type, eventData, eventProps);
-    if (kiroRecord) {
-      applyKiroRecordToState(state, kiroRecord, kiroTodoById);
-      continue;
-    }
-
-    const kimiRecord = extractKimiRecord(type, eventData, eventProps);
-    if (kimiRecord) {
-      applyKimiRecordToState(state, kimiRecord, kimiToolById);
-      continue;
-    }
-
-    const kiloRecord = extractKiloRecord(type, eventData, eventProps);
-    if (kiloRecord) {
-      applyKiloRecordToState(state, kiloRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: kiloToolById,
-      });
-      continue;
-    }
-
-    const qwenRecord = extractQwenRecord(type, eventData, eventProps);
-    if (qwenRecord) {
-      applyQwenRecordToState(state, qwenRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: claudeToolById,
-      });
-      continue;
-    }
-
-    const gooseRecord = extractGooseRecord(type, eventData, eventProps);
-    if (gooseRecord) {
-      applyGooseRecordToState(state, gooseRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: claudeToolById,
-      });
+    if (handledByProvider) {
       continue;
     }
 
