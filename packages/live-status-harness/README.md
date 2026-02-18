@@ -62,6 +62,7 @@ For `opencode`, the report run forces model `openai/gpt-5.3-codex` so it does no
 Optional flags:
 
 - `--providers opencode,claudecode,codex,kimi,kiro,kilo,qwen,goose`
+- `--run-id <id>` reuse an existing captured run (requires exactly one provider and skips capture)
 - `--layout split|combined|both` (default: `split`)
 - `--output-dir <path>` for provider files (default: `packages/live-status-harness/reports`)
 - `--output <path>` for combined file (default: `packages/live-status-harness/reports/agent-live-status.md`)

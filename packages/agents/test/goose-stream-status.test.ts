@@ -94,4 +94,76 @@ describe("goose stream status parsing", () => {
 
     expect(text).toContain("`read` README.md");
   });
+
+  it("parses Goose message schema with toolRequest/toolResponse", () => {
+    const now = Date.now();
+    const state = buildSessionMessageState([
+      rawEvent(now, {
+        type: "message",
+        message: {
+          id: "m1",
+          role: "assistant",
+          content: [{ type: "text", text: "Hel" }],
+        },
+      }),
+      rawEvent(now + 1, {
+        type: "message",
+        message: {
+          id: "m2",
+          role: "assistant",
+          content: [{ type: "text", text: "lo" }],
+        },
+      }),
+      rawEvent(now + 2, {
+        type: "message",
+        message: {
+          id: "m3",
+          role: "assistant",
+          content: [{
+            type: "toolRequest",
+            id: "call-1",
+            toolCall: {
+              status: "success",
+              value: {
+                name: "read_file",
+                arguments: { absolute_path: "/tmp/repo/README.md" },
+              },
+            },
+          }],
+        },
+      }),
+      rawEvent(now + 3, {
+        type: "message",
+        message: {
+          id: "m4",
+          role: "user",
+          content: [{
+            type: "toolResponse",
+            id: "call-1",
+            toolResult: {
+              status: "success",
+              value: {
+                isError: false,
+                content: [{ type: "text", text: "ok" }],
+              },
+            },
+          }],
+        },
+      }),
+      rawEvent(now + 4, {
+        type: "message",
+        message: {
+          id: "m5",
+          role: "assistant",
+          content: [{ type: "text", text: "Done" }],
+        },
+      }),
+      rawEvent(now + 5, { type: "complete" }),
+    ]);
+
+    expect(state.currentText).toBe("Done");
+    expect(state.tools[0]?.name).toBe("read_file");
+    expect(state.tools[0]?.status).toBe("completed");
+    expect(state.phaseStatus).toBe("Waiting");
+  });
 });

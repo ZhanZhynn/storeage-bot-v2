@@ -9,6 +9,9 @@ export type GooseRawRecord = {
     delta?: Record<string, unknown>;
   };
   message?: {
+    id?: string;
+    role?: string;
+    created?: number;
     content?: Array<{
       type?: string;
       text?: string;
@@ -18,6 +21,20 @@ export type GooseRawRecord = {
       tool_use_id?: string;
       content?: string;
       is_error?: boolean;
+      toolCall?: {
+        status?: string;
+        value?: {
+          name?: string;
+          arguments?: unknown;
+        };
+      };
+      toolResult?: {
+        status?: string;
+        value?: {
+          content?: Array<{ type?: string; text?: string }>;
+          isError?: boolean;
+        };
+      };
     }>;
   };
   result?: string;
@@ -125,6 +142,90 @@ export function applyGooseRecordToState(
   const sessionTitle = extractSessionTitle(record);
   if (sessionTitle) {
     state.sessionTitle = sessionTitle;
+  }
+
+  if (record.type === "complete") {
+    state.phaseStatus = "Waiting";
+    return;
+  }
+
+  if (record.type === "message") {
+    const role = typeof record.message?.role === "string" ? record.message.role : "";
+    const blocks = record.message?.content ?? [];
+
+    if (role === "assistant") {
+      for (const block of blocks) {
+        if (block?.type === "text") {
+          const chunk = typeof block.text === "string" ? block.text : "";
+          if (!chunk) continue;
+          const next = `${textByIndex.get(-1) ?? ""}${chunk}`;
+          textByIndex.set(-1, next);
+          state.currentText = next;
+          state.phaseStatus = "Drafting response";
+          continue;
+        }
+
+        if (block?.type !== "toolRequest") continue;
+
+        const call = block.toolCall?.value;
+        const toolName = typeof call?.name === "string" && call.name.trim()
+          ? call.name
+          : "tool";
+        const callId = typeof block.id === "string" && block.id.trim()
+          ? block.id
+          : `goose-tool-${Date.now()}`;
+        const rawArgs = call?.arguments;
+        const input = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+          ? rawArgs as Record<string, unknown>
+          : typeof rawArgs === "string"
+            ? { content: rawArgs }
+            : undefined;
+        const existing = toolById.get(callId);
+        textByIndex.delete(-1);
+        state.currentText = "";
+        const tool: GooseInspectorToolState = {
+          id: callId,
+          name: toolName,
+          status: "running",
+          input: input ?? existing?.input,
+          output: existing?.output,
+          error: existing?.error,
+          title: existing?.title,
+          metadata: existing?.metadata,
+        };
+        toolById.set(callId, tool);
+        updateTool(state, tool);
+        state.phaseStatus = `Running tool: ${toolName}`;
+      }
+      return;
+    }
+
+    if (role === "user") {
+      for (const block of blocks) {
+        if (block?.type !== "toolResponse") continue;
+        const callId = typeof block.id === "string" && block.id.trim() ? block.id : "";
+        if (!callId) continue;
+        const existing = toolById.get(callId);
+        if (!existing) continue;
+        const result = block.toolResult?.value;
+        const output = (result?.content ?? [])
+          .filter((entry) => entry?.type === "text")
+          .map((entry) => entry.text ?? "")
+          .join("\n")
+          .trim();
+        const hasError = result?.isError === true || block.toolResult?.status === "error";
+        const updated: GooseInspectorToolState = {
+          ...existing,
+          status: hasError ? "error" : "completed",
+          output: output || existing.output,
+          error: hasError ? output || "Tool execution failed" : undefined,
+        };
+        toolById.set(callId, updated);
+        updateTool(state, updated);
+        state.phaseStatus = `${hasError ? "Tool failed" : "Finished tool"}: ${updated.name}`;
+      }
+      return;
+    }
   }
 
   if (record.type === "assistant") {

@@ -157,6 +157,7 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     cancelActiveRequest: goose.cancelActiveRequest,
     ensureSession: goose.ensureSession,
     subscribeToSession: goose.subscribeToSession,
+    getStaticConfig: goose.getStaticConfig,
   },
 };
 
