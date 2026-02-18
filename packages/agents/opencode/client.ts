@@ -7,13 +7,13 @@ import {
   type SessionEnvironment,
 } from "./server";
 import {
-  getThreadSessionId,
   setThreadSessionId,
 } from "@/config/local/settings";
 import { getChannelModel, isLocalMode } from "@/config";
 import { log } from "@/utils";
 import { buildPromptParts, buildSystemPrompt } from "../shared";
-import { ServerAgentRuntime, formatShellCommand, normalizeSessionEnvironment } from "../runtime/base";
+import { ServerAgentRuntime, formatShellCommand } from "../runtime/base";
+import { getOrCreateThreadSession } from "../runtime/thread-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -76,23 +76,24 @@ export async function getOrCreateSession(
   workingPath: string,
   env: SessionEnvironment = {}
 ): Promise<OpenCodeSessionInfo> {
-  const existingSession = getThreadSessionId(channelId, threadId, "opencode");
-  if (existingSession) {
-    const existingEnv = normalizeSessionEnvironment(getSessionEnvironment(existingSession));
-    const desiredEnv = normalizeSessionEnvironment(env);
-    if (existingEnv !== desiredEnv) {
+  return getOrCreateThreadSession({
+    channelId,
+    threadId,
+    providerId: "opencode",
+    workingPath,
+    env,
+    createSession,
+    getSessionEnvironment,
+    setSessionEnvironment: () => {
+      // OpenCode session environment is managed by server runtime registration.
+    },
+    onEnvironmentChanged: () => {
       log.debug("Session environment changed; creating new session", { channelId, threadId, workingPath });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-    return { sessionId: existingSession, created: false };
-  }
-
-  log.debug("Creating new session for thread", { channelId, threadId, workingPath });
-  const sessionId = await createSession(workingPath, env);
-  setThreadSessionId(channelId, threadId, sessionId);
-  return { sessionId, created: true };
+    },
+    onCreatingSession: () => {
+      log.debug("Creating new session for thread", { channelId, threadId, workingPath });
+    },
+  });
 }
 
 

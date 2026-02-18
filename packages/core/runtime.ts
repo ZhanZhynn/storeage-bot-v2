@@ -1,7 +1,5 @@
 import { spawnSync } from "child_process";
 import {
-  DEFAULT_CODEX_MODEL,
-  getChannelModel,
   resolveStatusMessageFormat,
 } from "@/config";
 import {
@@ -25,6 +23,7 @@ import { handlePendingQuestionReply } from "@/core/runtime/pending-question";
 import { recoverPendingRequests as recoverPendingRequestsInternal } from "@/core/runtime/recovery";
 import { prepareRuntimeSession } from "@/core/runtime/session-bootstrap";
 import { runOpenRequest } from "@/core/runtime/open-request";
+import { buildMessageOptions } from "@/core/runtime/message-options";
 import type { OpenCodeOptions } from "@/agents";
 
 type RuntimeDeps = {
@@ -38,16 +37,6 @@ type RuntimeState = {
   liveParsedState: Map<string, SessionMessageState>;
   stateMachines: Map<string, CoreStateMachine>;
 };
-
-function toKiloModel(modelValue: string | null | undefined): OpenCodeOptions["model"] | undefined {
-  const trimmed = modelValue?.trim();
-  if (!trimmed) return undefined;
-  const [providerID = "kilo", ...rest] = trimmed.split("/");
-  if (rest.length === 0) {
-    return { providerID: "kilo", modelID: trimmed };
-  }
-  return { providerID, modelID: rest.join("/") };
-}
 
 function createRuntimeState(): RuntimeState {
   return {
@@ -198,21 +187,12 @@ export function createCoreRuntime(deps: RuntimeDeps) {
       threadHistory,
     });
 
-    const normalizedText = text.trimStart().toLowerCase();
-    const agent = /^plan\b/.test(normalizedText) ? "plan" : undefined;
     const providerId = deps.agent.getProviderForSession(sessionId);
-    const channelModel = getChannelModel(channelId)?.trim();
-    const codexModel = providerId === "codex"
-      ? (channelModel && channelModel.length > 0 ? channelModel : DEFAULT_CODEX_MODEL)
-      : undefined;
-    const kiloModel = providerId === "kilo" ? toKiloModel(channelModel) : undefined;
-    const options: OpenCodeOptions | undefined = agent || codexModel || kiloModel
-      ? {
-          ...(agent ? { agent } : {}),
-          ...(codexModel ? { model: { providerID: "openai", modelID: codexModel } } : {}),
-          ...(kiloModel ? { model: kiloModel } : {}),
-        }
-      : undefined;
+    const options: OpenCodeOptions | undefined = buildMessageOptions({
+      text,
+      channelId,
+      providerId,
+    });
 
     const responses = await runOpenRequest({
       deps,

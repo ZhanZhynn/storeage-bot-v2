@@ -114,6 +114,13 @@ async function startSlackRuntime(reason: string): Promise<void> {
   }
 }
 
+async function refreshNonSlackRuntimes(reason: string): Promise<void> {
+  await stopDiscordRuntime("config change");
+  await startDiscordRuntime(reason);
+  await stopLarkRuntime("config change");
+  await startLarkRuntime(reason);
+}
+
 async function refreshSlackRuntime(reason: string): Promise<void> {
   if (!isLocalMode()) return;
   invalidateOdeConfigCache();
@@ -123,19 +130,13 @@ async function refreshSlackRuntime(reason: string): Promise<void> {
   const nextTokens = getLocalSlackAppTokens();
   if (nextTokens.length === 0) {
     await stopSlackRuntime("missing app token");
-    await stopDiscordRuntime("config change");
-    await startDiscordRuntime(reason);
-    await stopLarkRuntime("config change");
-    await startLarkRuntime(reason);
+    await refreshNonSlackRuntimes(reason);
     return;
   }
 
   if (slackApps.length === 0) {
     await startSlackRuntime(reason);
-    await stopDiscordRuntime("config change");
-    await startDiscordRuntime(reason);
-    await stopLarkRuntime("config change");
-    await startLarkRuntime(reason);
+    await refreshNonSlackRuntimes(reason);
     return;
   }
 
@@ -147,10 +148,7 @@ async function refreshSlackRuntime(reason: string): Promise<void> {
   if (changed) {
     await stopSlackRuntime("app token set changed");
     await startSlackRuntime(reason);
-    await stopDiscordRuntime("config change");
-    await startDiscordRuntime(reason);
-    await stopLarkRuntime("config change");
-    await startLarkRuntime(reason);
+    await refreshNonSlackRuntimes(reason);
     return;
   }
 
@@ -158,10 +156,7 @@ async function refreshSlackRuntime(reason: string): Promise<void> {
   await initializeWorkspaceAuth();
   log.debug("Slack auth refreshed", { reason, appCount: slackApps.length });
 
-  await stopDiscordRuntime("config change");
-  await startDiscordRuntime(reason);
-  await stopLarkRuntime("config change");
-  await startLarkRuntime(reason);
+  await refreshNonSlackRuntimes(reason);
 }
 
 async function runAutoUpgradeCheck(reason: string): Promise<void> {

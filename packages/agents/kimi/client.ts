@@ -1,17 +1,13 @@
-import { spawn, type ChildProcess } from "child_process";
-import {
-  getThreadSessionId,
-  setThreadSessionId,
-} from "@/config/local/settings";
 import { log } from "@/utils";
-import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
+import { buildPromptParts, buildPromptText, buildSystemPrompt, buildSystemWrappedPrompt } from "../shared";
 import {
   CliAgentRuntime,
   formatShellCommand,
-  normalizeSessionEnvironment,
   noopStartServer,
+  runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
+import { getOrCreateThreadSession } from "../runtime/thread-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -76,91 +72,6 @@ function publishKimiEvent(sessionId: string, record: KimiJsonRecord): void {
   });
 }
 
-async function runKimiCommand(
-  args: string[],
-  cwd: string,
-  env: SessionEnvironment,
-  entry: { controller: AbortController; process?: ChildProcess },
-  onRecord?: (record: KimiJsonRecord) => void
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("kimi", args, {
-      cwd,
-      env: { ...process.env, ...env },
-      signal: entry.controller.signal,
-    });
-
-    entry.process = child;
-    child.stdin?.end();
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBuffer = "";
-
-    const flushLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed || !onRecord) return;
-      try {
-        onRecord(JSON.parse(trimmed) as KimiJsonRecord);
-      } catch {
-        // ignore non-json lines
-      }
-    };
-
-    child.stdout?.on("data", (chunk) => {
-      const bufferChunk = Buffer.from(chunk);
-      stdoutChunks.push(bufferChunk);
-      stdoutBuffer += bufferChunk.toString("utf-8");
-      while (true) {
-        const newlineIndex = stdoutBuffer.indexOf("\n");
-        if (newlineIndex < 0) break;
-        const line = stdoutBuffer.slice(0, newlineIndex);
-        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-        flushLine(line);
-      }
-    });
-
-    child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
-
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("Kimi CLI timed out"));
-    }, 10 * 60 * 1000);
-
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (stdoutBuffer.trim().length > 0) {
-        flushLine(stdoutBuffer);
-      }
-
-      const stdout = Buffer.concat(stdoutChunks).toString("utf-8").trim();
-      const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
-
-      log.info("Kimi CLI completed", {
-        code,
-        stdoutLength: stdout.length,
-        stderrLength: stderr.length,
-      });
-
-      if (code !== 0) {
-        reject(new Error(stderr || `Kimi CLI exited with code ${code}`));
-        return;
-      }
-
-      if (stderr) {
-        log.warn("Kimi CLI stderr", { stderr });
-      }
-
-      resolve(stdout);
-    });
-  });
-}
-
 function contentToText(content: KimiJsonRecord["content"]): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -208,30 +119,28 @@ export async function getOrCreateSession(
   workingPath: string,
   env: SessionEnvironment = {}
 ): Promise<OpenCodeSessionInfo> {
-  const existingSession = getThreadSessionId(channelId, threadId, "kimi");
-  if (existingSession) {
-    const existingEnv = normalizeSessionEnvironment(runtime.getSessionEnvironment(existingSession));
-    const desiredEnv = normalizeSessionEnvironment(env);
-    if (existingEnv !== desiredEnv) {
+  return getOrCreateThreadSession({
+    channelId,
+    threadId,
+    providerId: "kimi",
+    workingPath,
+    env,
+    createSession,
+    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
+    setSessionEnvironment: (sessionId, nextEnv) => {
+      runtime.setSessionEnvironment(sessionId, nextEnv);
+    },
+    onEnvironmentChanged: () => {
       log.info("Kimi session environment changed; creating new session", {
         channelId,
         threadId,
         workingPath,
       });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-
-    runtime.setSessionEnvironment(existingSession, env);
-
-    return { sessionId: existingSession, created: false };
-  }
-
-  log.info("Creating new Kimi session for thread", { channelId, threadId, workingPath });
-  const sessionId = await createSession(workingPath, env);
-  setThreadSessionId(channelId, threadId, sessionId);
-  return { sessionId, created: true };
+    },
+    onCreatingSession: () => {
+      log.info("Creating new Kimi session for thread", { channelId, threadId, workingPath });
+    },
+  });
 }
 
 export async function sendMessage(
@@ -243,7 +152,7 @@ export async function sendMessage(
   context?: OpenCodeMessageContext
 ): Promise<OpenCodeMessage[]> {
   const sessionKey = `${channelId}:${sessionId}`;
-  const entry = runtime.beginRequest(sessionKey) as { controller: AbortController; process?: ChildProcess };
+  const entry = runtime.beginRequest(sessionKey);
 
   try {
     return await runtime.withSessionLock(sessionKey, async () => {
@@ -251,7 +160,7 @@ export async function sendMessage(
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
       const systemPrompt = buildKimiSystemPrompt(buildSystemPrompt(context?.slack), agent);
-      const kimiPrompt = `<system-prompt>\n${systemPrompt}\n</system-prompt>\n\n${prompt}`;
+      const kimiPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
 
       const args = buildKimiCommandArgs({
         sessionId,
@@ -266,8 +175,17 @@ export async function sendMessage(
         command,
       });
 
-      const output = await runKimiCommand(args, workingPath, envOverrides, entry, (record) => {
-        publishKimiEvent(sessionId, record);
+      const output = await runCliJsonCommand<KimiJsonRecord>({
+        providerName: "Kimi",
+        binary: "kimi",
+        args,
+        cwd: workingPath,
+        env: envOverrides,
+        entry,
+        timeoutMs: 10 * 60 * 1000,
+        onRecord: (record) => {
+          publishKimiEvent(sessionId, record);
+        },
       });
       const text = parseKimiResponse(output);
       return [{ text, messageType: "assistant" }];

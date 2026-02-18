@@ -150,3 +150,7 @@ export function buildPromptParts(
 export function buildPromptText(parts: PromptPart[]): string {
   return parts.map((part) => part.text).join("\n\n");
 }
+
+export function buildSystemWrappedPrompt(systemPrompt: string, prompt: string): string {
+  return `<system-prompt>\n${systemPrompt}\n</system-prompt>\n\n${prompt}`;
+}

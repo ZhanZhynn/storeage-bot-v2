@@ -1,17 +1,14 @@
-import { spawn, type ChildProcess } from "child_process";
-import {
-  getThreadSessionId,
-  setThreadSessionId,
-} from "@/config/local/settings";
+import { setThreadSessionId } from "@/config/local/settings";
 import { log } from "@/utils";
-import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
+import { buildPromptParts, buildPromptText, buildSystemPrompt, buildSystemWrappedPrompt } from "../shared";
 import {
   CliAgentRuntime,
   formatShellCommand,
-  normalizeSessionEnvironment,
   noopStartServer,
+  runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
+import { getOrCreateThreadSession } from "../runtime/thread-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -259,90 +256,6 @@ function extractToolResults(record: KiloJsonRecord): Array<{ id: string; output?
     .filter((result) => result.id.length > 0);
 }
 
-async function runKiloCommand(
-  args: string[],
-  cwd: string,
-  env: SessionEnvironment,
-  entry: { controller: AbortController; process?: ChildProcess },
-  onRecord?: (record: KiloJsonRecord) => void
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolveKiloBinary(), args, {
-      cwd,
-      env: { ...process.env, ...env },
-      signal: entry.controller.signal,
-    });
-
-    entry.process = child;
-    child.stdin?.end();
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBuffer = "";
-
-    const flushLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed || !onRecord) return;
-      try {
-        onRecord(JSON.parse(trimmed) as KiloJsonRecord);
-      } catch {
-        // ignore non-json stream lines
-      }
-    };
-
-    child.stdout?.on("data", (chunk) => {
-      const bufferChunk = Buffer.from(chunk);
-      stdoutChunks.push(bufferChunk);
-      stdoutBuffer += bufferChunk.toString("utf-8");
-      while (true) {
-        const newlineIndex = stdoutBuffer.indexOf("\n");
-        if (newlineIndex < 0) break;
-        const line = stdoutBuffer.slice(0, newlineIndex);
-        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-        flushLine(line);
-      }
-    });
-
-    child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
-
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("Kilo CLI timed out"));
-    }, 10 * 60 * 1000);
-
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (stdoutBuffer.trim().length > 0) {
-        flushLine(stdoutBuffer);
-      }
-      const stdout = Buffer.concat(stdoutChunks).toString("utf-8").trim();
-      const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
-
-      log.info("Kilo CLI completed", {
-        code,
-        stdoutLength: stdout.length,
-        stderrLength: stderr.length,
-      });
-
-      if (code !== 0) {
-        reject(new Error(stderr || `Kilo CLI exited with code ${code}`));
-        return;
-      }
-
-      if (stderr) {
-        log.warn("Kilo CLI stderr", { stderr });
-      }
-
-      resolve(stdout);
-    });
-  });
-}
-
 function extractKiloFinalResponse(output: string): string {
   const cleaned = sanitizeKiloOutput(output);
   const lines = cleaned
@@ -383,41 +296,37 @@ export async function getOrCreateSession(
   workingPath: string,
   env: SessionEnvironment = {}
 ): Promise<OpenCodeSessionInfo> {
-  const existingSession = getThreadSessionId(channelId, threadId, "kilo");
-  if (existingSession) {
-    if (!isValidKiloSessionId(existingSession)) {
+  return getOrCreateThreadSession({
+    channelId,
+    threadId,
+    providerId: "kilo",
+    workingPath,
+    env,
+    createSession,
+    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
+    setSessionEnvironment: (sessionId, nextEnv) => {
+      runtime.setSessionEnvironment(sessionId, nextEnv);
+    },
+    validateSessionId: isValidKiloSessionId,
+    onInvalidSessionId: (existingSession) => {
       log.info("Invalid Kilo session id found; generating new session", {
         channelId,
         threadId,
         workingPath,
         existingSession,
       });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-    const existingEnv = normalizeSessionEnvironment(runtime.getSessionEnvironment(existingSession));
-    const desiredEnv = normalizeSessionEnvironment(env);
-    if (existingEnv !== desiredEnv) {
+    },
+    onEnvironmentChanged: () => {
       log.info("Kilo session environment changed; creating new session", {
         channelId,
         threadId,
         workingPath,
       });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-
-    runtime.setSessionEnvironment(existingSession, env);
-
-    return { sessionId: existingSession, created: false };
-  }
-
-  log.info("Creating new Kilo session for thread", { channelId, threadId, workingPath });
-  const sessionId = await createSession(workingPath, env);
-  setThreadSessionId(channelId, threadId, sessionId);
-  return { sessionId, created: true };
+    },
+    onCreatingSession: () => {
+      log.info("Creating new Kilo session for thread", { channelId, threadId, workingPath });
+    },
+  });
 }
 
 export async function sendMessage(
@@ -429,7 +338,7 @@ export async function sendMessage(
   context?: OpenCodeMessageContext
 ): Promise<OpenCodeMessage[]> {
   const sessionKey = `${channelId}:${sessionId}`;
-  const entry = runtime.beginRequest(sessionKey) as { controller: AbortController; process?: ChildProcess };
+  const entry = runtime.beginRequest(sessionKey);
 
   try {
     return await runtime.withSessionLock(sessionKey, async () => {
@@ -438,7 +347,7 @@ export async function sendMessage(
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
       const systemPrompt = buildSystemPrompt(context?.slack);
-      const kiloPrompt = `<system-prompt>\n${systemPrompt}\n</system-prompt>\n\n${prompt}`;
+      const kiloPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
 
       const args = buildKiloCommandArgs({
         sessionId,
@@ -465,7 +374,15 @@ export async function sendMessage(
       });
 
       let observedSessionId: string | null = null;
-      const output = await runKiloCommand(args, workingPath, envOverrides, entry, (record) => {
+      const output = await runCliJsonCommand<KiloJsonRecord>({
+        providerName: "Kilo",
+        binary: resolveKiloBinary(),
+        args,
+        cwd: workingPath,
+        env: envOverrides,
+        entry,
+        timeoutMs: 10 * 60 * 1000,
+        onRecord: (record) => {
         publishKiloRecordAsSessionEvents(record, sessionId);
         const recordSessionId = getRecordSessionId(record, sessionId);
         if (recordSessionId && recordSessionId !== sessionId) {
@@ -502,6 +419,7 @@ export async function sendMessage(
             });
           }
         }
+        },
       });
 
       if (observedSessionId && observedSessionId !== sessionId && context?.slack?.threadId) {
