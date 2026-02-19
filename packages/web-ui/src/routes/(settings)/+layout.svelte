@@ -122,7 +122,7 @@
 
   function getWorkspaceLogo(type: "slack" | "discord" | "lark"): string {
     if (type === "discord") return "/discord-logo.svg";
-    if (type === "lark") return "/lark-logo.svg";
+    if (type === "lark") return "/lark-logo.png";
     return "/slack-logo.svg";
   }
 
