@@ -2,6 +2,7 @@ import { spawnSync } from "child_process";
 import {
   resolveStatusMessageFormat,
 } from "@/config";
+import { isProcessAlive, readDaemonState } from "@/core/daemon/state";
 import {
   loadSession,
   saveSession,
@@ -44,6 +45,27 @@ function createRuntimeState(): RuntimeState {
     liveParsedState: new Map(),
     stateMachines: new Map(),
   };
+}
+
+function scheduleRuntimeShutdown(): void {
+  setTimeout(() => {
+    const state = readDaemonState();
+    const managerPid = state.managerPid;
+    if (managerPid && managerPid !== process.pid && isProcessAlive(managerPid)) {
+      try {
+        process.kill(managerPid, "SIGTERM");
+        return;
+      } catch {
+        // Fall through to self shutdown.
+      }
+    }
+
+    try {
+      process.kill(process.pid, "SIGTERM");
+    } catch {
+      process.exit(0);
+    }
+  }, 150).unref();
 }
 
 function getCurrentBranchName(cwd: string): string | null {
@@ -237,18 +259,29 @@ export function createCoreRuntime(deps: RuntimeDeps) {
 
   async function handleStopCommand(channelId: string, threadId: string): Promise<boolean> {
     const session = loadSession(channelId, threadId);
-    if (!session?.activeRequest || session.activeRequest.state !== "processing") {
-      return false;
+    if (!session) {
+      log.info("Stop command received without session", { channelId, threadId });
+      scheduleRuntimeShutdown();
+      return true;
     }
 
     const request = session.activeRequest;
-    log.info("Stop command received", { sessionId: request.sessionId });
+    log.info("Stop command received", {
+      sessionId: request?.sessionId ?? session.sessionId,
+      hadActiveRequest: Boolean(request),
+      activeState: request?.state ?? null,
+    });
 
     try {
       const cwd = session.workingDirectory;
-      await deps.agent.abortSession(request.sessionId, cwd);
+      await deps.agent.abortSession(session.sessionId, cwd);
     } catch {
       // Ignore abort errors
+    }
+
+    if (!request || request.state !== "processing") {
+      scheduleRuntimeShutdown();
+      return true;
     }
 
     request.state = "failed";
@@ -257,6 +290,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
     await deps.im.deleteMessage(request.channelId, request.statusMessageTs);
 
     failActiveRequest(channelId, threadId, "Stopped by user");
+    scheduleRuntimeShutdown();
     return true;
   }
 
