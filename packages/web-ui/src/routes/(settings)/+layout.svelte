@@ -244,7 +244,7 @@
   <div class="fixed inset-0 z-50 p-4" role="presentation">
     <button
       type="button"
-      class="absolute inset-0 bg-black/45"
+      class="absolute inset-0 bg-white/85"
       aria-label="Close add workspace dialog"
       onclick={closeAddWorkspaceDialog}
     ></button>
