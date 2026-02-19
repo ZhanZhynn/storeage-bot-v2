@@ -23,6 +23,7 @@
   const agentProviders = Object.keys(providerLabels) as AgentProvider[];
 
   let openChannelId = $state("");
+  let hasAutoOpenedChannel = $state(false);
 
   function parseAgentProvider(value: unknown): AgentProvider {
     return typeof value === "string" && agentProviders.includes(value as AgentProvider)
@@ -65,7 +66,17 @@
     const channels = selectedWorkspace?.channelDetails ?? [];
     if (!channels.length) {
       openChannelId = "";
-    } else if (!openChannelId || !channels.some((channel) => channel.id === openChannelId)) {
+      hasAutoOpenedChannel = false;
+      return;
+    }
+
+    if (!hasAutoOpenedChannel) {
+      openChannelId = channels[0]?.id ?? "";
+      hasAutoOpenedChannel = true;
+      return;
+    }
+
+    if (openChannelId && !channels.some((channel) => channel.id === openChannelId)) {
       openChannelId = channels[0]?.id ?? "";
     }
   });
@@ -425,9 +436,9 @@
 
     <div class="space-y-2">
       {#each selectedWorkspace.channelDetails as channel}
-        <div class="overflow-hidden rounded-lg border">
+        <div class="overflow-hidden rounded-lg border border-[hsl(var(--border)/0.75)] bg-[hsl(var(--card)/0.52)] backdrop-blur-sm">
           <button
-            class="flex w-full items-center justify-between bg-[hsl(var(--muted)/0.45)] px-3 py-2 text-left"
+            class="flex w-full items-center justify-between bg-[hsl(var(--muted)/0.38)] px-3 py-2 text-left"
             type="button"
             onclick={() => toggleChannel(channel.id)}
           >
@@ -439,7 +450,7 @@
           </button>
 
           {#if openChannelId === channel.id}
-            <div class="grid gap-3 border-t bg-[hsl(var(--background))] p-3">
+            <div class="grid gap-3 border-t border-[hsl(var(--border)/0.65)] bg-[hsl(var(--background)/0.72)] p-3">
               <div class="grid gap-3 md:grid-cols-2">
                 <div class="grid gap-2">
                   <Label for={`channel-agent-${channel.id}`}>Agent</Label>

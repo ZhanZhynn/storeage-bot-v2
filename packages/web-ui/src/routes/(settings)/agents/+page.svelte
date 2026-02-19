@@ -144,10 +144,4 @@
   {#if $localSettingStore.agentMessage}
     <p class="mt-4 text-sm text-[hsl(var(--muted-foreground))]">{$localSettingStore.agentMessage}</p>
   {/if}
-
-  <div class="mt-4 flex justify-end">
-    <Button on:click={() => void localSettingStore.saveConfig()} disabled={isBusy}>
-      Save
-    </Button>
-  </div>
 </Card>
