@@ -34,6 +34,13 @@
     || $localSettingStore.isAddingWorkspace
     || $localSettingStore.isCheckingCli);
   const hasErrorMessage = $derived(/(failed:|validation failed:|\berror\b)/i.test($localSettingStore.message));
+  const canAddWorkspace = $derived.by(() => {
+    if (pendingWorkspaceType === "discord") return pendingDiscordBotToken.trim().length > 0;
+    if (pendingWorkspaceType === "lark") {
+      return pendingLarkAppKey.trim().length > 0 && pendingLarkAppSecret.trim().length > 0;
+    }
+    return pendingSlackAppToken.trim().length > 0 && pendingSlackBotToken.trim().length > 0;
+  });
 
   async function addWorkspace(): Promise<void> {
     const workspace = pendingWorkspaceType === "discord"
@@ -115,7 +122,7 @@
 
   function getWorkspaceLogo(type: "slack" | "discord" | "lark"): string {
     if (type === "discord") return "/discord-logo.svg";
-    if (type === "lark") return "/lark-logo.svg";
+    if (type === "lark") return "/lark-logo.png";
     return "/slack-logo.svg";
   }
 
@@ -197,7 +204,7 @@
     {@render children()}
 
     {#if activeSection === "workspace"}
-      <Card className="p-3">
+      <Card className="border-0 bg-transparent p-0 shadow-none backdrop-blur-none">
         <div class="flex flex-wrap items-center justify-end gap-2">
           {#if selectedWorkspace}
             <Button
@@ -317,7 +324,7 @@
           <Button
             type="button"
             on:click={() => void addWorkspace()}
-            disabled={isBusy}
+            disabled={isBusy || !canAddWorkspace}
           >
             {$localSettingStore.isAddingWorkspace ? "Adding..." : "Add Workspace"}
           </Button>
