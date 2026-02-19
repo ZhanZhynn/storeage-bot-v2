@@ -92,4 +92,49 @@ describe("runTrackedRequest", () => {
     expect(statusUpdates.length).toBe(1);
     expect(statusUpdates[0]).toContain("Error:");
   });
+
+  it("does not publish final output after external stop", async () => {
+    const request = buildRequest();
+    const published: string[] = [];
+    const failures: string[] = [];
+    const completed: string[] = [];
+
+    setTimeout(() => {
+      request.state = "failed";
+      request.error = "Stopped by user";
+    }, 5);
+
+    const result = await runTrackedRequest({
+      deps: {
+        agent: {
+          supportsEventStream: false,
+        } as any,
+        im: {
+          updateMessage: async () => {},
+        } as any,
+      },
+      request,
+      statusTs: "100.2",
+      workingPath: "/tmp/project",
+      stateMachine: new CoreStateMachine("C1:T1"),
+      liveEventHistory: new Map(),
+      liveParsedState: new Map(),
+      sendPrompt: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return [{ text: "done", messageType: "assistant" }];
+      },
+      onProgressTick: async () => {},
+      onComplete: () => completed.push("ok"),
+      onFail: (message) => failures.push(message),
+      publishFinalText: async (text) => {
+        published.push(text);
+      },
+      failureLogLabel: "runner failed",
+    });
+
+    expect(result.responses).toEqual([]);
+    expect(published).toHaveLength(0);
+    expect(completed).toHaveLength(0);
+    expect(failures).toHaveLength(0);
+  });
 });

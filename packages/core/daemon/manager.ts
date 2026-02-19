@@ -266,6 +266,7 @@ export async function runDaemon(): Promise<void> {
     // Existing daemon is running; nothing to do.
     return;
   }
+  setupSignalHandlers();
   writeManagerLog("Daemon process initialized");
   startRuntime("initial");
   startIdleWatcher();

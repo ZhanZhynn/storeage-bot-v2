@@ -245,7 +245,9 @@ async function stopDaemonCommand(): Promise<void> {
     } catch (error) {
       console.warn(`Failed to signal daemon (pid ${state.managerPid}): ${String(error)}`);
     }
-  } else if (runtimeAlive && state.runtimePid) {
+  }
+
+  if (runtimeAlive && state.runtimePid) {
     try {
       process.kill(state.runtimePid, "SIGTERM");
       console.log(`Sent shutdown signal to runtime (pid ${state.runtimePid}).`);
