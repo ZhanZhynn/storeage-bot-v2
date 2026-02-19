@@ -3,6 +3,10 @@ import * as os from "os";
 import * as path from "path";
 import { z } from "zod";
 import { normalizeCwd } from "../paths";
+import {
+  sanitizeDashboardConfig,
+  type DashboardConfig,
+} from "../dashboard-config";
 
 const existsSync = fs.existsSync;
 const mkdirSync = fs.mkdirSync;
@@ -297,29 +301,7 @@ export function loadOdeConfig(): OdeConfig {
     const parsedJson = JSON.parse(raw) as Record<string, unknown>;
     const parsed = odeConfigSchema.safeParse(parsedJson);
     const base = parsed.success ? parsed.data : EMPTY_TEMPLATE;
-    const hasExplicitModels = (base.agents?.opencode?.models?.length ?? 0) > 0;
-    const legacyModels = Array.isArray(parsedJson.devServers)
-      ? Array.from(
-          new Set(
-            parsedJson.devServers
-              .filter((entry): entry is { models?: unknown } => Boolean(entry && typeof entry === "object"))
-              .flatMap((entry) => (Array.isArray(entry.models) ? entry.models : []))
-              .filter((model): model is string => typeof model === "string")
-              .map((model) => model.trim())
-              .filter(Boolean)
-          )
-        )
-      : [];
-    cachedConfig = normalizeConfig({
-      ...base,
-      agents: {
-        ...base.agents,
-        opencode: {
-          ...base.agents.opencode,
-          models: hasExplicitModels ? base.agents.opencode.models : legacyModels,
-        },
-      },
-    });
+    cachedConfig = normalizeConfig(base);
     return cachedConfig;
   } catch {
     cachedConfig = normalizeConfig(EMPTY_TEMPLATE);
@@ -334,26 +316,79 @@ export function invalidateOdeConfigCache(): void {
 export function saveOdeConfig(config: OdeConfig): void {
   ensureConfigDir();
   cachedConfig = normalizeConfig(config);
-  let existingRaw: Record<string, unknown> | null = null;
-  try {
-    const raw = readFileSync(ODE_CONFIG_FILE, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed === "object") {
-      existingRaw = parsed as Record<string, unknown>;
-    }
-  } catch {
-    existingRaw = null;
-  }
+  writeFileSync(ODE_CONFIG_FILE, JSON.stringify(cachedConfig, null, 2));
+}
 
-  const persisted: Record<string, unknown> = { ...cachedConfig };
-  if (existingRaw && Object.prototype.hasOwnProperty.call(existingRaw, "devServer")) {
-    persisted.devServer = existingRaw.devServer;
-  }
-  if (existingRaw && Object.prototype.hasOwnProperty.call(existingRaw, "devServers")) {
-    persisted.devServers = existingRaw.devServers;
-  }
+export function updateOdeConfig(updater: (config: OdeConfig) => OdeConfig): OdeConfig {
+  const next = updater(structuredClone(loadOdeConfig()));
+  saveOdeConfig(next);
+  return loadOdeConfig();
+}
 
-  writeFileSync(ODE_CONFIG_FILE, JSON.stringify(persisted, null, 2));
+function toDashboardConfig(config: OdeConfig): DashboardConfig {
+  const defaultStatusMessageFormat =
+    config.user.defaultStatusMessageFormat === "aggressive" || config.user.defaultStatusMessageFormat === "minimum"
+      ? config.user.defaultStatusMessageFormat
+      : "medium";
+
+  return {
+    completeOnboarding: config.completeOnboarding,
+    user: {
+      name: config.user.name,
+      email: config.user.email,
+      initials: config.user.initials,
+      avatar: config.user.avatar,
+      gitStrategy: config.user.gitStrategy,
+      defaultStatusMessageFormat,
+    },
+    agents: structuredClone(config.agents),
+    workspaces: structuredClone(config.workspaces),
+  };
+}
+
+function mergeDashboardConfig(config: OdeConfig, dashboardConfig: DashboardConfig): OdeConfig {
+  const workspaces: WorkspaceConfig[] = dashboardConfig.workspaces.map((workspace) => ({
+    ...workspace,
+    slackAppToken: workspace.slackAppToken ?? "",
+    slackBotToken: workspace.slackBotToken ?? "",
+    discordBotToken: workspace.discordBotToken ?? "",
+    larkAppKey: workspace.larkAppKey ?? workspace.larkAppId ?? "",
+    larkAppId: workspace.larkAppId ?? workspace.larkAppKey ?? "",
+    larkAppSecret: workspace.larkAppSecret ?? "",
+    channelDetails: workspace.channelDetails.map((channel) => ({
+      ...channel,
+      agentProvider: channel.agentProvider ?? "opencode",
+      channelSystemMessage: channel.channelSystemMessage ?? "",
+    })),
+  }));
+
+  return {
+    ...config,
+    completeOnboarding: dashboardConfig.completeOnboarding,
+    user: {
+      ...config.user,
+      ...dashboardConfig.user,
+    },
+    agents: structuredClone(dashboardConfig.agents),
+    workspaces,
+  };
+}
+
+export function readDashboardConfig(): DashboardConfig {
+  return sanitizeDashboardConfig(toDashboardConfig(loadOdeConfig()));
+}
+
+export function writeDashboardConfig(config: DashboardConfig): DashboardConfig {
+  const sanitized = sanitizeDashboardConfig(config);
+  updateOdeConfig((current) => mergeDashboardConfig(current, sanitized));
+  return readDashboardConfig();
+}
+
+export function updateDashboardConfig(
+  updater: (config: DashboardConfig) => DashboardConfig
+): DashboardConfig {
+  const next = updater(readDashboardConfig());
+  return writeDashboardConfig(next);
 }
 
 export function getWorkspaces(): WorkspaceConfig[] {
@@ -395,8 +430,7 @@ export function getOpenCodeModels(): string[] {
 }
 
 export function setOpenCodeModels(models: string[]): void {
-  const config = loadOdeConfig();
-  saveOdeConfig({
+  updateOdeConfig((config) => ({
     ...config,
     agents: {
       ...config.agents,
@@ -405,7 +439,7 @@ export function setOpenCodeModels(models: string[]): void {
         models,
       },
     },
-  });
+  }));
 }
 
 export function getCodexModels(): string[] {
@@ -413,8 +447,7 @@ export function getCodexModels(): string[] {
 }
 
 export function setCodexModels(models: string[]): void {
-  const config = loadOdeConfig();
-  saveOdeConfig({
+  updateOdeConfig((config) => ({
     ...config,
     agents: {
       ...config.agents,
@@ -423,7 +456,7 @@ export function setCodexModels(models: string[]): void {
         models,
       },
     },
-  });
+  }));
 }
 
 export function getKiloModels(): string[] {
@@ -431,8 +464,7 @@ export function getKiloModels(): string[] {
 }
 
 export function setKiloModels(models: string[]): void {
-  const config = loadOdeConfig();
-  saveOdeConfig({
+  updateOdeConfig((config) => ({
     ...config,
     agents: {
       ...config.agents,
@@ -441,7 +473,7 @@ export function setKiloModels(models: string[]): void {
         models,
       },
     },
-  });
+  }));
 }
 
 export function getUpdateConfig(): UpdateConfig {
@@ -579,41 +611,41 @@ export function getUserGeneralSettings(): UserGeneralSettings {
 }
 
 export function setUserGeneralSettings(settings: UserGeneralSettings): void {
-  const config = loadOdeConfig();
-  saveOdeConfig({
+  updateOdeConfig((config) => ({
     ...config,
     user: {
       ...config.user,
       defaultStatusMessageFormat: settings.defaultStatusMessageFormat,
       gitStrategy: settings.gitStrategy,
     },
-  });
+  }));
 }
 
 export function setGitHubInfoForUser(userId: string, info: GitHubInfo): void {
-  const config = loadOdeConfig();
-  const githubInfos = { ...(config.githubInfos ?? {}) };
-  const token = info.token?.trim() || "";
-  const gitName = info.gitName?.trim() || "";
-  const gitEmail = info.gitEmail?.trim() || "";
-  if (!token && !gitName && !gitEmail) {
-    delete githubInfos[userId];
-  } else {
-    githubInfos[userId] = {
-      token,
-      gitName,
-      gitEmail,
-    };
-  }
-  saveOdeConfig({ ...config, githubInfos });
+  updateOdeConfig((config) => {
+    const githubInfos = { ...(config.githubInfos ?? {}) };
+    const token = info.token?.trim() || "";
+    const gitName = info.gitName?.trim() || "";
+    const gitEmail = info.gitEmail?.trim() || "";
+    if (!token && !gitName && !gitEmail) {
+      delete githubInfos[userId];
+    } else {
+      githubInfos[userId] = {
+        token,
+        gitName,
+        gitEmail,
+      };
+    }
+    return { ...config, githubInfos };
+  });
 }
 
 export function clearGitHubInfoForUser(userId: string): void {
-  const config = loadOdeConfig();
-  const githubInfos = { ...(config.githubInfos ?? {}) };
-  if (!(userId in githubInfos)) return;
-  delete githubInfos[userId];
-  saveOdeConfig({ ...config, githubInfos });
+  updateOdeConfig((config) => {
+    const githubInfos = { ...(config.githubInfos ?? {}) };
+    delete githubInfos[userId];
+    return { ...config, githubInfos };
+  });
 }
 
 export type ChannelCwdInfo = {
@@ -701,20 +733,21 @@ function updateChannel(
   channelId: string,
   updater: (channel: ChannelDetail) => ChannelDetail
 ): void {
-  const config = loadOdeConfig();
-  let found = false;
-  const workspaces = config.workspaces.map((workspace) => {
-    const channelDetails = workspace.channelDetails.map((channel) => {
-      if (channel.id !== channelId) return channel;
-      found = true;
-      return updater(channel);
+  let updated = false;
+  updateOdeConfig((config) => {
+    const workspaces = config.workspaces.map((workspace) => {
+      const channelDetails = workspace.channelDetails.map((channel) => {
+        if (channel.id !== channelId) return channel;
+        updated = true;
+        return updater(channel);
+      });
+      return { ...workspace, channelDetails };
     });
-    return { ...workspace, channelDetails };
+
+    if (!updated) {
+      throw new Error("Channel not found in ~/.config/ode/ode.json");
+    }
+
+    return { ...config, workspaces };
   });
-
-  if (!found) {
-    throw new Error("Channel not found in ~/.config/ode/ode.json");
-  }
-
-  saveOdeConfig({ ...config, workspaces });
 }
