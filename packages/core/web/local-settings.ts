@@ -1,38 +1,20 @@
-import { readFile, writeFile, mkdir } from "fs/promises";
-import { homedir } from "os";
-import { join } from "path";
 import {
-  defaultDashboardConfig,
-  sanitizeDashboardConfig,
+  readDashboardConfig,
+  writeDashboardConfig,
+  updateDashboardConfig,
   type DashboardConfig,
 } from "@/config";
-
-const configDir = join(homedir(), ".config", "ode");
-const configPath = join(configDir, "ode.json");
-
-
 export const readLocalSettings = async (): Promise<DashboardConfig> => {
-  try {
-    const raw = await readFile(configPath, "utf-8");
-    const parsed = JSON.parse(raw);
-    const sanitized = sanitizeDashboardConfig(parsed);
-    if (JSON.stringify(parsed) !== JSON.stringify(sanitized)) {
-      await writeLocalSettings(sanitized);
-    }
-    return sanitized;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return defaultDashboardConfig;
-    }
-    await writeLocalSettings(defaultDashboardConfig);
-    return defaultDashboardConfig;
-  }
+  return readDashboardConfig();
 };
 
 export const writeLocalSettings = async (config: DashboardConfig): Promise<void> => {
-  await mkdir(configDir, { recursive: true });
-  await writeFile(configPath, JSON.stringify(config, null, 2));
+  writeDashboardConfig(config);
 };
+
+export const updateLocalSettings = async (
+  updater: (config: DashboardConfig) => DashboardConfig
+): Promise<DashboardConfig> => updateDashboardConfig(updater);
 
 type SlackChannel = {
   id: string;
@@ -477,14 +459,12 @@ export const syncLarkWorkspace = async (workspaceId: string): Promise<DashboardC
     channelDetails,
   };
 
-  const nextConfig: DashboardConfig = {
-    ...config,
-    workspaces: config.workspaces.map((item, index) =>
+  await updateLocalSettings((current) => ({
+    ...current,
+    workspaces: current.workspaces.map((item, index) =>
       index === workspaceIndex ? updatedWorkspace : item
     ),
-  };
-
-  await writeLocalSettings(nextConfig);
+  }));
   return updatedWorkspace;
 };
 
@@ -518,14 +498,12 @@ export const syncDiscordWorkspace = async (workspaceId: string): Promise<Dashboa
     channelDetails,
   };
 
-  const nextConfig: DashboardConfig = {
-    ...config,
-    workspaces: config.workspaces.map((item, index) =>
+  await updateLocalSettings((current) => ({
+    ...current,
+    workspaces: current.workspaces.map((item, index) =>
       index === workspaceIndex ? updatedWorkspace : item
     ),
-  };
-
-  await writeLocalSettings(nextConfig);
+  }));
   return updatedWorkspace;
 };
 
@@ -559,13 +537,11 @@ export const syncSlackWorkspace = async (workspaceId: string): Promise<Dashboard
     channelDetails,
   };
 
-  const nextConfig: DashboardConfig = {
-    ...config,
-    workspaces: config.workspaces.map((item, index) =>
+  await updateLocalSettings((current) => ({
+    ...current,
+    workspaces: current.workspaces.map((item, index) =>
       index === workspaceIndex ? updatedWorkspace : item
     ),
-  };
-
-  await writeLocalSettings(nextConfig);
+  }));
   return updatedWorkspace;
 };
