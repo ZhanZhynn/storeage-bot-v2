@@ -1,17 +1,14 @@
-import { spawn, type ChildProcess } from "child_process";
 import { DEFAULT_CODEX_MODEL, getCodexModels, setCodexModels } from "@/config";
-import {
-  getThreadSessionId,
-  setThreadSessionId,
-} from "@/config/local/settings";
+import { setThreadSessionId } from "@/config/local/settings";
 import { log } from "@/utils";
-import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
+import { buildPromptParts, buildPromptText, buildSystemPrompt, buildSystemWrappedPrompt } from "../shared";
 import {
   CliAgentRuntime,
   formatShellCommand,
-  normalizeSessionEnvironment,
+  runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
+import { getOrCreateThreadSession } from "../runtime/thread-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -35,10 +32,6 @@ type CodexJsonEvent = {
     message?: string;
   };
 };
-
-function buildCodexPrompt(systemPrompt: string, prompt: string): string {
-  return `<system-prompt>\n${systemPrompt}\n</system-prompt>\n\n${prompt}`;
-}
 
 function getCodexModel(options?: OpenCodeOptions): string | undefined {
   const configured = options?.model?.modelID?.trim();
@@ -116,91 +109,6 @@ function publishCodexEvent(sessionId: string, event: CodexJsonEvent): void {
   });
 }
 
-async function runCodexCommand(
-  args: string[],
-  cwd: string,
-  env: SessionEnvironment,
-  entry: { controller: AbortController; process?: ChildProcess },
-  onEvent?: (event: CodexJsonEvent) => void
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("codex", args, {
-      cwd,
-      env: { ...process.env, ...env },
-      signal: entry.controller.signal,
-    });
-
-    entry.process = child;
-    child.stdin?.end();
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBuffer = "";
-
-    const flushLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed || !onEvent) return;
-      try {
-        onEvent(JSON.parse(trimmed) as CodexJsonEvent);
-      } catch {
-        // ignore non-json stream lines
-      }
-    };
-
-    child.stdout?.on("data", (chunk) => {
-      const bufferChunk = Buffer.from(chunk);
-      stdoutChunks.push(bufferChunk);
-      stdoutBuffer += bufferChunk.toString("utf-8");
-      while (true) {
-        const newlineIndex = stdoutBuffer.indexOf("\n");
-        if (newlineIndex < 0) break;
-        const line = stdoutBuffer.slice(0, newlineIndex);
-        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-        flushLine(line);
-      }
-    });
-
-    child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
-
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("Codex CLI timed out"));
-    }, 10 * 60 * 1000);
-
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (stdoutBuffer.trim().length > 0) {
-        flushLine(stdoutBuffer);
-      }
-
-      const stdout = Buffer.concat(stdoutChunks).toString("utf-8").trim();
-      const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
-
-      log.info("Codex CLI completed", {
-        code,
-        stdoutLength: stdout.length,
-        stderrLength: stderr.length,
-      });
-
-      if (code !== 0) {
-        reject(new Error(stderr || `Codex CLI exited with code ${code}`));
-        return;
-      }
-
-      if (stderr) {
-        log.warn("Codex CLI stderr", { stderr });
-      }
-
-      resolve(stdout);
-    });
-  });
-}
-
 function parseCodexResponse(output: string): {
   text: string;
   threadId?: string;
@@ -258,30 +166,28 @@ export async function getOrCreateSession(
   workingPath: string,
   env: SessionEnvironment = {}
 ): Promise<OpenCodeSessionInfo> {
-  const existingSession = getThreadSessionId(channelId, threadId, "codex");
-  if (existingSession) {
-    const existingEnv = normalizeSessionEnvironment(runtime.getSessionEnvironment(existingSession));
-    const desiredEnv = normalizeSessionEnvironment(env);
-    if (existingEnv !== desiredEnv) {
+  return getOrCreateThreadSession({
+    channelId,
+    threadId,
+    providerId: "codex",
+    workingPath,
+    env,
+    createSession,
+    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
+    setSessionEnvironment: (sessionId, nextEnv) => {
+      runtime.setSessionEnvironment(sessionId, nextEnv);
+    },
+    onEnvironmentChanged: () => {
       log.info("Codex session environment changed; creating new session", {
         channelId,
         threadId,
         workingPath,
       });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-
-    runtime.setSessionEnvironment(existingSession, env);
-
-    return { sessionId: existingSession, created: false };
-  }
-
-  log.info("Creating new Codex session for thread", { channelId, threadId, workingPath });
-  const sessionId = await createSession(workingPath, env);
-  setThreadSessionId(channelId, threadId, sessionId);
-  return { sessionId, created: true };
+    },
+    onCreatingSession: () => {
+      log.info("Creating new Codex session for thread", { channelId, threadId, workingPath });
+    },
+  });
 }
 
 export async function sendMessage(
@@ -293,7 +199,7 @@ export async function sendMessage(
   context?: OpenCodeMessageContext
 ): Promise<OpenCodeMessage[]> {
   const sessionKey = `${channelId}:${sessionId}`;
-  const entry = runtime.beginRequest(sessionKey) as { controller: AbortController; process?: ChildProcess };
+  const entry = runtime.beginRequest(sessionKey);
 
   try {
     await syncCodexModelsFromCache();
@@ -303,7 +209,7 @@ export async function sendMessage(
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
       const systemPrompt = buildSystemPrompt(context?.slack);
-      const codexPrompt = buildCodexPrompt(systemPrompt, prompt);
+      const codexPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
       const model = getCodexModel(options);
 
       const args = buildCodexCommandArgs({
@@ -323,7 +229,15 @@ export async function sendMessage(
       });
 
       let latestSessionId = sessionId;
-      const output = await runCodexCommand(args, workingPath, envOverrides, entry, (event) => {
+      const output = await runCliJsonCommand<CodexJsonEvent>({
+        providerName: "Codex",
+        binary: "codex",
+        args,
+        cwd: workingPath,
+        env: envOverrides,
+        entry,
+        timeoutMs: 10 * 60 * 1000,
+        onRecord: (event) => {
         if (event.type === "thread.started" && typeof event.thread_id === "string") {
           latestSessionId = event.thread_id;
         }
@@ -331,6 +245,7 @@ export async function sendMessage(
         if (latestSessionId !== sessionId) {
           publishCodexEvent(latestSessionId, event);
         }
+        },
       });
 
       const parsed = parseCodexResponse(output);

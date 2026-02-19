@@ -1,7 +1,6 @@
 import {
   applyClaudeRecordToState,
   extractClaudeRecord,
-  type ClaudeInspectorToolState,
 } from "@/agents/claude/session-state";
 import { applyCodexRecordToState, extractCodexRecord } from "@/agents/codex/session-state";
 import { applyKiroRecordToState, extractKiroRecord } from "@/agents/kiro/session-state";
@@ -9,6 +8,7 @@ import { applyKimiRecordToState, extractKimiRecord } from "@/agents/kimi/session
 import { applyKiloRecordToState, extractKiloRecord } from "@/agents/kilo/session-state";
 import { applyQwenRecordToState, extractQwenRecord } from "@/agents/qwen/session-state";
 import { applyGooseRecordToState, extractGooseRecord } from "@/agents/goose/session-state";
+import type { StreamStateMaps, StreamToolState } from "@/agents/session-state/shared";
 
 export type SessionEvent = {
   timestamp: number;
@@ -58,6 +58,112 @@ export type SessionStateOptions = {
   endIndex?: number;
   baseState?: Partial<SessionMessageState>;
 };
+
+type ProviderParser = {
+  extract: (
+    type: string,
+    eventData: Record<string, unknown>,
+    eventProps: Record<string, unknown>
+  ) => unknown | null;
+  apply: (record: unknown) => void;
+};
+
+function applySessionUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const info = eventProps.info as { title?: unknown } | undefined;
+  const title = info?.title;
+  if (typeof title !== "string") return;
+  const trimmedTitle = title.trim();
+  if (trimmedTitle && !trimmedTitle.startsWith("New session")) {
+    state.sessionTitle = trimmedTitle;
+  }
+}
+
+function applyMessageUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const info = eventProps.info as
+    | {
+        tokens?: {
+          input?: unknown;
+          output?: unknown;
+          reasoning?: unknown;
+          cache?: { read?: unknown; write?: unknown };
+        };
+        cost?: unknown;
+      }
+    | undefined;
+  const tokens = info?.tokens;
+  if (!tokens || typeof tokens !== "object") return;
+
+  const input = Number(tokens.input ?? 0) || 0;
+  const output = Number(tokens.output ?? 0) || 0;
+  const reasoning = Number(tokens.reasoning ?? 0) || 0;
+  const cacheRead = Number(tokens.cache?.read ?? 0) || 0;
+  const cacheWrite = Number(tokens.cache?.write ?? 0) || 0;
+  const total = input + output + reasoning;
+  const cost = typeof info?.cost === "number" ? info.cost : undefined;
+  state.tokenUsage = {
+    input,
+    output,
+    reasoning,
+    cacheRead,
+    cacheWrite,
+    total,
+    cost,
+  };
+}
+
+function applySessionStatusEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const statusValue = (eventProps as { status?: unknown }).status;
+  const formattedStatus = formatSessionStatus(statusValue);
+  if (formattedStatus) {
+    state.phaseStatus = formattedStatus;
+  }
+}
+
+function applyMessagePartUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const part = (eventProps as { part?: Record<string, unknown> }).part;
+  if (!part) return;
+
+  if (part.type === "tool") {
+    const toolState = (part.state || {}) as Record<string, unknown>;
+    const existingIdx = state.tools.findIndex((t) => t.id === part.id);
+    const toolInfo: SessionTool = {
+      id: typeof part.id === "string" ? part.id : "unknown-tool",
+      name: typeof part.tool === "string" ? part.tool : "Unknown tool",
+      status: typeof toolState.status === "string" ? toolState.status : "pending",
+      title: typeof toolState.title === "string" ? toolState.title : undefined,
+      input: toolState.input && typeof toolState.input === "object"
+        ? toolState.input as Record<string, unknown>
+        : undefined,
+      output: typeof toolState.output === "string" ? toolState.output : undefined,
+      error: typeof toolState.error === "string" ? toolState.error : undefined,
+      metadata: toolState.metadata as Record<string, unknown> | undefined,
+    };
+
+    if (existingIdx >= 0) {
+      state.tools[existingIdx] = toolInfo;
+    } else {
+      state.tools.push(toolInfo);
+    }
+    return;
+  }
+
+  if (part.type === "text" && typeof part.text === "string") {
+    state.currentText = part.text;
+    return;
+  }
+
+  if (part.type === "thinking" && typeof part.text === "string") {
+    state.thinkingText = part.text;
+  }
+}
+
+function applyTodoUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const todos = ((eventProps as { todos?: unknown }).todos as any[]) || [];
+  state.todos = todos.map((todo: any) => ({
+    content: todo.content || todo.text || "",
+    status: todo.status || "pending",
+  }));
+}
 
 function unwrapEventData(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object") return {};
@@ -130,17 +236,25 @@ export function buildSessionMessageState(
   const relevantEvents =
     typeof endIndex === "number" ? events.slice(0, endIndex + 1) : events;
 
-  const claudeTextByIndex = new Map<number, string>();
-  const claudeThinkingByIndex = new Map<number, string>();
-  const claudeToolByIndex = new Map<number, ClaudeInspectorToolState>();
-  const claudeToolById = new Map<string, ClaudeInspectorToolState>();
+  const sharedStreamState: StreamStateMaps<StreamToolState> = {
+    textByIndex: new Map<number, string>(),
+    thinkingByIndex: new Map<number, string>(),
+    toolByIndex: new Map<number, StreamToolState>(),
+    toolById: new Map<string, StreamToolState>(),
+  };
   const codexToolById = new Map<string, SessionTool>();
   const kimiToolById = new Map<string, SessionTool>();
   const kiloToolById = new Map<string, SessionTool>();
   const kiroTodoById = new Map<string, SessionTodo>();
+  const kiloStreamState: StreamStateMaps<StreamToolState> = {
+    textByIndex: sharedStreamState.textByIndex,
+    thinkingByIndex: sharedStreamState.thinkingByIndex,
+    toolByIndex: sharedStreamState.toolByIndex,
+    toolById: kiloToolById,
+  };
 
   for (const existingTool of state.tools) {
-    claudeToolById.set(existingTool.id, { ...existingTool });
+    sharedStreamState.toolById.set(existingTool.id, { ...existingTool });
     codexToolById.set(existingTool.id, { ...existingTool });
     kimiToolById.set(existingTool.id, { ...existingTool });
     kiloToolById.set(existingTool.id, { ...existingTool });
@@ -151,161 +265,86 @@ export function buildSessionMessageState(
     kiroTodoById.set(key, { ...existingTodo });
   }
 
+  const providerParsers: ProviderParser[] = [
+    {
+      extract: extractClaudeRecord,
+      apply: (record) => {
+        applyClaudeRecordToState(state, record as Parameters<typeof applyClaudeRecordToState>[1], sharedStreamState);
+      },
+    },
+    {
+      extract: extractCodexRecord,
+      apply: (record) => {
+        applyCodexRecordToState(state, record as Parameters<typeof applyCodexRecordToState>[1], codexToolById);
+      },
+    },
+    {
+      extract: extractKiroRecord,
+      apply: (record) => {
+        applyKiroRecordToState(state, record as Parameters<typeof applyKiroRecordToState>[1], kiroTodoById);
+      },
+    },
+    {
+      extract: extractKimiRecord,
+      apply: (record) => {
+        applyKimiRecordToState(state, record as Parameters<typeof applyKimiRecordToState>[1], kimiToolById);
+      },
+    },
+    {
+      extract: extractKiloRecord,
+      apply: (record) => {
+        applyKiloRecordToState(state, record as Parameters<typeof applyKiloRecordToState>[1], kiloStreamState);
+      },
+    },
+    {
+      extract: extractQwenRecord,
+      apply: (record) => {
+        applyQwenRecordToState(state, record as Parameters<typeof applyQwenRecordToState>[1], sharedStreamState);
+      },
+    },
+    {
+      extract: extractGooseRecord,
+      apply: (record) => {
+        applyGooseRecordToState(state, record as Parameters<typeof applyGooseRecordToState>[1], sharedStreamState);
+      },
+    },
+  ];
+
   for (const event of relevantEvents) {
     const eventData = unwrapEventData(event.data);
     const eventProps = getEventProperties(eventData);
     const type = event.type;
 
-    const claudeRecord = extractClaudeRecord(type, eventData, eventProps);
-    if (claudeRecord) {
-      applyClaudeRecordToState(state, claudeRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: claudeToolById,
-      });
-      continue;
+    let handledByProvider = false;
+    for (const parser of providerParsers) {
+      const record = parser.extract(type, eventData, eventProps);
+      if (!record) continue;
+      parser.apply(record);
+      handledByProvider = true;
+      break;
     }
-
-    const codexRecord = extractCodexRecord(type, eventData, eventProps);
-    if (codexRecord) {
-      applyCodexRecordToState(state, codexRecord, codexToolById);
-      continue;
-    }
-
-    const kiroRecord = extractKiroRecord(type, eventData, eventProps);
-    if (kiroRecord) {
-      applyKiroRecordToState(state, kiroRecord, kiroTodoById);
-      continue;
-    }
-
-    const kimiRecord = extractKimiRecord(type, eventData, eventProps);
-    if (kimiRecord) {
-      applyKimiRecordToState(state, kimiRecord, kimiToolById);
-      continue;
-    }
-
-    const kiloRecord = extractKiloRecord(type, eventData, eventProps);
-    if (kiloRecord) {
-      applyKiloRecordToState(state, kiloRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: kiloToolById,
-      });
-      continue;
-    }
-
-    const qwenRecord = extractQwenRecord(type, eventData, eventProps);
-    if (qwenRecord) {
-      applyQwenRecordToState(state, qwenRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: claudeToolById,
-      });
-      continue;
-    }
-
-    const gooseRecord = extractGooseRecord(type, eventData, eventProps);
-    if (gooseRecord) {
-      applyGooseRecordToState(state, gooseRecord, {
-        textByIndex: claudeTextByIndex,
-        thinkingByIndex: claudeThinkingByIndex,
-        toolByIndex: claudeToolByIndex,
-        toolById: claudeToolById,
-      });
+    if (handledByProvider) {
       continue;
     }
 
     if (type === "session.updated") {
-      const info = eventProps.info as { title?: unknown } | undefined;
-      const title = info?.title;
-      if (typeof title === "string") {
-        const trimmedTitle = title.trim();
-        if (trimmedTitle && !trimmedTitle.startsWith("New session")) {
-          state.sessionTitle = trimmedTitle;
-        }
-      }
+      applySessionUpdatedEvent(state, eventProps);
     }
 
     if (type === "message.updated") {
-      const info = eventProps.info as
-        | {
-            tokens?: {
-              input?: unknown;
-              output?: unknown;
-              reasoning?: unknown;
-              cache?: { read?: unknown; write?: unknown };
-            };
-            cost?: unknown;
-          }
-        | undefined;
-      const tokens = info?.tokens;
-      if (tokens && typeof tokens === "object") {
-        const input = Number(tokens.input ?? 0) || 0;
-        const output = Number(tokens.output ?? 0) || 0;
-        const reasoning = Number(tokens.reasoning ?? 0) || 0;
-        const cacheRead = Number(tokens.cache?.read ?? 0) || 0;
-        const cacheWrite = Number(tokens.cache?.write ?? 0) || 0;
-        const total = input + output + reasoning;
-        const cost = typeof info?.cost === "number" ? info.cost : undefined;
-        state.tokenUsage = {
-          input,
-          output,
-          reasoning,
-          cacheRead,
-          cacheWrite,
-          total,
-          cost,
-        };
-      }
+      applyMessageUpdatedEvent(state, eventProps);
     }
 
     if (type === "session.status") {
-      const statusValue = (eventProps as { status?: unknown }).status;
-      const formattedStatus = formatSessionStatus(statusValue);
-      if (formattedStatus) {
-        state.phaseStatus = formattedStatus;
-      }
+      applySessionStatusEvent(state, eventProps);
     }
 
     if (type === "message.part.updated") {
-      const part = (eventProps as { part?: Record<string, unknown> }).part;
-      if (!part) continue;
+      applyMessagePartUpdatedEvent(state, eventProps);
+    }
 
-      if (part.type === "tool") {
-        const toolState = (part.state || {}) as Record<string, unknown>;
-        const existingIdx = state.tools.findIndex((t) => t.id === part.id);
-        const toolInfo: SessionTool = {
-          id: typeof part.id === "string" ? part.id : "unknown-tool",
-          name: typeof part.tool === "string" ? part.tool : "Unknown tool",
-          status: typeof toolState.status === "string" ? toolState.status : "pending",
-          title: typeof toolState.title === "string" ? toolState.title : undefined,
-          input: toolState.input && typeof toolState.input === "object"
-            ? toolState.input as Record<string, unknown>
-            : undefined,
-          output: typeof toolState.output === "string" ? toolState.output : undefined,
-          error: typeof toolState.error === "string" ? toolState.error : undefined,
-          metadata: toolState.metadata as Record<string, unknown> | undefined,
-        };
-
-        if (existingIdx >= 0) {
-          state.tools[existingIdx] = toolInfo;
-        } else {
-          state.tools.push(toolInfo);
-        }
-      } else if (part.type === "text" && typeof part.text === "string") {
-        state.currentText = part.text;
-      } else if (part.type === "thinking" && typeof part.text === "string") {
-        state.thinkingText = part.text;
-      }
-    } else if (type === "todo.updated") {
-      const todos = ((eventProps as { todos?: unknown }).todos as any[]) || [];
-      state.todos = todos.map((t: any) => ({
-        content: t.content || t.text || "",
-        status: t.status || "pending",
-      }));
+    if (type === "todo.updated") {
+      applyTodoUpdatedEvent(state, eventProps);
     }
   }
 

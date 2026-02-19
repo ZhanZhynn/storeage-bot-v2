@@ -7,7 +7,8 @@ import {
   markMessageProcessed,
   saveSession,
 } from "@/config/local/sessions";
-import { DEFAULT_CODEX_MODEL, getChannelModel, resolveStatusMessageFormat } from "@/config";
+import { resolveStatusMessageFormat } from "@/config";
+import { buildMessageOptions } from "@/core/runtime/message-options";
 import { runTrackedRequest } from "@/core/runtime/request-runner";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import { CoreStateMachine } from "@/core/state-machine";
@@ -19,16 +20,6 @@ type SelectionDeps = {
   im: IMAdapter;
   agent: AgentAdapter;
 };
-
-function toKiloModel(modelValue: string | null | undefined): OpenCodeOptions["model"] | undefined {
-  const trimmed = modelValue?.trim();
-  if (!trimmed) return undefined;
-  const [providerID = "kilo", ...rest] = trimmed.split("/");
-  if (rest.length === 0) {
-    return { providerID: "kilo", modelID: trimmed };
-  }
-  return { providerID, modelID: rest.join("/") };
-}
 
 type HandleSelectionReplyParams = {
   deps: SelectionDeps;
@@ -98,20 +89,11 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   }
 
   const threadOwnerUserId = session?.threadOwnerUserId ?? userId;
-  const normalizedSelection = selection.trimStart().toLowerCase();
-  const agent = /^plan\b/.test(normalizedSelection) ? "plan" : undefined;
-  const channelModel = getChannelModel(channelId)?.trim();
-  const codexModel = providerId === "codex"
-    ? (channelModel && channelModel.length > 0 ? channelModel : DEFAULT_CODEX_MODEL)
-    : undefined;
-  const kiloModel = providerId === "kilo" ? toKiloModel(channelModel) : undefined;
-  const options: OpenCodeOptions | undefined = agent || codexModel || kiloModel
-    ? {
-        ...(agent ? { agent } : {}),
-        ...(codexModel ? { model: { providerID: "openai", modelID: codexModel } } : {}),
-        ...(kiloModel ? { model: kiloModel } : {}),
-      }
-    : undefined;
+  const options: OpenCodeOptions | undefined = buildMessageOptions({
+    text: selection,
+    channelId,
+    providerId,
+  });
 
   const agentContext = await deps.im.buildAgentContext({
     cwd,

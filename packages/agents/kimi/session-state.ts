@@ -1,4 +1,5 @@
 import type { SessionMessageState, SessionTool } from "@/utils/session-inspector";
+import { tryParseObject, updateTool } from "@/agents/session-state/shared";
 
 type KimiToolCall = {
   id?: string;
@@ -18,28 +19,6 @@ export type KimiRawRecord = {
   }> | string;
   tool_calls?: KimiToolCall[];
 };
-
-function updateTool(state: SessionMessageState, tool: SessionTool): void {
-  const existingIdx = state.tools.findIndex((current) => current.id === tool.id);
-  if (existingIdx >= 0) {
-    state.tools[existingIdx] = tool;
-    return;
-  }
-  state.tools.push(tool);
-}
-
-function tryParseObject(input: string): Record<string, unknown> | null {
-  const trimmed = input.trim();
-  if (!trimmed) return null;
-  try {
-    const parsed = JSON.parse(trimmed) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
 
 function parseKimiArguments(input: unknown): Record<string, unknown> | undefined {
   if (!input) return undefined;

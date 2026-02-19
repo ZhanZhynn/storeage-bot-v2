@@ -1,4 +1,4 @@
-import type { ChildProcess } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { log } from "@/utils";
 
 export type SessionEnvironment = Record<string, string>;
@@ -9,6 +9,127 @@ type ActiveRequestEntry = {
   controller: AbortController;
   process?: ChildProcess;
 };
+
+type RunCliJsonCommandParams<TRecord> = {
+  providerName: string;
+  binary: string;
+  args: string[];
+  cwd: string;
+  env: SessionEnvironment;
+  entry: ActiveRequestEntry;
+  timeoutMs: number;
+  onRecord?: (record: TRecord) => void;
+  onSpawn?: (pid: number | undefined) => void;
+  onExit?: (code: number | null, signal: NodeJS.Signals | null) => void;
+  logRawOutput?: boolean;
+};
+
+export async function runCliJsonCommand<TRecord>(params: RunCliJsonCommandParams<TRecord>): Promise<string> {
+  const {
+    providerName,
+    binary,
+    args,
+    cwd,
+    env,
+    entry,
+    timeoutMs,
+    onRecord,
+    onSpawn,
+    onExit,
+    logRawOutput = false,
+  } = params;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args, {
+      cwd,
+      env: { ...process.env, ...env },
+      signal: entry.controller.signal,
+    });
+
+    entry.process = child;
+    child.stdin?.end();
+
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let stdoutBuffer = "";
+
+    const flushLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed || !onRecord) return;
+      try {
+        onRecord(JSON.parse(trimmed) as TRecord);
+      } catch {
+        // ignore non-json stream lines
+      }
+    };
+
+    child.stdout?.on("data", (chunk) => {
+      const bufferChunk = Buffer.from(chunk);
+      stdoutChunks.push(bufferChunk);
+      stdoutBuffer += bufferChunk.toString("utf-8");
+      while (true) {
+        const newlineIndex = stdoutBuffer.indexOf("\n");
+        if (newlineIndex < 0) break;
+        const line = stdoutBuffer.slice(0, newlineIndex);
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        flushLine(line);
+      }
+    });
+
+    child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`${providerName} CLI timed out`));
+    }, timeoutMs);
+
+    child.on("error", (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    child.on("spawn", () => {
+      onSpawn?.(child.pid);
+    });
+
+    child.on("exit", (code, signal) => {
+      onExit?.(code, signal);
+    });
+
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (stdoutBuffer.trim().length > 0) {
+        flushLine(stdoutBuffer);
+      }
+
+      const stdout = Buffer.concat(stdoutChunks).toString("utf-8").trim();
+      const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
+
+      const completionDetails: Record<string, unknown> = {
+        code,
+        stdoutLength: stdout.length,
+        stderrLength: stderr.length,
+      };
+      if (logRawOutput) {
+        completionDetails.stdout = stdout;
+        completionDetails.stderr = stderr;
+      }
+
+      log.info(`${providerName} CLI completed`, completionDetails);
+
+      if (code !== 0) {
+        reject(new Error(stderr || `${providerName} CLI exited with code ${code}`));
+        return;
+      }
+
+      if (stderr) {
+        log.warn(`${providerName} CLI stderr`, { stderr });
+      }
+
+      resolve(stdout);
+    });
+  });
+}
 
 export function normalizeSessionEnvironment(env?: SessionEnvironment | null): string {
   if (!env) return "";

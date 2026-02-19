@@ -1,16 +1,13 @@
-import { spawn, type ChildProcess } from "child_process";
-import {
-  getThreadSessionId,
-  setThreadSessionId,
-} from "@/config/local/settings";
+import { setThreadSessionId } from "@/config/local/settings";
 import { log } from "@/utils";
 import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
 import {
   CliAgentRuntime,
-  normalizeSessionEnvironment,
   noopStartServer,
+  runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
+import { getOrCreateThreadSession } from "../runtime/thread-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -21,6 +18,7 @@ import type {
 export type SessionEnvironment = RuntimeSessionEnvironment;
 
 const runtime = new CliAgentRuntime("Claude");
+type RuntimeRequestEntry = ReturnType<CliAgentRuntime["beginRequest"]>;
 const newSessions = new Set<string>();
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -66,42 +64,37 @@ export async function getOrCreateSession(
   workingPath: string,
   env: SessionEnvironment = {}
 ): Promise<OpenCodeSessionInfo> {
-  const existingSession = getThreadSessionId(channelId, threadId, "claudecode");
-  if (existingSession) {
-    if (!isValidUuid(existingSession)) {
+  return getOrCreateThreadSession({
+    channelId,
+    threadId,
+    providerId: "claudecode",
+    workingPath,
+    env,
+    createSession,
+    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
+    setSessionEnvironment: (sessionId, nextEnv) => {
+      runtime.setSessionEnvironment(sessionId, nextEnv);
+    },
+    validateSessionId: isValidUuid,
+    onInvalidSessionId: (existingSession) => {
       log.info("Invalid Claude session id found; generating new session", {
         channelId,
         threadId,
         workingPath,
         existingSession,
       });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-
-    const existingEnv = normalizeSessionEnvironment(runtime.getSessionEnvironment(existingSession));
-    const desiredEnv = normalizeSessionEnvironment(env);
-    if (existingEnv !== desiredEnv) {
+    },
+    onEnvironmentChanged: () => {
       log.info("Claude session environment changed; creating new session", {
         channelId,
         threadId,
         workingPath,
       });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-
-    runtime.setSessionEnvironment(existingSession, env);
-
-    return { sessionId: existingSession, created: false };
-  }
-
-  log.info("Creating new Claude session for thread", { channelId, threadId, workingPath });
-  const sessionId = await createSession(workingPath, env);
-  setThreadSessionId(channelId, threadId, sessionId);
-  return { sessionId, created: true };
+    },
+    onCreatingSession: () => {
+      log.info("Creating new Claude session for thread", { channelId, threadId, workingPath });
+    },
+  });
 }
 
 function extractJsonPayload(output: string): string {
@@ -253,93 +246,25 @@ async function runClaudeCommand(
   args: string[],
   cwd: string,
   env: SessionEnvironment,
-  entry: { controller: AbortController; process?: ChildProcess },
+  entry: RuntimeRequestEntry,
   onRecord?: (record: ClaudeJsonRecord) => void
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn("claude", args, {
-      cwd,
-      env: { ...process.env, ...env },
-      signal: entry.controller.signal,
-    });
-
-    entry.process = child;
-    child.stdin?.end();
-
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBuffer = "";
-
-    const flushLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed || !onRecord) return;
-      try {
-        const record = JSON.parse(trimmed) as ClaudeJsonRecord;
-        onRecord(record);
-      } catch {
-        // ignore non-json stream lines
-      }
-    };
-
-    child.stdout?.on("data", (chunk) => {
-      const bufferChunk = Buffer.from(chunk);
-      stdoutChunks.push(bufferChunk);
-      stdoutBuffer += bufferChunk.toString("utf-8");
-      while (true) {
-        const newlineIndex = stdoutBuffer.indexOf("\n");
-        if (newlineIndex < 0) break;
-        const line = stdoutBuffer.slice(0, newlineIndex);
-        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
-        flushLine(line);
-      }
-    });
-    child.stderr?.on("data", (chunk) => stderrChunks.push(Buffer.from(chunk)));
-
-    const timeout = setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error("Claude CLI timed out"));
-    }, 5 * 60 * 1000);
-
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-
-    child.on("spawn", () => {
-      log.info("Claude CLI spawned", { pid: child.pid });
-    });
-
-    child.on("exit", (code, signal) => {
+  return runCliJsonCommand<ClaudeJsonRecord>({
+    providerName: "Claude",
+    binary: "claude",
+    args,
+    cwd,
+    env,
+    entry,
+    timeoutMs: 5 * 60 * 1000,
+    onRecord,
+    onSpawn: (pid) => {
+      log.info("Claude CLI spawned", { pid });
+    },
+    onExit: (code, signal) => {
       log.info("Claude CLI exited", { code, signal });
-    });
-
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (stdoutBuffer.trim().length > 0) {
-        flushLine(stdoutBuffer);
-      }
-      const stdout = Buffer.concat(stdoutChunks).toString("utf-8").trim();
-      const stderr = Buffer.concat(stderrChunks).toString("utf-8").trim();
-
-      log.info("Claude CLI completed", {
-        code,
-        stdout,
-        stderr,
-        stdoutLength: stdout.length,
-        stderrLength: stderr.length,
-      });
-
-      if (code !== 0) {
-        reject(new Error(stderr || `Claude CLI exited with code ${code}`));
-        return;
-      }
-
-      if (stderr) {
-        log.warn("Claude CLI stderr", { stderr });
-      }
-
-      resolve(stdout);
-    });
+    },
+    logRawOutput: true,
   });
 }
 
@@ -347,7 +272,7 @@ async function runClaudeWithFallback(
   baseArgs: string[],
   cwd: string,
   env: SessionEnvironment,
-  entry: { controller: AbortController; process?: ChildProcess },
+  entry: RuntimeRequestEntry,
   forcedPermissionMode?: string,
   onRecord?: (record: ClaudeJsonRecord) => void
 ): Promise<{ output: string; permissionMode: string; command: string }> {
@@ -409,7 +334,7 @@ export async function sendMessage(
   context?: OpenCodeMessageContext
 ): Promise<OpenCodeMessage[]> {
   const sessionKey = `${channelId}:${sessionId}`;
-  const entry = runtime.beginRequest(sessionKey) as { controller: AbortController; process?: ChildProcess };
+  const entry = runtime.beginRequest(sessionKey);
 
   try {
     return await runtime.withSessionLock(sessionKey, async () => {

@@ -1,17 +1,13 @@
 import { spawn, type ChildProcess } from "child_process";
-import {
-  getThreadSessionId,
-  setThreadSessionId,
-} from "@/config/local/settings";
 import { log } from "@/utils";
-import { buildPromptParts, buildPromptText, buildSystemPrompt } from "../shared";
+import { buildPromptParts, buildPromptText, buildSystemPrompt, buildSystemWrappedPrompt } from "../shared";
 import {
   CliAgentRuntime,
   formatShellCommand,
-  normalizeSessionEnvironment,
   noopStartServer,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
+import { getOrCreateThreadSession } from "../runtime/thread-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
@@ -348,30 +344,28 @@ export async function getOrCreateSession(
   workingPath: string,
   env: SessionEnvironment = {}
 ): Promise<OpenCodeSessionInfo> {
-  const existingSession = getThreadSessionId(channelId, threadId, "kiro");
-  if (existingSession) {
-    const existingEnv = normalizeSessionEnvironment(runtime.getSessionEnvironment(existingSession));
-    const desiredEnv = normalizeSessionEnvironment(env);
-    if (existingEnv !== desiredEnv) {
+  return getOrCreateThreadSession({
+    channelId,
+    threadId,
+    providerId: "kiro",
+    workingPath,
+    env,
+    createSession,
+    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
+    setSessionEnvironment: (sessionId, nextEnv) => {
+      runtime.setSessionEnvironment(sessionId, nextEnv);
+    },
+    onEnvironmentChanged: () => {
       log.info("Kiro session environment changed; creating new session", {
         channelId,
         threadId,
         workingPath,
       });
-      const sessionId = await createSession(workingPath, env);
-      setThreadSessionId(channelId, threadId, sessionId);
-      return { sessionId, created: true };
-    }
-
-    runtime.setSessionEnvironment(existingSession, env);
-
-    return { sessionId: existingSession, created: false };
-  }
-
-  log.info("Creating new Kiro session for thread", { channelId, threadId, workingPath });
-  const sessionId = await createSession(workingPath, env);
-  setThreadSessionId(channelId, threadId, sessionId);
-  return { sessionId, created: true };
+    },
+    onCreatingSession: () => {
+      log.info("Creating new Kiro session for thread", { channelId, threadId, workingPath });
+    },
+  });
 }
 
 export async function sendMessage(
@@ -390,7 +384,7 @@ export async function sendMessage(
       const parts = buildPromptParts(channelId, message, options, context);
       const prompt = buildPromptText(parts);
       const systemPrompt = buildSystemPrompt(context?.slack);
-      const kiroPrompt = `<system-prompt>\n${systemPrompt}\n</system-prompt>\n\n${prompt}`;
+      const kiroPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
 
       const envOverrides = runtime.getSessionEnvironment(sessionId);
       const binary = resolveKiroBinary();
