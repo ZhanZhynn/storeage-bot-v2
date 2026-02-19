@@ -32,6 +32,10 @@ export type RunTrackedRequestResult = {
   stopFallbackText?: string;
 };
 
+function isExternallySettled(request: ActiveRequest): boolean {
+  return request.state !== "processing";
+}
+
 export async function runTrackedRequest(
   params: RunTrackedRequestParams
 ): Promise<RunTrackedRequestResult> {
@@ -115,6 +119,14 @@ export async function runTrackedRequest(
       progressDebounceTimer = null;
     }
     stopWatcher();
+
+    if (isExternallySettled(request)) {
+      stateMachine.transition("stop");
+      liveEventHistory.delete(getStatusMessageKey(request));
+      liveParsedState.delete(getStatusMessageKey(request));
+      return { responses: [] };
+    }
+
     request.state = "completed";
 
     liveEventHistory.delete(getStatusMessageKey(request));
@@ -155,6 +167,13 @@ export async function runTrackedRequest(
       progressDebounceTimer = null;
     }
     stopWatcher();
+
+    if (isExternallySettled(request)) {
+      stateMachine.transition("stop");
+      liveEventHistory.delete(getStatusMessageKey(request));
+      liveParsedState.delete(getStatusMessageKey(request));
+      return { responses: [] };
+    }
 
     stateMachine.transition("fail");
     const { message, suggestion } = categorizeRuntimeError(err);
