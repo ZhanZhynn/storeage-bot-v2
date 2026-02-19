@@ -35,6 +35,14 @@
   export let className = "";
 </script>
 
-<button class={cn(buttonVariants({ variant, size }), className)} {...$$restProps}>
+<button
+  class={cn(buttonVariants({ variant, size }), className)}
+  on:click
+  on:keydown
+  on:keyup
+  on:focus
+  on:blur
+  {...$$restProps}
+>
   <slot />
 </button>
