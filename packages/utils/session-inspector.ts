@@ -68,6 +68,103 @@ type ProviderParser = {
   apply: (record: unknown) => void;
 };
 
+function applySessionUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const info = eventProps.info as { title?: unknown } | undefined;
+  const title = info?.title;
+  if (typeof title !== "string") return;
+  const trimmedTitle = title.trim();
+  if (trimmedTitle && !trimmedTitle.startsWith("New session")) {
+    state.sessionTitle = trimmedTitle;
+  }
+}
+
+function applyMessageUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const info = eventProps.info as
+    | {
+        tokens?: {
+          input?: unknown;
+          output?: unknown;
+          reasoning?: unknown;
+          cache?: { read?: unknown; write?: unknown };
+        };
+        cost?: unknown;
+      }
+    | undefined;
+  const tokens = info?.tokens;
+  if (!tokens || typeof tokens !== "object") return;
+
+  const input = Number(tokens.input ?? 0) || 0;
+  const output = Number(tokens.output ?? 0) || 0;
+  const reasoning = Number(tokens.reasoning ?? 0) || 0;
+  const cacheRead = Number(tokens.cache?.read ?? 0) || 0;
+  const cacheWrite = Number(tokens.cache?.write ?? 0) || 0;
+  const total = input + output + reasoning;
+  const cost = typeof info?.cost === "number" ? info.cost : undefined;
+  state.tokenUsage = {
+    input,
+    output,
+    reasoning,
+    cacheRead,
+    cacheWrite,
+    total,
+    cost,
+  };
+}
+
+function applySessionStatusEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const statusValue = (eventProps as { status?: unknown }).status;
+  const formattedStatus = formatSessionStatus(statusValue);
+  if (formattedStatus) {
+    state.phaseStatus = formattedStatus;
+  }
+}
+
+function applyMessagePartUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const part = (eventProps as { part?: Record<string, unknown> }).part;
+  if (!part) return;
+
+  if (part.type === "tool") {
+    const toolState = (part.state || {}) as Record<string, unknown>;
+    const existingIdx = state.tools.findIndex((t) => t.id === part.id);
+    const toolInfo: SessionTool = {
+      id: typeof part.id === "string" ? part.id : "unknown-tool",
+      name: typeof part.tool === "string" ? part.tool : "Unknown tool",
+      status: typeof toolState.status === "string" ? toolState.status : "pending",
+      title: typeof toolState.title === "string" ? toolState.title : undefined,
+      input: toolState.input && typeof toolState.input === "object"
+        ? toolState.input as Record<string, unknown>
+        : undefined,
+      output: typeof toolState.output === "string" ? toolState.output : undefined,
+      error: typeof toolState.error === "string" ? toolState.error : undefined,
+      metadata: toolState.metadata as Record<string, unknown> | undefined,
+    };
+
+    if (existingIdx >= 0) {
+      state.tools[existingIdx] = toolInfo;
+    } else {
+      state.tools.push(toolInfo);
+    }
+    return;
+  }
+
+  if (part.type === "text" && typeof part.text === "string") {
+    state.currentText = part.text;
+    return;
+  }
+
+  if (part.type === "thinking" && typeof part.text === "string") {
+    state.thinkingText = part.text;
+  }
+}
+
+function applyTodoUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+  const todos = ((eventProps as { todos?: unknown }).todos as any[]) || [];
+  state.todos = todos.map((todo: any) => ({
+    content: todo.content || todo.text || "",
+    status: todo.status || "pending",
+  }));
+}
+
 function unwrapEventData(data: unknown): Record<string, unknown> {
   if (!data || typeof data !== "object") return {};
   const record = data as Record<string, unknown>;
@@ -231,93 +328,23 @@ export function buildSessionMessageState(
     }
 
     if (type === "session.updated") {
-      const info = eventProps.info as { title?: unknown } | undefined;
-      const title = info?.title;
-      if (typeof title === "string") {
-        const trimmedTitle = title.trim();
-        if (trimmedTitle && !trimmedTitle.startsWith("New session")) {
-          state.sessionTitle = trimmedTitle;
-        }
-      }
+      applySessionUpdatedEvent(state, eventProps);
     }
 
     if (type === "message.updated") {
-      const info = eventProps.info as
-        | {
-            tokens?: {
-              input?: unknown;
-              output?: unknown;
-              reasoning?: unknown;
-              cache?: { read?: unknown; write?: unknown };
-            };
-            cost?: unknown;
-          }
-        | undefined;
-      const tokens = info?.tokens;
-      if (tokens && typeof tokens === "object") {
-        const input = Number(tokens.input ?? 0) || 0;
-        const output = Number(tokens.output ?? 0) || 0;
-        const reasoning = Number(tokens.reasoning ?? 0) || 0;
-        const cacheRead = Number(tokens.cache?.read ?? 0) || 0;
-        const cacheWrite = Number(tokens.cache?.write ?? 0) || 0;
-        const total = input + output + reasoning;
-        const cost = typeof info?.cost === "number" ? info.cost : undefined;
-        state.tokenUsage = {
-          input,
-          output,
-          reasoning,
-          cacheRead,
-          cacheWrite,
-          total,
-          cost,
-        };
-      }
+      applyMessageUpdatedEvent(state, eventProps);
     }
 
     if (type === "session.status") {
-      const statusValue = (eventProps as { status?: unknown }).status;
-      const formattedStatus = formatSessionStatus(statusValue);
-      if (formattedStatus) {
-        state.phaseStatus = formattedStatus;
-      }
+      applySessionStatusEvent(state, eventProps);
     }
 
     if (type === "message.part.updated") {
-      const part = (eventProps as { part?: Record<string, unknown> }).part;
-      if (!part) continue;
+      applyMessagePartUpdatedEvent(state, eventProps);
+    }
 
-      if (part.type === "tool") {
-        const toolState = (part.state || {}) as Record<string, unknown>;
-        const existingIdx = state.tools.findIndex((t) => t.id === part.id);
-        const toolInfo: SessionTool = {
-          id: typeof part.id === "string" ? part.id : "unknown-tool",
-          name: typeof part.tool === "string" ? part.tool : "Unknown tool",
-          status: typeof toolState.status === "string" ? toolState.status : "pending",
-          title: typeof toolState.title === "string" ? toolState.title : undefined,
-          input: toolState.input && typeof toolState.input === "object"
-            ? toolState.input as Record<string, unknown>
-            : undefined,
-          output: typeof toolState.output === "string" ? toolState.output : undefined,
-          error: typeof toolState.error === "string" ? toolState.error : undefined,
-          metadata: toolState.metadata as Record<string, unknown> | undefined,
-        };
-
-        if (existingIdx >= 0) {
-          state.tools[existingIdx] = toolInfo;
-        } else {
-          state.tools.push(toolInfo);
-        }
-      } else if (part.type === "text" && typeof part.text === "string") {
-        state.currentText = part.text;
-      } else if (part.type === "thinking" && typeof part.text === "string") {
-        state.thinkingText = part.text;
-      }
-    } else if (type === "todo.updated") {
-      const todos = ((eventProps as { todos?: unknown }).todos as any[]) || [];
-      state.todos = todos.map((t: any) => ({
-        content: t.content || t.text || "",
-        status: t.status || "pending",
-      }));
+    if (type === "todo.updated") {
+      applyTodoUpdatedEvent(state, eventProps);
     }
   }
 
