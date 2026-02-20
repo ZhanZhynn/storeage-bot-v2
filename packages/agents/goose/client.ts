@@ -101,17 +101,16 @@ function publishGooseRecordAsSessionEvents(record: GooseJsonRecord, fallbackSess
 }
 
 function textFromRecord(record: GooseJsonRecord): string {
-  if (typeof record.result === "string" && record.result.trim()) return record.result.trim();
-  if (typeof record.output === "string" && record.output.trim()) return record.output.trim();
-  if (typeof record.text === "string" && record.text.trim()) return record.text.trim();
-  if (typeof record.content === "string" && record.content.trim()) return record.content.trim();
+  if (typeof record.result === "string" && record.result.trim()) return record.result;
+  if (typeof record.output === "string" && record.output.trim()) return record.output;
+  if (typeof record.text === "string" && record.text.trim()) return record.text;
+  if (typeof record.content === "string" && record.content.trim()) return record.content;
   const content = record.message?.content ?? [];
   const joined = content
     .filter((part) => part?.type === "text")
     .map((part) => part.text ?? "")
-    .join("")
-    .trim();
-  return joined;
+    .join("");
+  return joined.trim() ? joined : "";
 }
 
 function isPlaceholderResult(text: string): boolean {
@@ -138,7 +137,7 @@ function stitchAssistantChunks(chunks: string[]): string {
   return stitched;
 }
 
-function parseGooseResponse(output: string): {
+export function parseGooseResponse(output: string): {
   text: string;
   sessionId?: string;
 } {
