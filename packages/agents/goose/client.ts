@@ -114,6 +114,30 @@ function textFromRecord(record: GooseJsonRecord): string {
   return joined;
 }
 
+function isPlaceholderResult(text: string): boolean {
+  return /^\?+$/.test(text.trim());
+}
+
+function stitchAssistantChunks(chunks: string[]): string {
+  let stitched = "";
+  for (const chunk of chunks) {
+    if (!chunk) continue;
+    if (!stitched) {
+      stitched = chunk;
+      continue;
+    }
+    if (chunk.startsWith(stitched)) {
+      stitched = chunk;
+      continue;
+    }
+    if (stitched.endsWith(chunk)) {
+      continue;
+    }
+    stitched += chunk;
+  }
+  return stitched;
+}
+
 function parseGooseResponse(output: string): {
   text: string;
   sessionId?: string;
@@ -159,7 +183,9 @@ function parseGooseResponse(output: string): {
     throw new Error(errorMessage);
   }
 
-  const text = (resultText || assistantChunks[assistantChunks.length - 1] || plainChunks.join("\n")).trim();
+  const assistantText = stitchAssistantChunks(assistantChunks);
+  const finalResultText = isPlaceholderResult(resultText) ? "" : resultText;
+  const text = (finalResultText || assistantText || plainChunks.join("\n")).trim();
   if (!text) {
     throw new Error("Goose returned empty response");
   }
