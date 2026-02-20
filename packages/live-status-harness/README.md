@@ -13,8 +13,12 @@ The baseline prompt is stored in `packages/live-status-harness/fixed-prompt.md`.
 ## Capture stream data into Redis
 
 ```bash
-bun run packages/live-status-harness/scripts/capture-stream.ts --provider opencode
+bun run packages/live-status-harness/scripts/capture-stream.ts --provider opencode --model openai/gpt-5.3-codex
 ```
+
+When `--provider opencode` is used, the harness starts its own dedicated OpenCode server at `http://127.0.0.1:40960` for that capture run.
+
+In local mode, `opencode` capture should include `--model` unless your channel model is already configured in `~/.config/ode/ode.json`.
 
 Optional flags:
 

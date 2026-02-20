@@ -14,7 +14,6 @@ import {
 import {
   defaultDashboardConfig,
   sanitizeDashboardConfig,
-  isLocalMode,
   getWebHost,
   getWebPort,
   getDiscordBotTokens,
@@ -24,6 +23,9 @@ import {
 import { getAnyServerUrl, startServer as startOpenCodeServer } from "@/agents/opencode";
 import {
   getAllSessions,
+  getHarnessRunEventsAsSession,
+  getHarnessRunMetaAsSession,
+  getHarnessRunsAsSessions,
   getSessionEvents,
   getSessionMeta,
   type SessionEvent,
@@ -291,12 +293,6 @@ function parsePositiveInt(value: string | null, fallback: number, max?: number):
   return intValue;
 }
 
-function isRedisSessionApiEnabled(): boolean {
-  if (!isLocalMode()) return false;
-  const flag = process.env.ODE_REDIS_ENABLED?.trim().toLowerCase();
-  return flag === "true" || flag === "1" || flag === "yes";
-}
-
 function jsonResponse(status: number, payload: JsonResponse): Response {
   return new Response(JSON.stringify(payload), {
     status,
@@ -521,18 +517,20 @@ async function handleRequest(request: Request): Promise<Response> {
   }
 
   if (pathname.startsWith("/api/sessions")) {
-    if (!isRedisSessionApiEnabled()) {
-      return jsonResponse(404, { ok: false, error: "Session inspector disabled" });
-    }
-
     if (request.method !== "GET") {
       return jsonResponse(405, { ok: false, error: "Method not allowed" });
     }
 
     try {
       if (pathname === "/api/sessions") {
-        const sessions = await getAllSessions();
-        return jsonResponse(200, { ok: true, result: sessions });
+        const [sessions, harnessSessions] = await Promise.all([
+          getAllSessions(),
+          getHarnessRunsAsSessions(),
+        ]);
+        const merged = [...sessions, ...harnessSessions]
+          .sort((a, b) => b.lastActivityAt - a.lastActivityAt)
+          .filter((session, index, all) => all.findIndex((item) => item.sessionId === session.sessionId) === index);
+        return jsonResponse(200, { ok: true, result: merged });
       }
 
       const eventsMatch = pathname.match(/^\/api\/sessions\/([^/]+)\/events$/);
@@ -551,10 +549,16 @@ async function handleRequest(request: Request): Promise<Response> {
           DEFAULT_SESSION_EVENTS_LIMIT,
           MAX_SESSION_EVENTS_LIMIT
         );
-        const events = await getSessionEvents(sessionId, {
+        let events = await getSessionEvents(sessionId, {
           since: hasValidSince ? sinceTs : undefined,
           limit: hasValidSince ? undefined : limit,
         });
+        if (events.length === 0) {
+          events = await getHarnessRunEventsAsSession(sessionId, {
+            since: hasValidSince ? sinceTs : undefined,
+            limit: hasValidSince ? undefined : limit,
+          });
+        }
 
         let result: SessionEvent[];
         if (expand) {
@@ -577,7 +581,10 @@ async function handleRequest(request: Request): Promise<Response> {
         if (!sessionId) {
           return jsonResponse(400, { ok: false, error: "Missing session id" });
         }
-        const meta = await getSessionMeta(sessionId);
+        let meta = await getSessionMeta(sessionId);
+        if (!meta) {
+          meta = await getHarnessRunMetaAsSession(sessionId);
+        }
         if (!meta) {
           return jsonResponse(404, { ok: false, error: "Session not found" });
         }

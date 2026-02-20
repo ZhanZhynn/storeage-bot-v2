@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { markdownToSlack } from "../../../../ims/slack/formatter";
   import { buildStatusMessageByProvider } from "../../../../utils/status";
   import type { AgentStatusProvider } from "../../../../utils/status";
   import type { SessionMessageState } from "../../../../utils/session-inspector";
@@ -16,28 +17,54 @@
     state,
     workingDirectory,
     provider = "opencode",
+    platform = "slack",
+    text,
   }: {
-    state: SessionMessageState;
+    state?: SessionMessageState;
     workingDirectory: string;
     provider?: AgentStatusProvider;
+    platform?: "slack" | "discord" | "lark";
+    text?: string;
   } = $props();
+
+  function escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function toDiscordLikeMarkdown(input: string): string {
+    return input
+      .replace(/\*([^*\n]+)\*/g, "**$1**")
+      .replace(/~([^~\n]+)~/g, "~~$1~~");
+  }
+
+  function renderMarkdown(text: string): string {
+    if (!text) return "";
+
+    let result = escapeHtml(text);
+    result = result.replace(/```([\s\S]*?)```/g, "<pre>$1</pre>");
+    result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
+    result = result.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    result = result.replace(/_([^_]+)_/g, "<em>$1</em>");
+    result = result.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+    result = result.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+
+    return result;
+  }
 
   function renderSlackMarkdown(text: string): string {
     if (!text) return "";
 
-    let result = text;
-
-    result = result
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-    result = result.replace(/```([^`]+)```/g, "<pre>$1</pre>");
+    let result = escapeHtml(text);
+    result = result.replace(/```([\s\S]*?)```/g, "<pre>$1</pre>");
     result = result.replace(/`([^`]+)`/g, "<code>$1</code>");
     result = result.replace(/\*([^*]+)\*/g, "<strong>$1</strong>");
     result = result.replace(/_([^_]+)_/g, "<em>$1</em>");
     result = result.replace(/~([^~]+)~/g, "<del>$1</del>");
-    result = result.replace(/&lt;([^|>]+)\|([^>]+)&gt;/g, '<a href="$1" target="_blank">$2</a>');
-    result = result.replace(/&lt;([^>]+)&gt;/g, '<a href="$1" target="_blank">$1</a>');
+    result = result.replace(/&lt;([^|>]+)\|([^>]+)&gt;/g, '<a href="$1" target="_blank" rel="noreferrer">$2</a>');
+    result = result.replace(/&lt;(https?:\/\/[^>]+)&gt;/g, '<a href="$1" target="_blank" rel="noreferrer">$1</a>');
 
     return result;
   }
@@ -46,13 +73,24 @@
     channelId: "preview-channel",
     threadId: "preview-thread",
     statusMessageTs: "preview-status",
-    startedAt: state.startedAt,
-    currentText: state.currentText,
+    startedAt: state?.startedAt ?? Date.now(),
+    currentText: state?.currentText ?? "",
     statusFrozen: false,
   }) satisfies PreviewStatusRequest);
 
-  const liveStatusText = $derived(buildStatusMessageByProvider(provider, previewRequest, workingDirectory, state));
-  const renderedText = $derived(renderSlackMarkdown(liveStatusText));
+  const liveStatusText = $derived(
+    state
+      ? buildStatusMessageByProvider(provider, previewRequest, workingDirectory, state)
+      : ""
+  );
+  const sourceText = $derived(text ?? liveStatusText);
+  const renderedText = $derived.by(() => {
+    if (platform === "slack") {
+      const slackText = markdownToSlack(sourceText);
+      return renderSlackMarkdown(slackText);
+    }
+    return renderMarkdown(toDiscordLikeMarkdown(sourceText));
+  });
 </script>
 
 <div class="slack-message">
