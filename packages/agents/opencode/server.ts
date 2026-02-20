@@ -35,14 +35,8 @@ const runtimeState = new OpenCodeServerRuntimeState();
 
 const LISTENING_URL_REGEX = /opencode server listening on\s+(https?:\/\/\S+)/i;
 
-function getExternalServerUrl(): string | null {
-  const configured = process.env.ODE_OPENCODE_SERVER_URL?.trim();
-  if (!configured) return null;
-  return configured;
-}
-
 function resolveServerUrl(): string {
-  return getExternalServerUrl() ?? runtimeState.managedServerUrl ?? "http://127.0.0.1:4096";
+  return runtimeState.managedServerUrl ?? "http://127.0.0.1:4096";
 }
 
 function resolveServerUrlForEnv(env?: SessionEnvironment): string {
@@ -176,13 +170,6 @@ async function syncModelsFromServer(baseUrl: string): Promise<void> {
 }
 
 async function ensureServerStarted(): Promise<void> {
-  const externalServerUrl = getExternalServerUrl();
-  if (externalServerUrl) {
-    await waitForServerReady(externalServerUrl);
-    await syncModelsFromServer(externalServerUrl);
-    return;
-  }
-
   if (runtimeState.managedServerProcess && runtimeState.managedServerProcess.exitCode === null) {
     return;
   }

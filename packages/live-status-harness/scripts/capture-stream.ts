@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import type { OpenCodeMessageContext } from "@/agents";
+import { buildPromptParts, buildSystemPrompt } from "@/agents/shared";
 import { getAgentProvider, type AgentProviderId } from "@/agents/registry";
-import type { OpenCodeOptions } from "@/agents/types";
+import type { OpenCodeMessage, OpenCodeOptions } from "@/agents/types";
+import { extractEventSessionId } from "@/utils";
 import { buildHarnessRunId, HarnessRedisStore } from "../redis-store";
 import type { HarnessCapturedEvent, HarnessRunMeta } from "../types";
 
@@ -120,6 +123,52 @@ async function startDedicatedOpencodeServer(): Promise<{
   };
 }
 
+function parseOpenCodeResponse(data: unknown): OpenCodeMessage[] {
+  if (!data || typeof data !== "object") return [];
+  const record = data as Record<string, unknown>;
+  const messages: OpenCodeMessage[] = [];
+
+  const pushText = (value: unknown): void => {
+    if (typeof value !== "string") return;
+    const text = value.trim();
+    if (!text) return;
+    messages.push({ text, messageType: "assistant" });
+  };
+
+  const responseParts = Array.isArray(record.parts) ? record.parts : [];
+  for (const part of responseParts) {
+    if (!part || typeof part !== "object") continue;
+    const partRecord = part as Record<string, unknown>;
+    if (partRecord.type === "text") {
+      pushText(partRecord.text);
+    }
+  }
+
+  if (messages.length === 0 && Array.isArray(record.messages)) {
+    for (const entry of record.messages) {
+      if (!entry || typeof entry !== "object") continue;
+      const messageRecord = entry as Record<string, unknown>;
+      pushText(messageRecord.text);
+      if (Array.isArray(messageRecord.parts)) {
+        for (const part of messageRecord.parts) {
+          if (!part || typeof part !== "object") continue;
+          const partRecord = part as Record<string, unknown>;
+          if (partRecord.type === "text") {
+            pushText(partRecord.text);
+          }
+        }
+      }
+    }
+  }
+
+  if (messages.length === 0) {
+    pushText(record.text);
+    pushText(record.output_text);
+  }
+
+  return messages;
+}
+
 async function main(): Promise<void> {
   const provider = normalizeProvider(parseArg("provider") || process.env.ODE_AGENT_PROVIDER);
   const cwd = parseArg("cwd") || process.cwd();
@@ -135,44 +184,8 @@ async function main(): Promise<void> {
   const redisPrefix = parseArg("redis-prefix");
   const store = new HarnessRedisStore(redisPrefix);
   await store.connect();
-  let dedicatedServer: Awaited<ReturnType<typeof startDedicatedOpencodeServer>> | null = null;
-
-  if (provider === "opencode") {
-    dedicatedServer = await startDedicatedOpencodeServer();
-    process.env.ODE_OPENCODE_SERVER_URL = dedicatedServer.baseUrl;
-  }
-
-  const providerClient = getAgentProvider(provider);
-  const session = await providerClient.getOrCreateSession(channelId, threadId, cwd, {});
   let eventCount = 0;
   const pendingWrites: Array<Promise<void>> = [];
-
-  const runMeta: HarnessRunMeta = {
-    runId,
-    provider,
-    prompt,
-    promptHash,
-    cwd,
-    channelId,
-    threadId,
-    sessionId: session.sessionId,
-    startedAt,
-    eventCount,
-  };
-  await store.saveRunMeta(runMeta);
-
-  const unsubscribe = providerClient.subscribeToSession(session.sessionId, (event) => {
-    const captured: HarnessCapturedEvent = {
-      runId,
-      sessionId: session.sessionId,
-      provider,
-      timestamp: Date.now(),
-      index: eventCount,
-      event,
-    };
-    eventCount += 1;
-    pendingWrites.push(store.appendEvent(captured));
-  });
 
   try {
     const context: OpenCodeMessageContext = {
@@ -186,14 +199,136 @@ async function main(): Promise<void> {
       },
     };
 
-    const responses = await providerClient.sendMessage(
-      channelId,
-      session.sessionId,
+    if (provider === "opencode") {
+      const dedicatedServer = await startDedicatedOpencodeServer();
+      const client = createOpencodeClient({ baseUrl: dedicatedServer.baseUrl });
+      const created = await client.session.create({ directory: cwd });
+      const sessionId = created.data?.id;
+      if (!sessionId) {
+        throw new Error("Failed to create OpenCode harness session");
+      }
+
+      const runMeta: HarnessRunMeta = {
+        runId,
+        provider,
+        prompt,
+        promptHash,
+        cwd,
+        channelId,
+        threadId,
+        sessionId,
+        startedAt,
+        eventCount,
+      };
+      await store.saveRunMeta(runMeta);
+
+      let streamClosed = false;
+      const events = await client.global.event();
+      const streamTask = (async () => {
+        for await (const globalEvent of events.stream) {
+          if (streamClosed) break;
+          const payload = (globalEvent as { payload?: unknown }).payload ?? globalEvent;
+          const payloadRecord = payload && typeof payload === "object"
+            ? payload as Record<string, unknown>
+            : undefined;
+          const eventSessionId = extractEventSessionId(payloadRecord);
+          if (eventSessionId && eventSessionId !== sessionId) continue;
+          const captured: HarnessCapturedEvent = {
+            runId,
+            sessionId,
+            provider,
+            timestamp: Date.now(),
+            index: eventCount,
+            event: globalEvent,
+          };
+          eventCount += 1;
+          pendingWrites.push(store.appendEvent(captured));
+        }
+      })();
+
+      try {
+        const parts = buildPromptParts(channelId, prompt, model ? { model } : undefined, context);
+        const system = buildSystemPrompt(context.slack);
+        const response = await client.session.prompt({
+          sessionID: sessionId,
+          directory: cwd,
+          parts,
+          system,
+          ...(model ? { model } : {}),
+        });
+        if (response.error) {
+          throw new Error(`OpenCode error: ${response.error}`);
+        }
+
+        const responses = parseOpenCodeResponse(response.data);
+        await Promise.all(pendingWrites);
+
+        const finalText = responses
+          .map((entry) => entry.text)
+          .filter((text) => text.trim().length > 0)
+          .join("\n\n");
+
+        await store.updateRunMeta(runId, {
+          completedAt: Date.now(),
+          eventCount,
+          finalText,
+        });
+
+        process.stdout.write(`${JSON.stringify({ runId, provider, sessionId, eventCount })}\n`);
+      } finally {
+        streamClosed = true;
+        await dedicatedServer.stop();
+        await Promise.race([
+          streamTask,
+          new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+        ]);
+      }
+      return;
+    }
+
+    const providerClient = getAgentProvider(provider);
+    const session = await providerClient.getOrCreateSession(channelId, threadId, cwd, {});
+
+    const runMeta: HarnessRunMeta = {
+      runId,
+      provider,
       prompt,
+      promptHash,
       cwd,
-      model ? { model } : undefined,
-      context
-    );
+      channelId,
+      threadId,
+      sessionId: session.sessionId,
+      startedAt,
+      eventCount,
+    };
+    await store.saveRunMeta(runMeta);
+
+    const unsubscribe = providerClient.subscribeToSession(session.sessionId, (event) => {
+      const captured: HarnessCapturedEvent = {
+        runId,
+        sessionId: session.sessionId,
+        provider,
+        timestamp: Date.now(),
+        index: eventCount,
+        event,
+      };
+      eventCount += 1;
+      pendingWrites.push(store.appendEvent(captured));
+    });
+
+    let responses: OpenCodeMessage[] = [];
+    try {
+      responses = await providerClient.sendMessage(
+        channelId,
+        session.sessionId,
+        prompt,
+        cwd,
+        model ? { model } : undefined,
+        context
+      );
+    } finally {
+      unsubscribe();
+    }
 
     await Promise.all(pendingWrites);
 
@@ -210,14 +345,16 @@ async function main(): Promise<void> {
 
     process.stdout.write(`${JSON.stringify({ runId, provider, sessionId: session.sessionId, eventCount })}\n`);
   } finally {
-    unsubscribe();
     await Promise.allSettled(pendingWrites);
     await store.close();
-    if (provider === "opencode") {
-      delete process.env.ODE_OPENCODE_SERVER_URL;
-      await dedicatedServer?.stop();
-    }
   }
 }
 
-await main();
+try {
+  await main();
+  process.exit(0);
+} catch (error) {
+  const message = error instanceof Error ? error.stack || error.message : String(error);
+  process.stderr.write(`${message}\n`);
+  process.exit(1);
+}
