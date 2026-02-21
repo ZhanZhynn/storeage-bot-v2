@@ -39,6 +39,8 @@ const userSchema = z.object({
     "low",
     "high",
   ]).optional(),
+  messageUpdateIntervalMs: z.number().optional(),
+  IM_MESSAGE_UPDATE_INTERVAL_MS: z.number().optional().default(2000),
 });
 
 const agentProviderSchema = z.enum(["opencode", "claudecode", "codex", "kimi", "kiro", "kilo", "qwen", "goose"]);
@@ -97,6 +99,8 @@ const channelDetailSchema = z.object({
 
 const DEFAULT_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 const MIN_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_MESSAGE_UPDATE_INTERVAL_MS = 2000;
+const MIN_MESSAGE_UPDATE_INTERVAL_MS = 250;
 export const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
 
 const updateSchema = z.object({
@@ -162,6 +166,7 @@ const EMPTY_TEMPLATE: OdeConfig = {
     avatar: "",
     gitStrategy: "worktree",
     defaultStatusMessageFormat: "medium",
+    IM_MESSAGE_UPDATE_INTERVAL_MS: 2000,
   },
   githubInfos: {},
   agents: {
@@ -200,7 +205,11 @@ function normalizeBaseBranch(baseBranch: string | null | undefined): string {
 }
 
 function normalizeConfig(config: OdeConfig): OdeConfig {
-  const { defaultMessageFrequency: _deprecatedMessageFrequency, ...normalizedUser } = config.user;
+  const {
+    defaultMessageFrequency: _deprecatedMessageFrequency,
+    messageUpdateIntervalMs: _deprecatedMessageUpdateIntervalMs,
+    ...normalizedUser
+  } = config.user;
   const statusMessageFormat = config.user.defaultStatusMessageFormat
     ?? config.user.defaultMessageFrequency
     ?? "medium";
@@ -212,6 +221,14 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
         : statusMessageFormat;
   const normalizedGitStrategy =
     config.user.gitStrategy === "default" ? "default" : "worktree";
+  const messageUpdateIntervalCandidate =
+    config.user.IM_MESSAGE_UPDATE_INTERVAL_MS
+    ?? config.user.messageUpdateIntervalMs
+    ?? DEFAULT_MESSAGE_UPDATE_INTERVAL_MS;
+  const normalizedMessageUpdateInterval =
+    Number.isFinite(messageUpdateIntervalCandidate) && messageUpdateIntervalCandidate > 0
+      ? Math.max(messageUpdateIntervalCandidate, MIN_MESSAGE_UPDATE_INTERVAL_MS)
+      : DEFAULT_MESSAGE_UPDATE_INTERVAL_MS;
   const intervalCandidate = config.updates?.checkIntervalMs ?? DEFAULT_UPDATE_INTERVAL_MS;
   const normalizedInterval =
     Number.isFinite(intervalCandidate) && intervalCandidate > 0
@@ -247,6 +264,7 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
       ...normalizedUser,
       gitStrategy: normalizedGitStrategy,
       defaultStatusMessageFormat: normalizedFrequency,
+      IM_MESSAGE_UPDATE_INTERVAL_MS: normalizedMessageUpdateInterval,
     },
     updates: {
       autoUpgrade,
@@ -340,6 +358,10 @@ function toDashboardConfig(config: OdeConfig): DashboardConfig {
       avatar: config.user.avatar,
       gitStrategy: config.user.gitStrategy,
       defaultStatusMessageFormat,
+      statusMessageFrequencyMs:
+        config.user.IM_MESSAGE_UPDATE_INTERVAL_MS === 5000 || config.user.IM_MESSAGE_UPDATE_INTERVAL_MS === 10000
+          ? config.user.IM_MESSAGE_UPDATE_INTERVAL_MS
+          : 2000,
     },
     agents: structuredClone(config.agents),
     workspaces: structuredClone(config.workspaces),
@@ -347,6 +369,10 @@ function toDashboardConfig(config: OdeConfig): DashboardConfig {
 }
 
 function mergeDashboardConfig(config: OdeConfig, dashboardConfig: DashboardConfig): OdeConfig {
+  const {
+    statusMessageFrequencyMs,
+    ...dashboardUser
+  } = dashboardConfig.user;
   const workspaces: WorkspaceConfig[] = dashboardConfig.workspaces.map((workspace) => ({
     ...workspace,
     slackAppToken: workspace.slackAppToken ?? "",
@@ -367,7 +393,11 @@ function mergeDashboardConfig(config: OdeConfig, dashboardConfig: DashboardConfi
     completeOnboarding: dashboardConfig.completeOnboarding,
     user: {
       ...config.user,
-      ...dashboardConfig.user,
+      ...dashboardUser,
+      IM_MESSAGE_UPDATE_INTERVAL_MS:
+        statusMessageFrequencyMs === 5000 || statusMessageFrequencyMs === 10000
+          ? statusMessageFrequencyMs
+          : 2000,
     },
     agents: structuredClone(dashboardConfig.agents),
     workspaces,
