@@ -14,7 +14,18 @@ export type StatusRequest = {
 };
 
 export type AgentStatusProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
-const DEFAULT_FALLBACK_TITLE = "Opencode is running...";
+
+const PROVIDER_FALLBACK_TITLES: Record<AgentStatusProvider, string> = {
+  opencode: "Opencode is running...",
+  claudecode: "Claude Code is running...",
+  codex: "Codex is running...",
+  kimi: "Kimi is running...",
+  kiro: "Kiro is running...",
+  kilo: "Kilo is running...",
+  qwen: "Qwen is running...",
+  goose: "Goose is running...",
+  gemini: "Gemini is running...",
+};
 
 type StatusTodo = {
   content: string;
@@ -285,7 +296,7 @@ export function buildLiveStatusMessage(
     if (request.statusFrozen && request.currentText) {
       return request.currentText;
     }
-    return `${DEFAULT_FALLBACK_TITLE} (${formatElapsedTime(request.startedAt)})`;
+    return `_Working_ (${formatElapsedTime(request.startedAt)})`;
   }
 
   if (request.statusFrozen && request.currentText) {
@@ -298,7 +309,7 @@ export function buildLiveStatusMessage(
   if (state.sessionTitle) {
     lines.push(`*${state.sessionTitle}* (${headerDetails})`);
   } else {
-    lines.push(`*${DEFAULT_FALLBACK_TITLE}* (${headerDetails})`);
+    lines.push(`_${headerDetails}_`);
   }
 
   if (state.phaseStatus) {
@@ -323,11 +334,26 @@ export function buildLiveStatusMessage(
 }
 
 export function buildStatusMessageByProvider(
-  _provider: AgentStatusProvider,
+  provider: AgentStatusProvider,
   request: StatusRequest,
   workingPath: string,
   state?: SessionMessageState,
   statusMessageFormat: StatusMessageFormat = "medium"
 ): string {
-  return buildLiveStatusMessage(request, workingPath, state, statusMessageFormat);
+  const fallbackTitle = PROVIDER_FALLBACK_TITLES[provider];
+
+  const effectiveState: SessionMessageState = state
+    ? {
+        ...state,
+        sessionTitle: state.sessionTitle || fallbackTitle,
+      }
+    : {
+        sessionTitle: fallbackTitle,
+        currentText: request.currentText,
+        tools: [],
+        todos: [],
+        startedAt: request.startedAt,
+      };
+
+  return buildLiveStatusMessage(request, workingPath, effectiveState, statusMessageFormat);
 }

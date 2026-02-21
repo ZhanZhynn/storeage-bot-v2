@@ -378,7 +378,7 @@ describe("claude stream status parsing", () => {
     expect(text).not.toContain(longResponse);
   });
 
-  it("falls back to opencode header when title is unavailable", () => {
+  it("falls back to claude header when title is unavailable", () => {
     const now = Date.now();
     const state = buildSessionMessageState([
       rawEvent(now, {
@@ -403,6 +403,6 @@ describe("claude stream status parsing", () => {
       "minimum"
     );
 
-    expect(text).toContain("*Opencode is running...*");
+    expect(text).toContain("*Claude Code is running...*");
   });
 });

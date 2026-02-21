@@ -70,8 +70,9 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   markMessageProcessed(channelId, threadId, messageTs);
 
   const providerId = deps.agent.getProviderForSession(sessionId);
+  const providerLabel = deps.agent.getDisplayNameForSession(sessionId);
 
-  const statusTs = await deps.im.sendMessage(channelId, threadId, "Opencode is running...", false);
+  const statusTs = await deps.im.sendMessage(channelId, threadId, `${providerLabel} is running...`, false);
   if (!statusTs) {
     log.error("Failed to send status message for button selection");
     return;

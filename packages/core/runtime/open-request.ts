@@ -55,10 +55,12 @@ export async function runOpenRequest(params: {
     publishFinalText,
   } = params;
 
+  const providerLabel = deps.agent.getDisplayNameForSession(sessionId);
+
   const statusTs = await deps.im.sendMessage(
     context.channelId,
     context.replyThreadId,
-    "Opencode is running...",
+    `${providerLabel} is running...`,
     false
   );
 
