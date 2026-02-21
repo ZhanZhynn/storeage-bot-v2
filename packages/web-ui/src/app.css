@@ -41,6 +41,7 @@
 		--accent-strong: hsl(var(--primary));
 		--shadow-soft: 0 8px 24px hsl(210 20% 20% / 0.08);
 		--shadow: 0 18px 40px hsl(210 20% 20% / 0.16);
+		--overlay-backdrop: hsl(0 0% 100% / 0.85);
 	}
 
 	:root[data-theme="dark"] {
@@ -77,6 +78,7 @@
 		--accent-strong: hsl(var(--primary));
 		--shadow-soft: 0 8px 24px hsl(216 42% 4% / 0.45);
 		--shadow: 0 18px 40px hsl(216 42% 4% / 0.6);
+		--overlay-backdrop: hsl(0 0% 0% / 0.45);
 	}
 
 	* {
