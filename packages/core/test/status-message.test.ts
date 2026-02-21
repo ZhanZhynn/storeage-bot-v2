@@ -84,4 +84,28 @@ describe("buildStatusMessageForAgent", () => {
     expect(text).toContain("*Opencode is running...*");
     expect(text).toContain("_Thinking_");
   });
+
+  it("keeps title visible when model and agent are present", () => {
+    const agent = {
+      getProviderForSession: () => "opencode",
+      buildStatusMessage: () => "custom status",
+    } as unknown as AgentAdapter;
+
+    const text = buildStatusMessageForAgent({
+      agent,
+      request: makeRequest(),
+      workingPath: "/tmp/project",
+      state: {
+        ...makeState(),
+        sessionTitle: "Refactor session queue",
+        model: "gpt-5.3-codex",
+        agent: "build",
+      },
+      statusMessageFormat: "medium",
+    });
+
+    expect(text).toContain("*Refactor session queue*");
+    expect(text).toContain("gpt-5.3-codex");
+    expect(text).toContain("build");
+  });
 });

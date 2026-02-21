@@ -306,9 +306,7 @@ export function buildLiveStatusMessage(
   const lines: string[] = [];
   const headerDetails = buildHeaderDetails(state);
 
-  const shouldHideSessionTitle = Boolean(state.model || state.agent);
-
-  if (state.sessionTitle && !shouldHideSessionTitle) {
+  if (state.sessionTitle) {
     lines.push(`*${state.sessionTitle}* (${headerDetails})`);
   } else {
     lines.push(`(${headerDetails})`);
