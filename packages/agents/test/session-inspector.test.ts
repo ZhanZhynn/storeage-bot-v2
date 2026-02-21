@@ -197,4 +197,27 @@ describe("session inspector", () => {
 
     expect(state.sessionTitle).toBe("Neon Harbor");
   });
+
+  it("prefers summarized title over sibling slug", () => {
+    const startedAt = Date.now();
+    const state = buildSessionMessageState([
+      {
+        timestamp: startedAt,
+        type: "session.updated",
+        data: {
+          payload: {
+            type: "session.updated",
+            properties: {
+              slug: "silent-ocean",
+              info: {
+                title: "Fix session title extraction",
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(state.sessionTitle).toBe("Fix session title extraction");
+  });
 });
