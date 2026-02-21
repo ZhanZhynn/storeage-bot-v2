@@ -79,7 +79,10 @@ export function extractSessionTitle(value: unknown): string | undefined {
   };
 
   if (!value || typeof value !== "object") return undefined;
+
   const queue: unknown[] = [value];
+  let firstSlug: string | undefined;
+
   while (queue.length > 0) {
     const current = queue.shift();
     if (!current || typeof current !== "object") continue;
@@ -93,17 +96,18 @@ export function extractSessionTitle(value: unknown): string | undefined {
     const directTitle = normalizeTitle(record.title);
     if (directTitle) return directTitle;
 
-    const directSlug = normalizeSlug(record.slug);
-    if (directSlug) return directSlug;
+    if (!firstSlug) {
+      firstSlug = normalizeSlug(record.slug) ?? firstSlug;
+    }
 
     const info = record.info;
     if (info && typeof info === "object" && !Array.isArray(info)) {
       const infoRecord = info as Record<string, unknown>;
       const infoTitle = normalizeTitle(infoRecord.title);
       if (infoTitle) return infoTitle;
-
-      const infoSlug = normalizeSlug(infoRecord.slug);
-      if (infoSlug) return infoSlug;
+      if (!firstSlug) {
+        firstSlug = normalizeSlug(infoRecord.slug) ?? firstSlug;
+      }
     }
 
     for (const nested of Object.values(record)) {
@@ -111,7 +115,7 @@ export function extractSessionTitle(value: unknown): string | undefined {
     }
   }
 
-  return undefined;
+  return firstSlug;
 }
 
 export function extractPrefixedRecord<TRecord>(
