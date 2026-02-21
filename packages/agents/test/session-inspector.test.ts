@@ -175,7 +175,7 @@ describe("session inspector", () => {
     expect(preview).toContain("`Grep`");
   });
 
-  it("falls back to session slug when OpenCode title is generic", () => {
+  it("ignores session slug when OpenCode title is generic", () => {
     const startedAt = Date.now();
     const state = buildSessionMessageState([
       {
@@ -195,7 +195,7 @@ describe("session inspector", () => {
       },
     ]);
 
-    expect(state.sessionTitle).toBe("Neon Harbor");
+    expect(state.sessionTitle).toBeUndefined();
   });
 
   it("prefers summarized title over sibling slug", () => {

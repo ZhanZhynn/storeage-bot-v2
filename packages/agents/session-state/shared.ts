@@ -68,20 +68,9 @@ export function extractSessionTitle(value: unknown): string | undefined {
     return trimmed;
   };
 
-  const normalizeSlug = (candidate: unknown): string | undefined => {
-    if (typeof candidate !== "string") return undefined;
-    const trimmed = candidate.trim();
-    if (!trimmed) return undefined;
-    if (trimmed.startsWith("new-session")) return undefined;
-    const spaced = trimmed.replace(/[-_]+/g, " ").trim();
-    if (!spaced) return undefined;
-    return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
-  };
-
   if (!value || typeof value !== "object") return undefined;
 
   const queue: unknown[] = [value];
-  let firstSlug: string | undefined;
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -96,18 +85,11 @@ export function extractSessionTitle(value: unknown): string | undefined {
     const directTitle = normalizeTitle(record.title);
     if (directTitle) return directTitle;
 
-    if (!firstSlug) {
-      firstSlug = normalizeSlug(record.slug) ?? firstSlug;
-    }
-
     const info = record.info;
     if (info && typeof info === "object" && !Array.isArray(info)) {
       const infoRecord = info as Record<string, unknown>;
       const infoTitle = normalizeTitle(infoRecord.title);
       if (infoTitle) return infoTitle;
-      if (!firstSlug) {
-        firstSlug = normalizeSlug(infoRecord.slug) ?? firstSlug;
-      }
     }
 
     for (const nested of Object.values(record)) {
@@ -115,7 +97,7 @@ export function extractSessionTitle(value: unknown): string | undefined {
     }
   }
 
-  return firstSlug;
+  return undefined;
 }
 
 export function extractPrefixedRecord<TRecord>(
