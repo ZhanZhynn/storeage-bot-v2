@@ -10,6 +10,7 @@ import {
 } from "@/config/local/sessions";
 import { runTrackedRequest } from "@/core/runtime/request-runner";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
+import { maybeGenerateSessionTitle } from "@/core/runtime/session-title";
 import { CoreStateMachine } from "@/core/state-machine";
 import type { OpenCodeOptions } from "@/agents";
 import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@/core/types";
@@ -59,7 +60,7 @@ export async function runOpenRequest(params: {
   const statusTs = await deps.im.sendMessage(
     context.channelId,
     context.replyThreadId,
-    `${providerLabel} is working...`,
+    `${providerLabel} is running...`,
     false
   );
 
@@ -78,6 +79,14 @@ export async function runOpenRequest(params: {
   );
   session.activeRequest = request;
   saveSession(session);
+
+  const statusMessageKey = getStatusMessageKey(request);
+  void maybeGenerateSessionTitle({
+    prompt: message,
+    stateKey: statusMessageKey,
+    liveParsedState,
+    startedAt: request.startedAt,
+  });
 
   const progressIntervalMs = resolveMessageUpdateIntervalMs();
   let lastHeartbeat = Date.now();
@@ -109,7 +118,7 @@ export async function runOpenRequest(params: {
         agent: deps.agent,
         request,
         workingPath: cwd,
-        state: liveParsedState.get(getStatusMessageKey(request)),
+        state: liveParsedState.get(statusMessageKey),
         statusMessageFormat: resolveStatusMessageFormat(),
       });
       if (!request.statusFrozen) {

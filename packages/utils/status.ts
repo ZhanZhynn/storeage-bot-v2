@@ -15,15 +15,16 @@ export type StatusRequest = {
 
 export type AgentStatusProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
 
-const PROVIDER_FALLBACK_TITLES: Partial<Record<AgentStatusProvider, string>> = {
-  claudecode: "Claude Code Working...",
-  codex: "Codex Working...",
-  kimi: "Kimi Working...",
-  kiro: "Kiro Working...",
-  kilo: "Kilo Working...",
-  qwen: "Qwen Working...",
-  goose: "Goose Working...",
-  gemini: "Gemini Working...",
+const PROVIDER_FALLBACK_TITLES: Record<AgentStatusProvider, string> = {
+  opencode: "Opencode is running...",
+  claudecode: "Claude Code is running...",
+  codex: "Codex is running...",
+  kimi: "Kimi is running...",
+  kiro: "Kiro is running...",
+  kilo: "Kilo is running...",
+  qwen: "Qwen is running...",
+  goose: "Goose is running...",
+  gemini: "Gemini is running...",
 };
 
 type StatusTodo = {
@@ -341,21 +342,20 @@ export function buildStatusMessageByProvider(
   state?: SessionMessageState,
   statusMessageFormat: StatusMessageFormat = "medium"
 ): string {
-  const fallbackTitle = state && !state.sessionTitle
-    ? PROVIDER_FALLBACK_TITLES[provider]
-    : undefined;
+  const fallbackTitle = PROVIDER_FALLBACK_TITLES[provider];
 
-  if (fallbackTitle && state) {
-    return buildLiveStatusMessage(
-      request,
-      workingPath,
-      {
+  const effectiveState: SessionMessageState = state
+    ? {
         ...state,
+        sessionTitle: state.sessionTitle || fallbackTitle,
+      }
+    : {
         sessionTitle: fallbackTitle,
-      },
-      statusMessageFormat
-    );
-  }
+        currentText: request.currentText,
+        tools: [],
+        todos: [],
+        startedAt: request.startedAt,
+      };
 
-  return buildLiveStatusMessage(request, workingPath, state, statusMessageFormat);
+  return buildLiveStatusMessage(request, workingPath, effectiveState, statusMessageFormat);
 }
