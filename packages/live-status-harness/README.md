@@ -22,7 +22,7 @@ In local mode, `opencode` capture should include `--model` unless your channel m
 
 Optional flags:
 
-- `--provider opencode|claudecode|codex|kimi|kiro|kilo|qwen|goose`
+- `--provider opencode|claudecode|codex|kimi|kiro|kilo|qwen|goose|gemini`
 - `--cwd <path>`
 - `--channel <id>`
 - `--thread <id>`
@@ -46,7 +46,7 @@ If `--run-id` is omitted, the latest run in Redis is used.
 bun run packages/live-status-harness/scripts/generate-report.ts
 ```
 
-This runs capture + render for each provider (`opencode`, `claudecode`, `codex`, `kimi`, `kiro`, `kilo`, `qwen`, `goose`).
+This runs capture + render for each provider (`opencode`, `claudecode`, `codex`, `kimi`, `kiro`, `kilo`, `qwen`, `goose`, `gemini`).
 
 By default, it writes one report per provider:
 
@@ -58,6 +58,7 @@ By default, it writes one report per provider:
 - `packages/live-status-harness/reports/kilo.md`
 - `packages/live-status-harness/reports/qwen.md`
 - `packages/live-status-harness/reports/goose.md`
+- `packages/live-status-harness/reports/gemini.md`
 
 Use `--providers <list>` to run only specific providers.
 
@@ -65,7 +66,7 @@ For `opencode`, the report run forces model `openai/gpt-5.3-codex` so it does no
 
 Optional flags:
 
-- `--providers opencode,claudecode,codex,kimi,kiro,kilo,qwen,goose`
+- `--providers opencode,claudecode,codex,kimi,kiro,kilo,qwen,goose,gemini`
 - `--run-id <id>` reuse an existing captured run (requires exactly one provider and skips capture)
 - `--layout split|combined|both` (default: `split`)
 - `--output-dir <path>` for provider files (default: `packages/live-status-harness/reports`)
