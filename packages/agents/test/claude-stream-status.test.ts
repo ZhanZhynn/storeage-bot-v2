@@ -154,6 +154,70 @@ describe("claude stream status parsing", () => {
     expect(state.tools[1]?.status).toBe("running");
   });
 
+  it("hydrates todos from assistant TodoWrite tool input", () => {
+    const now = Date.now();
+    const state = buildSessionMessageState([
+      rawEvent(now, {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: "todo_1",
+              name: "TodoWrite",
+              input: {
+                todos: [
+                  { content: "Inspect stream payload", status: "completed" },
+                  { content: "Patch Claude parser", status: "in progress" },
+                ],
+              },
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(state.todos).toEqual([
+      { content: "Inspect stream payload", status: "completed" },
+      { content: "Patch Claude parser", status: "in_progress" },
+    ]);
+  });
+
+  it("hydrates todos from TodoWrite input_json_delta stream events", () => {
+    const now = Date.now();
+    const state = buildSessionMessageState([
+      rawEvent(now, {
+        type: "stream_event",
+        event: {
+          type: "content_block_start",
+          index: 3,
+          content_block: {
+            type: "tool_use",
+            id: "todo_stream_1",
+            name: "TodoWrite",
+          },
+        },
+      }),
+      rawEvent(now + 1, {
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 3,
+          delta: {
+            type: "input_json_delta",
+            partial_json:
+              '{"todos":[{"content":"Capture regression","status":"completed"},{"content":"Render task section","status":"in progress"}]}',
+          },
+        },
+      }),
+    ]);
+
+    expect(state.todos).toEqual([
+      { content: "Capture regression", status: "completed" },
+      { content: "Render task section", status: "in_progress" },
+    ]);
+  });
+
   it("tracks thinking text from raw thinking deltas", () => {
     const now = Date.now();
     const state = buildSessionMessageState([
