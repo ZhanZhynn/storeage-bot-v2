@@ -148,6 +148,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
     const finalChunks = splitResultMessage(text);
     const singleChunk = finalChunks[0] ?? text;
     const statusRateLimited = runtimeDeps.im.wasRateLimited?.(channelId, statusTs) ?? false;
+    const statusRateLimitError = runtimeDeps.im.getRateLimitError?.(channelId, statusTs);
 
     if (finalChunks.length > 1) {
       if (statusFormat !== "aggressive" && !statusRateLimited) {
@@ -157,6 +158,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
           channelId,
           threadId,
           statusTs,
+          ...(statusRateLimitError ? { error: statusRateLimitError } : {}),
         });
       }
 
@@ -176,6 +178,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
         channelId,
         threadId,
         statusTs,
+        ...(statusRateLimitError ? { error: statusRateLimitError } : {}),
       });
       await runtimeDeps.im.sendMessage(channelId, threadId, singleChunk, true);
       return;

@@ -57,17 +57,18 @@ export async function runOpenRequest(params: {
 
   const providerLabel = deps.agent.getDisplayNameForSession(sessionId);
 
-  const statusTs = await deps.im.sendMessage(
+  const initialStatusTs = await deps.im.sendMessage(
     context.channelId,
     context.replyThreadId,
     `${providerLabel} is running...`,
     false
   );
 
-  if (!statusTs) {
+  if (!initialStatusTs) {
     log.error("Failed to send status message");
     return null;
   }
+  let statusTs = initialStatusTs;
 
   const request = createActiveRequest(
     sessionId,
@@ -97,7 +98,6 @@ export async function runOpenRequest(params: {
   const result = await runTrackedRequest({
     deps,
     request,
-    statusTs,
     workingPath: cwd,
     stateMachine,
     liveEventHistory,
@@ -126,9 +126,14 @@ export async function runOpenRequest(params: {
         statusMessageFormat: resolveStatusMessageFormat(),
       });
       if (!request.statusFrozen) {
-        await deps.im.updateMessage(context.channelId, statusTs, statusText, false);
+        const updatedStatusTs = await deps.im.updateMessage(context.channelId, statusTs, statusText, false);
+        if (typeof updatedStatusTs === "string" && updatedStatusTs !== statusTs) {
+          statusTs = updatedStatusTs;
+          request.statusMessageTs = updatedStatusTs;
+        }
       }
       updateActiveRequest(context.channelId, context.threadId, {
+        statusMessageTs: request.statusMessageTs,
         currentText: request.currentText,
         tools: request.tools,
         todos: request.todos,

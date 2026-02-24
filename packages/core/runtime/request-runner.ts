@@ -15,7 +15,6 @@ type RunnerDeps = {
 export type RunTrackedRequestParams = {
   deps: RunnerDeps;
   request: ActiveRequest;
-  statusTs: string;
   workingPath: string;
   stateMachine: CoreStateMachine;
   liveEventHistory: Map<string, SessionEvent[]>;
@@ -43,7 +42,6 @@ export async function runTrackedRequest(
   const {
     deps,
     request,
-    statusTs,
     workingPath,
     stateMachine,
     liveEventHistory,
@@ -161,7 +159,7 @@ export async function runTrackedRequest(
     liveParsedState.delete(getStatusMessageKey(request));
 
     const errorStatus = `Error: ${message}\n_${suggestion}_`;
-    await deps.im.updateMessage(request.channelId, statusTs, errorStatus, false);
+    await deps.im.updateMessage(request.channelId, request.statusMessageTs, errorStatus, false);
     onFail(message);
     return { responses: null };
   }

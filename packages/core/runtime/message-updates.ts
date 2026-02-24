@@ -7,7 +7,7 @@ type QueuedUpdate = {
   messageTs: string;
   text: string;
   asMarkdown: boolean;
-  resolve: () => void;
+  resolve: (messageTs?: string) => void;
 };
 
 function isRateLimitError(error: unknown): boolean {
@@ -23,6 +23,7 @@ export function createRateLimitedImAdapter(
   const queue: QueuedUpdate[] = [];
   let processing = false;
   const rateLimitedMessages = new Set<string>();
+  const rateLimitErrors = new Map<string, string>();
 
   function key(channelId: string, messageTs: string): string {
     return `${channelId}:${messageTs}`;
@@ -43,10 +44,13 @@ export function createRateLimitedImAdapter(
 
       globalLastUpdateAt = Date.now();
       try {
-        await im.updateMessage(item.channelId, item.messageTs, item.text, item.asMarkdown);
+        const maybeUpdatedTs = await im.updateMessage(item.channelId, item.messageTs, item.text, item.asMarkdown);
+        item.resolve(typeof maybeUpdatedTs === "string" ? maybeUpdatedTs : undefined);
       } catch (error) {
         if (isRateLimitError(error)) {
-          rateLimitedMessages.add(key(item.channelId, item.messageTs));
+          const rateLimitKey = key(item.channelId, item.messageTs);
+          rateLimitedMessages.add(rateLimitKey);
+          rateLimitErrors.set(rateLimitKey, String(error));
           log.warn("IM message update hit rate limit (429)", {
             channelId: item.channelId,
             messageTs: item.messageTs,
@@ -58,9 +62,8 @@ export function createRateLimitedImAdapter(
           messageTs: item.messageTs,
           error: String(error),
         });
+        item.resolve();
       }
-
-      item.resolve();
     }
 
     processing = false;
@@ -74,12 +77,19 @@ export function createRateLimitedImAdapter(
       }
       return rateLimitedMessages.has(key(channelId, messageTs));
     },
+    getRateLimitError: (channelId: string, messageTs: string): string | undefined => {
+      if (typeof im.getRateLimitError === "function") {
+        const upstream = im.getRateLimitError(channelId, messageTs);
+        if (upstream) return upstream;
+      }
+      return rateLimitErrors.get(key(channelId, messageTs));
+    },
     updateMessage: async (
       channelId: string,
       messageTs: string,
       text: string,
       asMarkdown = true
-    ): Promise<void> => {
+    ): Promise<string | undefined> => {
       for (let i = queue.length - 1; i >= 0; i--) {
         const queued = queue[i];
         if (queued && queued.channelId === channelId && queued.messageTs === messageTs) {
@@ -88,7 +98,7 @@ export function createRateLimitedImAdapter(
         }
       }
 
-      return new Promise<void>((resolve) => {
+      return new Promise<string | undefined>((resolve) => {
         queue.push({ channelId, messageTs, text, asMarkdown, resolve });
         void processQueue();
       });
