@@ -1,6 +1,9 @@
 import { log } from "@/utils";
 import { isStopCommand } from "@/ims/shared/stop-command";
 import { evaluateIncomingMessage, formatIncomingDropMessage } from "@/ims/shared/incoming-pipeline";
+import { executeIncomingFlow } from "@/ims/shared/incoming-executor";
+import { buildIncomingContext } from "@/ims/shared/incoming-normalizer";
+import { parseIncomingCommand } from "@/ims/shared/command-router";
 import {
   toCoreMessageContext,
   type UnifiedMessageContext,
@@ -25,7 +28,6 @@ type RouterDeps = {
   ) => void;
   isThreadActive: (channelId: string, threadId: string) => boolean;
   markThreadActive: (channelId: string, threadId: string) => void;
-  isGeneralSettingsCommand: (text: string) => boolean;
   postGeneralSettingsLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
   describeSettingsIssues: (channelId: string) => string[];
   getChannelAgentProvider: (channelId: string) => "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
@@ -140,23 +142,15 @@ async function maybeHandleLauncherCommand(params: {
   client: any;
 }): Promise<boolean> {
   const { deps, cleanText, isMention, channelId, userId, client } = params;
-
-  const commandHandlers: Array<{
-    matches: (text: string) => boolean;
-    launch: (channelId: string, userId: string, client: any) => Promise<void>;
-  }> = [
-    { matches: deps.isGeneralSettingsCommand, launch: deps.postGeneralSettingsLauncher },
-  ];
-
-  const handler = commandHandlers.find((entry) => entry.matches(cleanText));
-  if (!handler) return false;
+  const command = parseIncomingCommand(cleanText);
+  if (command !== "setting") return false;
   if (isMention) {
     log.info("Slack settings launcher command matched", {
       channelId,
       userId,
       cleanText,
     });
-    await handler.launch(channelId, userId, client);
+    await deps.postGeneralSettingsLauncher(channelId, userId, client);
   } else {
     log.debug("Slack settings command ignored because bot was not mentioned", {
       channelId,
@@ -240,11 +234,10 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
       });
 
       const threadActive = deps.isThreadActive(channelId, threadId);
-      const messageContext: UnifiedMessageContext = {
+      const messageContext: UnifiedMessageContext = buildIncomingContext({
         platform: "slack",
         channelId,
         threadId,
-        replyThreadId: threadId,
         messageId,
         userId,
         isTopLevel: threadId === messageId,
@@ -252,28 +245,13 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
         activeThread: threadActive,
         rawText: text,
         normalizedText: cleanText,
-      };
+      });
       const flowResult = evaluateIncomingMessage(messageContext, isStopCommand);
-
-      if (flowResult.type === "ignore" && flowResult.reason === "not_mentioned_and_inactive") {
-        log.debug(formatIncomingDropMessage("not_mentioned_and_inactive"), { channelId, threadId });
-        return;
-      }
 
       if (shouldDropForOtherMentions(text, isMention)) {
         log.info("[DROP] Mentions other user", { channelId, threadId });
         return;
       }
-
-      if (flowResult.type === "stop") {
-        const stopped = await deps.handleStopCommand(channelId, threadId);
-        if (stopped) {
-          await say({ text: "Request stopped.", thread_ts: threadId });
-        }
-        return;
-      }
-
-      deps.markThreadActive(channelId, threadId);
 
       if (await maybeHandleLauncherCommand({
         deps,
@@ -291,17 +269,31 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
       }
 
       const workspaceName = deps.getChannelWorkspaceName(channelId) || "unknown";
-      if (flowResult.type === "ignore" && flowResult.reason === "empty_text") {
-        await say({
-          text: "Hi! How can I help you? Just ask me anything.",
-          thread_ts: threadId,
-        });
-        return;
-      }
-
-      if (flowResult.type !== "forward") return;
-
-      await deps.handleIncomingMessage(toCoreMessageContext(messageContext, { workspaceName }), flowResult.text);
+      await executeIncomingFlow({
+        context: messageContext,
+        flowResult,
+        markThreadActive: deps.markThreadActive,
+        handleStopCommand: deps.handleStopCommand,
+        sendStopAck: async () => {
+          await say({ text: "Request stopped.", thread_ts: threadId });
+        },
+        onIgnore: async (reason) => {
+          if (reason === "not_mentioned_and_inactive") {
+            log.debug(formatIncomingDropMessage(reason), { channelId, threadId });
+            return;
+          }
+          await say({
+            text: "Hi! How can I help you? Just ask me anything.",
+            thread_ts: threadId,
+          });
+        },
+        forwardToCore: async (forwardText) => {
+          await deps.handleIncomingMessage(
+            toCoreMessageContext(messageContext, { workspaceName }),
+            forwardText
+          );
+        },
+      });
     } catch (error) {
       log.error("Slack message router failed", {
         channelId: contextData?.channelId,

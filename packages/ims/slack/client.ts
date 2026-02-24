@@ -238,10 +238,6 @@ function describeSettingsIssues(channelId: string): string[] {
   return issues;
 }
 
-function isGeneralSettingsCommand(text: string): boolean {
-  return /^\/setting\b/i.test(text.trim());
-}
-
 type SettingsLauncherButton = {
   actionId: string;
   label: string;
@@ -581,7 +577,6 @@ export function setupMessageHandlers(): void {
       },
       isThreadActive,
       markThreadActive,
-      isGeneralSettingsCommand,
       postGeneralSettingsLauncher,
       describeSettingsIssues,
       getChannelAgentProvider,

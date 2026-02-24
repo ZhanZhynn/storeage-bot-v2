@@ -20,6 +20,9 @@ import {
   type UnifiedMessageContext,
 } from "@/ims/shared/message-context";
 import { evaluateIncomingMessage } from "@/ims/shared/incoming-pipeline";
+import { executeIncomingFlow } from "@/ims/shared/incoming-executor";
+import { buildIncomingContext } from "@/ims/shared/incoming-normalizer";
+import { parseIncomingCommand } from "@/ims/shared/command-router";
 
 let larkRuntimeStarted = false;
 
@@ -217,11 +220,6 @@ function parseLarkText(content: string | undefined): string {
   } catch {
     return content;
   }
-}
-
-function isSettingsCommand(text: string): boolean {
-  const normalized = text.trim().replace(/^／/, "/");
-  return /^\/?settings?(?:\s|$)/i.test(normalized);
 }
 
 function getLocalSettingsUrl(): string {
@@ -667,11 +665,10 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
     : false;
   const active = isThreadActive(channelId, threadId);
   const text = stripLarkMentionMarkup(rawText);
-  const messageContext: UnifiedMessageContext = {
+  const messageContext: UnifiedMessageContext = buildIncomingContext({
     platform: "lark",
     channelId,
     threadId,
-    replyThreadId: threadId,
     messageId,
     userId: senderOpenId,
     isTopLevel: topLevelMessage,
@@ -679,7 +676,7 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
     activeThread: active,
     rawText,
     normalizedText: text,
-  };
+  });
 
   logLarkEvent("Lark inbound parsed", {
     channelId,
@@ -693,7 +690,8 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
     textLength: text.length,
   });
 
-  if (isSettingsCommand(text)) {
+  const command = parseIncomingCommand(text);
+  if (command === "setting") {
     logLarkEvent("Lark inbound matched /setting", {
       channelId,
       threadId,
@@ -706,59 +704,49 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
   }
 
   const flowResult = evaluateIncomingMessage(messageContext, isStopCommand);
-  if (flowResult.type === "ignore" && flowResult.reason === "not_mentioned_and_inactive") {
-    logLarkEvent("Lark inbound ignored: not mentioned and thread inactive", {
-      channelId,
-      threadId,
-      messageId,
-      reason: flowResult.reason,
-      isTopLevel: topLevelMessage,
-      isMentioned,
-      activeThread: active,
-    });
-    return;
-  }
-
-  if (flowResult.type === "ignore" && flowResult.reason === "empty_text") {
-    logLarkEvent("Lark inbound ignored: empty text after mention stripping", {
-      channelId,
-      messageId,
-    });
-    return;
-  }
-
-  if (flowResult.type === "stop") {
-    logLarkEvent("Lark inbound matched stop command", {
-      channelId,
-      threadId,
-      messageId,
-    });
-    const stopped = await coreRuntime.handleStopCommand(channelId, threadId);
-    if (stopped) {
+  await executeIncomingFlow({
+    context: messageContext,
+    flowResult,
+    markThreadActive,
+    handleStopCommand: (flowChannelId, flowThreadId) => coreRuntime.handleStopCommand(flowChannelId, flowThreadId),
+    sendStopAck: async () => {
       await sendMessage(channelId, threadId, "Request stopped.", true);
-    }
-    return;
-  }
-
-  if (flowResult.type !== "forward") {
-    return;
-  }
-
-  markThreadActive(channelId, threadId);
-  logLarkEvent("Lark inbound accepted: forwarding to core runtime", {
-    channelId,
-    threadId,
-    messageId,
-    userId: senderOpenId,
-  });
-  await coreRuntime.handleIncomingMessage(
-    toCoreMessageContext(messageContext),
-    flowResult.text
-  );
-  logLarkEvent("Lark inbound handled by core runtime", {
-    channelId,
-    threadId,
-    messageId,
+    },
+    onIgnore: (reason) => {
+      if (reason === "not_mentioned_and_inactive") {
+        logLarkEvent("Lark inbound ignored: not mentioned and thread inactive", {
+          channelId,
+          threadId,
+          messageId,
+          reason,
+          isTopLevel: topLevelMessage,
+          isMentioned,
+          activeThread: active,
+        });
+        return;
+      }
+      logLarkEvent("Lark inbound ignored: empty text after mention stripping", {
+        channelId,
+        messageId,
+      });
+    },
+    forwardToCore: async (forwardText) => {
+      logLarkEvent("Lark inbound accepted: forwarding to core runtime", {
+        channelId,
+        threadId,
+        messageId,
+        userId: senderOpenId,
+      });
+      await coreRuntime.handleIncomingMessage(
+        toCoreMessageContext(messageContext),
+        forwardText
+      );
+      logLarkEvent("Lark inbound handled by core runtime", {
+        channelId,
+        threadId,
+        messageId,
+      });
+    },
   });
 }
 
