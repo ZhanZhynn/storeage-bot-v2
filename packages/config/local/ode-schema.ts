@@ -4,26 +4,27 @@ import { DEFAULT_STATUS_MESSAGE_FREQUENCY_MS } from "../status-message-frequency
 
 const DEFAULT_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 
+const normalizeStatusFormat = (value: unknown) =>
+  value === "low"
+    ? "minimum"
+    : value === "high"
+      ? "aggressive"
+      : value;
+
 const userSchema = z.object({
   name: z.string().optional().default(""),
   email: z.string().optional().default(""),
   initials: z.string().optional().default(""),
   avatar: z.string().optional().default(""),
   gitStrategy: z.enum(["default", "worktree"]).optional().default("worktree"),
-  defaultStatusMessageFormat: z.enum([
-    "minimum",
-    "medium",
-    "aggressive",
-    "low",
-    "high",
-  ]).optional().default("medium"),
-  defaultMessageFrequency: z.enum([
-    "minimum",
-    "medium",
-    "aggressive",
-    "low",
-    "high",
-  ]).optional(),
+  defaultStatusMessageFormat: z.preprocess(
+    normalizeStatusFormat,
+    z.enum(["minimum", "medium", "aggressive"])
+  ).optional().default("medium"),
+  defaultMessageFrequency: z.preprocess(
+    normalizeStatusFormat,
+    z.enum(["minimum", "medium", "aggressive"])
+  ).optional(),
   messageUpdateIntervalMs: z.number().optional(),
   IM_MESSAGE_UPDATE_INTERVAL_MS: z.number().optional().default(DEFAULT_STATUS_MESSAGE_FREQUENCY_MS),
 });
