@@ -8,6 +8,7 @@ import {
   getLarkTargetChannels,
   getWorkspaces,
 } from "@/config";
+import { findReplyThreadIdByStatusMessageTs } from "@/config/local/sessions";
 import { isThreadActive, markThreadActive } from "@/config/local/settings";
 import { createCoreRuntime } from "@/core/runtime";
 import type { IMAdapter } from "@/core/types";
@@ -35,7 +36,7 @@ type LarkMessageResponse = {
   message_id?: string;
 };
 
-type LarkMessageType = "text" | "interactive";
+type LarkMessageType = "text" | "interactive" | "post";
 
 type LarkBotInfoResponse = {
   bot?: {
@@ -46,7 +47,9 @@ type LarkBotInfoResponse = {
 const tenantTokenCache = new Map<string, { token: string; expiresAt: number }>();
 const botOpenIdCache = new Map<string, string>();
 const sentMessageThreadMap = new Map<string, { channelId: string; threadId: string }>();
+const larkMessageEditCounts = new Map<string, number>();
 const wsClientRegistry = new Map<string, unknown>();
+const MAX_LARK_MESSAGE_EDITS = 20;
 
 function isLarkEventDebugEnabled(): boolean {
   const raw = process.env.LARK_DEBUG_EVENTS?.trim().toLowerCase();
@@ -193,6 +196,21 @@ async function sendLarkMessage(params: {
   return messageId;
 }
 
+function buildLarkPostContent(text: string, asMarkdown: boolean): Record<string, unknown> {
+  const tag = asMarkdown ? "md" : "text";
+  const block = [{ tag, text }];
+  return {
+    zh_cn: {
+      title: "",
+      content: [block],
+    },
+    en_us: {
+      title: "",
+      content: [block],
+    },
+  };
+}
+
 function stripLarkMentionMarkup(text: string): string {
   return text
     .replace(/<at\b[^>]*>.*?<\/at>/g, " ")
@@ -214,6 +232,23 @@ function parseLarkText(content: string | undefined): string {
       }
       if (typeof record.content === "string") {
         return record.content;
+      }
+      const localized = (record.zh_cn ?? record.en_us) as Record<string, unknown> | undefined;
+      const postBlocks = localized?.content;
+      if (Array.isArray(postBlocks)) {
+        const lines: string[] = [];
+        for (const row of postBlocks) {
+          if (!Array.isArray(row)) continue;
+          const line = row
+            .map((cell) => {
+              if (!cell || typeof cell !== "object") return "";
+              const textValue = (cell as Record<string, unknown>).text;
+              return typeof textValue === "string" ? textValue : "";
+            })
+            .join("");
+          if (line.trim()) lines.push(line);
+        }
+        if (lines.length > 0) return lines.join("\n");
       }
     }
     return content;
@@ -247,13 +282,13 @@ async function sendMessage(
   channelId: string,
   threadId: string,
   text: string,
-  _asMarkdown = true
+  asMarkdown = true
 ): Promise<string | undefined> {
   return sendLarkMessage({
     channelId,
     threadId: threadId || "",
-    msgType: "text",
-    content: { text },
+    msgType: "post",
+    content: buildLarkPostContent(text, asMarkdown),
   });
 }
 
@@ -277,21 +312,58 @@ async function updateMessage(
   channelId: string,
   messageId: string,
   text: string,
-  _asMarkdown = true
-): Promise<void> {
+  asMarkdown = true
+): Promise<string | undefined> {
   const creds = getLarkCredentialsForChannel(channelId);
   if (!creds) return;
   const token = await getLarkTenantAccessToken(creds);
+
+  const editCount = larkMessageEditCounts.get(messageId) ?? 0;
+  if (editCount >= MAX_LARK_MESSAGE_EDITS) {
+    const trackedThreadId = sentMessageThreadMap.get(messageId)?.threadId || findReplyThreadIdByStatusMessageTs(messageId) || "";
+    try {
+      await deleteMessage(channelId, messageId);
+      const replacementMessageId = await sendMessage(channelId, trackedThreadId, text, asMarkdown);
+      if (replacementMessageId) {
+        larkMessageEditCounts.delete(messageId);
+        larkMessageEditCounts.set(replacementMessageId, 0);
+        log.info("Lark message edit limit reached; replaced status message", {
+          channelId,
+          oldMessageId: messageId,
+          newMessageId: replacementMessageId,
+          editCount,
+        });
+        return replacementMessageId;
+      }
+      log.warn("Lark message edit limit reached but replacement send failed", {
+        channelId,
+        messageId,
+        editCount,
+      });
+    } catch (error) {
+      log.warn("Failed to replace Lark message after edit limit reached", {
+        channelId,
+        messageId,
+        editCount,
+        error: String(error),
+      });
+    }
+  }
+
+  const payload = {
+    msg_type: "post",
+    content: JSON.stringify(buildLarkPostContent(text, asMarkdown)),
+  };
+
   try {
     await larkApi<Record<string, unknown>>(
       token,
       "PATCH",
       `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`,
-      {
-        msg_type: "text",
-        content: JSON.stringify({ text }),
-      }
+      payload
     );
+    larkMessageEditCounts.set(messageId, editCount + 1);
+    return;
   } catch (error) {
     const patchMessage = error instanceof Error ? error.message : String(error);
     const patchNormalized = patchMessage.toLowerCase();
@@ -317,11 +389,9 @@ async function updateMessage(
         token,
         "PUT",
         `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`,
-        {
-          msg_type: "text",
-          content: JSON.stringify({ text }),
-        }
+        payload
       );
+      larkMessageEditCounts.set(messageId, editCount + 1);
       return;
     } catch (fallbackError) {
       const fallbackMessage = String(fallbackError);
@@ -360,6 +430,7 @@ async function deleteMessage(channelId: string, messageId: string): Promise<void
       `/open-apis/im/v1/messages/${encodeURIComponent(messageId)}`
     );
     sentMessageThreadMap.delete(messageId);
+    larkMessageEditCounts.delete(messageId);
   } catch {
     // Ignore delete failures
   }

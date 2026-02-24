@@ -2,6 +2,7 @@ import {
   clearPendingQuestion,
   getPendingQuestion,
   setPendingQuestion,
+  updateActiveRequest,
   type ActiveRequest,
   type TrackedTodo,
   type TrackedTool,
@@ -159,7 +160,7 @@ export async function startEventStreamWatcher(
       onUpdate();
 
       void (async () => {
-        await deps.im.updateMessage(
+        const updatedStatusTs = await deps.im.updateMessage(
           request.channelId,
           request.statusMessageTs,
           buildStatusMessageForAgent({
@@ -171,6 +172,10 @@ export async function startEventStreamWatcher(
           }),
           false
         );
+        if (typeof updatedStatusTs === "string" && updatedStatusTs !== request.statusMessageTs) {
+          request.statusMessageTs = updatedStatusTs;
+          updateActiveRequest(request.channelId, request.threadId, { statusMessageTs: updatedStatusTs });
+        }
         setPendingQuestion(request.channelId, request.threadId, {
           requestId,
           sessionId: properties.sessionID ?? request.sessionId,

@@ -6,6 +6,7 @@ import {
   loadSession,
   markMessageProcessed,
   saveSession,
+  updateActiveRequest,
 } from "@/config/local/sessions";
 import { resolveStatusMessageFormat } from "@/config";
 import { buildMessageOptions } from "@/core/runtime/message-options";
@@ -72,11 +73,12 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   const providerId = deps.agent.getProviderForSession(sessionId);
   const providerLabel = deps.agent.getDisplayNameForSession(sessionId);
 
-  const statusTs = await deps.im.sendMessage(channelId, threadId, `${providerLabel} is running...`, false);
-  if (!statusTs) {
+  const initialStatusTs = await deps.im.sendMessage(channelId, threadId, `${providerLabel} is running...`, false);
+  if (!initialStatusTs) {
     log.error("Failed to send status message for button selection");
     return;
   }
+  let statusTs = initialStatusTs;
 
   const request = createActiveRequest(sessionId, channelId, threadId, threadId, statusTs, selection);
   const statusMessageKey = getStatusMessageKey(request);
@@ -119,7 +121,6 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
   await runTrackedRequest({
     deps,
     request,
-    statusTs,
     workingPath: cwd,
     stateMachine: getStateMachine({ channelId, threadId }),
     liveEventHistory: state.liveEventHistory,
@@ -141,7 +142,12 @@ export async function handleSelectionReply(params: HandleSelectionReplyParams): 
         state: state.liveParsedState.get(statusMessageKey),
         statusMessageFormat: resolveStatusMessageFormat(),
       });
-      await deps.im.updateMessage(channelId, statusTs, statusText, false);
+      const updatedStatusTs = await deps.im.updateMessage(channelId, statusTs, statusText, false);
+      if (typeof updatedStatusTs === "string" && updatedStatusTs !== statusTs) {
+        statusTs = updatedStatusTs;
+        request.statusMessageTs = updatedStatusTs;
+        updateActiveRequest(channelId, threadId, { statusMessageTs: updatedStatusTs });
+      }
     },
     onComplete: () => {
       completeActiveRequest(channelId, threadId);
