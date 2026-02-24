@@ -245,6 +245,12 @@ function cleanBotMention(content: string, botUserId: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function isBotMentioned(message: any, botUserId: string): boolean {
+  if (message?.mentions?.users?.has?.(botUserId)) return true;
+  const content = typeof message?.content === "string" ? message.content : "";
+  return content.includes(`<@${botUserId}>`) || content.includes(`<@!${botUserId}>`);
+}
+
 function isTopLevelMessage(message: any): boolean {
   return !message.channel?.isThread?.();
 }
@@ -1001,12 +1007,18 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
               });
               return;
             }
-            const mentioned = message.mentions.users.has(client.user.id);
+            const mentioned = isBotMentioned(message, client.user.id);
             const active = isThreadActive(parentId, threadId);
             if (!mentioned && !active) return;
-            if (!text) return;
+            const inputText = mentioned ? cleanBotMention(text, client.user.id) : text;
+            if (!inputText) {
+              if (mentioned) {
+                await message.reply("Please include a request after mentioning me.");
+              }
+              return;
+            }
 
-            if (isStopCommand(text)) {
+            if (isStopCommand(inputText)) {
               const stopped = await coreRuntime.handleStopCommand(parentId, threadId);
               if (stopped) {
                 await message.channel.send("Request stopped.");
@@ -1021,7 +1033,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
               threadId,
               userId: message.author.id,
               messageId: message.id,
-            }, text);
+            }, inputText);
             return;
           }
 
@@ -1042,7 +1054,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
             return;
           }
 
-          const isMentioned = message.mentions.users.has(client.user.id);
+          const isMentioned = isBotMentioned(message, client.user.id);
           if (!isMentioned) return;
 
           const cleaned = cleanBotMention(message.content, client.user.id);
