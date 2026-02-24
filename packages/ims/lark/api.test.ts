@@ -24,13 +24,19 @@ describe("handleLarkActionPayload", () => {
     process.env.LARK_APP_ID = "cli_app";
     process.env.LARK_APP_SECRET = "secret";
 
-    const fetchMock = mock(async (url: string) => {
+    const fetchMock = mock(async (url: string, init?: RequestInit) => {
       if (url.includes("tenant_access_token")) {
         return new Response(
           JSON.stringify({ code: 0, tenant_access_token: "tenant_token" }),
           { status: 200, headers: { "content-type": "application/json" } }
         );
       }
+
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+      expect(body.msg_type).toBe("post");
+      const content = typeof body.content === "string" ? JSON.parse(body.content) as Record<string, unknown> : {};
+      const zh = content.zh_cn as { content?: Array<Array<{ tag?: string; text?: string }>> };
+      expect(zh.content?.[0]?.[0]?.tag).toBe("md");
 
       return new Response(
         JSON.stringify({ code: 0, data: { message_id: "om_xxx" } }),
@@ -62,7 +68,11 @@ describe("handleLarkActionPayload", () => {
       }
       expect(url).toContain("/im/v1/messages/om_root/reply");
       const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+      expect(body.msg_type).toBe("post");
       expect(body.reply_in_thread).toBe(true);
+      const content = typeof body.content === "string" ? JSON.parse(body.content) as Record<string, unknown> : {};
+      const zh = content.zh_cn as { content?: Array<Array<{ tag?: string; text?: string }>> };
+      expect(zh.content?.[0]?.[0]?.tag).toBe("md");
       return new Response(
         JSON.stringify({ code: 0, data: { message_id: "om_reply" } }),
         { status: 200, headers: { "content-type": "application/json" } }
@@ -93,6 +103,8 @@ describe("handleLarkActionPayload", () => {
         );
       }
       expect(init?.method).toBe("PATCH");
+      const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+      expect(body.msg_type).toBe("post");
       return new Response(
         JSON.stringify({ code: 0, data: {} }),
         { status: 200, headers: { "content-type": "application/json" } }
