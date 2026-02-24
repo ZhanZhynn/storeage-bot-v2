@@ -6,8 +6,6 @@ import {
   getGitHubInfoForUser,
   getLarkAppCredentials,
   getLarkTargetChannels,
-  getWebHost,
-  getWebPort,
   getWorkspaces,
 } from "@/config";
 import { isThreadActive, markThreadActive } from "@/config/local/settings";
@@ -24,6 +22,7 @@ import { executeIncomingFlow } from "@/ims/shared/incoming-executor";
 import { buildIncomingContext } from "@/ims/shared/incoming-normalizer";
 import { parseIncomingCommand } from "@/ims/shared/command-router";
 import { createRuntimeController } from "@/ims/shared/runtime-controller";
+import { sendLarkSettingsCard } from "./settings";
 
 let larkRuntimeStarted = false;
 
@@ -223,10 +222,6 @@ function parseLarkText(content: string | undefined): string {
   }
 }
 
-function getLocalSettingsUrl(): string {
-  return `http://${getWebHost()}:${getWebPort()}/`;
-}
-
 async function buildLarkContext(
   channelId: string,
   threadId: string,
@@ -263,71 +258,19 @@ async function sendMessage(
 }
 
 async function sendSettingsCard(channelId: string, threadId: string): Promise<string | undefined> {
-  const settingsUrl = getLocalSettingsUrl();
-  logLarkEvent("Lark settings UI launcher triggered", {
+  return sendLarkSettingsCard({
     channelId,
     threadId,
-    settingsUrl,
+    sendInteractive: (card) =>
+      sendLarkMessage({
+        channelId,
+        threadId,
+        msgType: "interactive",
+        content: card,
+      }),
+    sendText: (text) => sendMessage(channelId, threadId, text, true),
+    logEvent: logLarkEvent,
   });
-  const card = {
-    config: {
-      wide_screen_mode: true,
-    },
-    header: {
-      template: "blue",
-      title: {
-        tag: "plain_text",
-        content: "Ode Settings",
-      },
-    },
-    elements: [
-      {
-        tag: "markdown",
-        content: `Configure this chat in the local settings UI.\\n\\nChannel: \`${channelId}\``,
-      },
-      {
-        tag: "action",
-        actions: [
-          {
-            tag: "button",
-            text: {
-              tag: "plain_text",
-              content: "Open Local Setting",
-            },
-            type: "primary",
-            url: settingsUrl,
-          },
-        ],
-      },
-    ],
-  };
-
-  try {
-    const messageId = await sendLarkMessage({
-      channelId,
-      threadId,
-      msgType: "interactive",
-      content: card as unknown as Record<string, unknown>,
-    });
-    logLarkEvent("Lark settings card sent", {
-      channelId,
-      threadId,
-      messageId: messageId ?? "",
-    });
-    return messageId;
-  } catch {
-    logLarkEvent("Lark settings card failed, sending fallback text", {
-      channelId,
-      threadId,
-    });
-    const fallbackText = [
-      "Ode settings",
-      `Open: ${settingsUrl}`,
-      `Channel: ${channelId}`,
-      "Use this channel in Local Setting to configure provider/model/directory.",
-    ].join("\n");
-    return sendMessage(channelId, threadId, fallbackText, true);
-  }
 }
 
 async function updateMessage(

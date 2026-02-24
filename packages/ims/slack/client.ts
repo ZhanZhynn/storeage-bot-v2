@@ -1,19 +1,13 @@
 import { App } from "@slack/bolt";
 import { WebClient } from "@slack/web-api";
-import { existsSync } from "fs";
 import { join } from "path";
 import {
   getSlackTargetChannels,
   getSlackBotTokens,
   invalidateOdeConfigCache,
   getChannelAgentProvider,
-  getChannelModel,
-  getOpenCodeModels,
-  getKiloModels,
-  isAgentEnabled,
   getGitHubInfoForUser,
   getChannelSystemMessage,
-  resolveChannelCwd,
 } from "@/config";
 import { markdownToSlack, splitForSlack, truncateForSlack } from "./formatter";
 import {
@@ -31,6 +25,7 @@ import { getSlackActionApiUrl } from "./config";
 import { fetchThreadHistoryByClient } from "./message-history";
 import { registerSlackMessageRouter } from "./message-router";
 import { syncSlackWorkspace } from "@/core/web/local-settings";
+import { describeSlackSettingsIssues, postSlackGeneralSettingsLauncher } from "./settings";
 
 export interface MessageContext {
   channelId: string;
@@ -198,95 +193,6 @@ async function hasOdeSlackTool(workingPath: string): Promise<boolean> {
 function truncateToken(token: string): string {
   if (token.length <= 12) return token;
   return `${token.slice(0, 6)}...${token.slice(-4)}`;
-}
-
-function describeSettingsIssues(channelId: string): string[] {
-  const issues: string[] = [];
-  const provider = getChannelAgentProvider(channelId);
-  const model = getChannelModel(channelId);
-  const { workingDirectory } = resolveChannelCwd(channelId);
-  const normalizeModel = (value: string) => value.trim().toLowerCase();
-
-  if (!isAgentEnabled(provider)) {
-    issues.push(`Agent not enabled: ${provider}`);
-  }
-
-  if (provider === "opencode") {
-    const models = getOpenCodeModels();
-    const modelSet = new Set(models.map(normalizeModel));
-    if (!model) {
-      issues.push("Model not configured.");
-    } else if (!modelSet.has(normalizeModel(model))) {
-      issues.push("Model not available in configured OpenCode models.");
-    }
-  } else if (provider === "kilo") {
-    const models = getKiloModels();
-    const modelSet = new Set(models.map(normalizeModel));
-    if (!model) {
-      issues.push("Model not configured.");
-    } else if (!modelSet.has(normalizeModel(model))) {
-      issues.push("Model not available in configured Kilo models.");
-    }
-  }
-
-  if (!workingDirectory) {
-    issues.push("Working directory not configured.");
-  } else if (!existsSync(workingDirectory)) {
-    issues.push(`Working directory not found: ${workingDirectory}`);
-  }
-
-  return issues;
-}
-
-type SettingsLauncherButton = {
-  actionId: string;
-  label: string;
-};
-
-function buildSettingsLauncherBlocks(
-  channelId: string,
-  description: string,
-  buttons: SettingsLauncherButton[]
-): any[] {
-  return [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: description,
-      },
-    },
-    {
-      type: "actions",
-      elements: buttons.map((button) => ({
-        type: "button",
-        action_id: button.actionId,
-        text: { type: "plain_text", text: button.label },
-        value: channelId,
-      })),
-    },
-  ];
-}
-
-async function postGeneralSettingsLauncher(
-  channelId: string,
-  userId: string,
-  client: WebClient
-): Promise<void> {
-  await client.chat.postEphemeral({
-    channel: channelId,
-    user: userId,
-    text: "Open settings",
-    blocks: buildSettingsLauncherBlocks(
-      channelId,
-      "Choose which settings page to open.",
-      [
-        { actionId: "open_general_settings_modal", label: "general setting" },
-        { actionId: "open_settings_modal", label: "channel setting" },
-        { actionId: "open_github_token_modal", label: "github info" },
-      ]
-    ),
-  });
 }
 
 async function syncWorkspaceAfterMention(
@@ -577,8 +483,8 @@ export function setupMessageHandlers(): void {
       },
       isThreadActive,
       markThreadActive,
-      postGeneralSettingsLauncher,
-      describeSettingsIssues,
+      postGeneralSettingsLauncher: postSlackGeneralSettingsLauncher,
+      describeSettingsIssues: describeSlackSettingsIssues,
       getChannelAgentProvider,
       handleStopCommand: (channelId, threadId) => coreRuntime.handleStopCommand(channelId, threadId),
       handleIncomingMessage: (context, text) => coreRuntime.handleIncomingMessage(context, text),
