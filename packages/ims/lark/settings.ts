@@ -173,16 +173,11 @@ export function buildLarkSettingsDetailCard(params: {
     elements.push(
       {
         tag: "markdown",
-        content: [
-          `- Status format: \`${general.defaultStatusMessageFormat}\``,
-          `- Status frequency: \`${general.statusMessageFrequencyMs / 1000}s\``,
-          `- Git strategy: \`${general.gitStrategy}\``,
-          `- Auto update: \`${boolText(general.autoUpdate)}\``,
-        ].join("\n"),
+        content: "General",
       },
       {
         tag: "markdown",
-        content: "Status format",
+        content: `Status message format\nCurrent: \`${general.defaultStatusMessageFormat}\``,
       },
       {
         tag: "action",
@@ -205,7 +200,7 @@ export function buildLarkSettingsDetailCard(params: {
       },
       {
         tag: "markdown",
-        content: "Status frequency",
+        content: `Status message frequency\nCurrent: \`${general.statusMessageFrequencyMs / 1000}s\``,
       },
       {
         tag: "action",
@@ -228,7 +223,7 @@ export function buildLarkSettingsDetailCard(params: {
       },
       {
         tag: "markdown",
-        content: "Git strategy",
+        content: `Git strategy\nCurrent: \`${general.gitStrategy}\``,
       },
       {
         tag: "action",
@@ -251,7 +246,7 @@ export function buildLarkSettingsDetailCard(params: {
       },
       {
         tag: "markdown",
-        content: "Auto update",
+        content: `Auto update\nCurrent: \`${boolText(general.autoUpdate)}\``,
       },
       {
         tag: "action",
@@ -358,18 +353,11 @@ export function buildLarkSettingsDetailCard(params: {
           : []),
         {
           tag: "markdown",
-          content: [
-            `- Channel: \`${channelId}\``,
-            `- Provider: \`${provider}\``,
-            `- Model: \`${model}\``,
-            `- Working directory: \`${cwd}\``,
-            `- Base branch: \`${baseBranch}\``,
-            `- Channel system message: ${systemMessage}`,
-          ].join("\n"),
+          content: "Coding Agent",
         },
         {
           tag: "markdown",
-          content: "Provider",
+          content: `Provider\nCurrent: \`${provider}\``,
         },
         {
           tag: "action",
@@ -387,7 +375,7 @@ export function buildLarkSettingsDetailCard(params: {
         },
         {
           tag: "markdown",
-          content: "Model",
+          content: `Model\nCurrent: \`${model}\``,
         },
         {
           tag: "action",
@@ -407,7 +395,11 @@ export function buildLarkSettingsDetailCard(params: {
         },
         {
           tag: "markdown",
-          content: "Working directory",
+          content: "Execution",
+        },
+        {
+          tag: "markdown",
+          content: `Working directory\nCurrent: \`${cwd}\``,
         },
         {
           tag: "input",
@@ -417,7 +409,7 @@ export function buildLarkSettingsDetailCard(params: {
         },
         {
           tag: "markdown",
-          content: "Base branch",
+          content: `Base branch\nCurrent: \`${baseBranch}\``,
         },
         {
           tag: "input",
@@ -427,7 +419,7 @@ export function buildLarkSettingsDetailCard(params: {
         },
         {
           tag: "markdown",
-          content: "Channel system message",
+          content: `System message\nCurrent: ${systemMessage}`,
         },
         {
           tag: "input",
