@@ -16,7 +16,6 @@ function createDeps(overrides: Partial<Parameters<typeof registerSlackMessageRou
     setChannelWorkspaceAuth: () => {},
     isThreadActive: () => false,
     markThreadActive: () => {},
-    isGeneralSettingsCommand: () => false,
     postGeneralSettingsLauncher: async () => {},
     describeSettingsIssues: () => [],
     getChannelAgentProvider: () => "opencode" as const,

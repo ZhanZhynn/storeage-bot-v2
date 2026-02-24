@@ -6,8 +6,6 @@ import {
   getGitHubInfoForUser,
   getLarkAppCredentials,
   getLarkTargetChannels,
-  getWebHost,
-  getWebPort,
   getWorkspaces,
 } from "@/config";
 import { isThreadActive, markThreadActive } from "@/config/local/settings";
@@ -15,6 +13,16 @@ import { createCoreRuntime } from "@/core/runtime";
 import type { IMAdapter } from "@/core/types";
 import { log } from "@/utils";
 import { isStopCommand } from "@/ims/shared/stop-command";
+import {
+  toCoreMessageContext,
+  type UnifiedMessageContext,
+} from "@/ims/shared/message-context";
+import { evaluateIncomingMessage } from "@/ims/shared/incoming-pipeline";
+import { executeIncomingFlow } from "@/ims/shared/incoming-executor";
+import { buildIncomingContext } from "@/ims/shared/incoming-normalizer";
+import { parseIncomingCommand } from "@/ims/shared/command-router";
+import { createRuntimeController } from "@/ims/shared/runtime-controller";
+import { sendLarkSettingsCard } from "./settings";
 
 let larkRuntimeStarted = false;
 
@@ -214,15 +222,6 @@ function parseLarkText(content: string | undefined): string {
   }
 }
 
-function isSettingsCommand(text: string): boolean {
-  const normalized = text.trim().replace(/^／/, "/");
-  return /^\/?settings?(?:\s|$)/i.test(normalized);
-}
-
-function getLocalSettingsUrl(): string {
-  return `http://${getWebHost()}:${getWebPort()}/`;
-}
-
 async function buildLarkContext(
   channelId: string,
   threadId: string,
@@ -259,71 +258,19 @@ async function sendMessage(
 }
 
 async function sendSettingsCard(channelId: string, threadId: string): Promise<string | undefined> {
-  const settingsUrl = getLocalSettingsUrl();
-  logLarkEvent("Lark settings UI launcher triggered", {
+  return sendLarkSettingsCard({
     channelId,
     threadId,
-    settingsUrl,
+    sendInteractive: (card) =>
+      sendLarkMessage({
+        channelId,
+        threadId,
+        msgType: "interactive",
+        content: card,
+      }),
+    sendText: (text) => sendMessage(channelId, threadId, text, true),
+    logEvent: logLarkEvent,
   });
-  const card = {
-    config: {
-      wide_screen_mode: true,
-    },
-    header: {
-      template: "blue",
-      title: {
-        tag: "plain_text",
-        content: "Ode Settings",
-      },
-    },
-    elements: [
-      {
-        tag: "markdown",
-        content: `Configure this chat in the local settings UI.\\n\\nChannel: \`${channelId}\``,
-      },
-      {
-        tag: "action",
-        actions: [
-          {
-            tag: "button",
-            text: {
-              tag: "plain_text",
-              content: "Open Local Setting",
-            },
-            type: "primary",
-            url: settingsUrl,
-          },
-        ],
-      },
-    ],
-  };
-
-  try {
-    const messageId = await sendLarkMessage({
-      channelId,
-      threadId,
-      msgType: "interactive",
-      content: card as unknown as Record<string, unknown>,
-    });
-    logLarkEvent("Lark settings card sent", {
-      channelId,
-      threadId,
-      messageId: messageId ?? "",
-    });
-    return messageId;
-  } catch {
-    logLarkEvent("Lark settings card failed, sending fallback text", {
-      channelId,
-      threadId,
-    });
-    const fallbackText = [
-      "Ode settings",
-      `Open: ${settingsUrl}`,
-      `Channel: ${channelId}`,
-      "Use this channel in Local Setting to configure provider/model/directory.",
-    ].join("\n");
-    return sendMessage(channelId, threadId, fallbackText, true);
-  }
 }
 
 async function updateMessage(
@@ -662,6 +609,18 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
     : false;
   const active = isThreadActive(channelId, threadId);
   const text = stripLarkMentionMarkup(rawText);
+  const messageContext: UnifiedMessageContext = buildIncomingContext({
+    platform: "lark",
+    channelId,
+    threadId,
+    messageId,
+    userId: senderOpenId,
+    isTopLevel: topLevelMessage,
+    mentionedBot: isMentioned,
+    activeThread: active,
+    rawText,
+    normalizedText: text,
+  });
 
   logLarkEvent("Lark inbound parsed", {
     channelId,
@@ -675,7 +634,8 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
     textLength: text.length,
   });
 
-  if (isSettingsCommand(text)) {
+  const command = parseIncomingCommand(text);
+  if (command === "setting") {
     logLarkEvent("Lark inbound matched /setting", {
       channelId,
       threadId,
@@ -687,66 +647,50 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
     return;
   }
 
-  if (!topLevelMessage) {
-    if (!isMentioned && !active) {
-      logLarkEvent("Lark inbound ignored: thread reply without mention and inactive thread", {
+  const flowResult = evaluateIncomingMessage(messageContext, isStopCommand);
+  await executeIncomingFlow({
+    context: messageContext,
+    flowResult,
+    markThreadActive,
+    handleStopCommand: (flowChannelId, flowThreadId) => coreRuntime.handleStopCommand(flowChannelId, flowThreadId),
+    sendStopAck: async () => {
+      await sendMessage(channelId, threadId, "Request stopped.", true);
+    },
+    onIgnore: (reason) => {
+      if (reason === "not_mentioned_and_inactive") {
+        logLarkEvent("Lark inbound ignored: not mentioned and thread inactive", {
+          channelId,
+          threadId,
+          messageId,
+          reason,
+          isTopLevel: topLevelMessage,
+          isMentioned,
+          activeThread: active,
+        });
+        return;
+      }
+      logLarkEvent("Lark inbound ignored: empty text after mention stripping", {
+        channelId,
+        messageId,
+      });
+    },
+    forwardToCore: async (forwardText) => {
+      logLarkEvent("Lark inbound accepted: forwarding to core runtime", {
+        channelId,
+        threadId,
+        messageId,
+        userId: senderOpenId,
+      });
+      await coreRuntime.handleIncomingMessage(
+        toCoreMessageContext(messageContext),
+        forwardText
+      );
+      logLarkEvent("Lark inbound handled by core runtime", {
         channelId,
         threadId,
         messageId,
       });
-      return;
-    }
-  } else if (!isMentioned) {
-    logLarkEvent("Lark inbound ignored: top-level message without mention", {
-      channelId,
-      threadId,
-      messageId,
-    });
-    return;
-  }
-
-  if (!text) {
-    logLarkEvent("Lark inbound ignored: empty text after mention stripping", {
-      channelId,
-      messageId,
-    });
-    return;
-  }
-
-  if (isStopCommand(text)) {
-    logLarkEvent("Lark inbound matched stop command", {
-      channelId,
-      threadId,
-      messageId,
-    });
-    const stopped = await coreRuntime.handleStopCommand(channelId, threadId);
-    if (stopped) {
-      await sendMessage(channelId, threadId, "Request stopped.", true);
-    }
-    return;
-  }
-
-  markThreadActive(channelId, threadId);
-  logLarkEvent("Lark inbound accepted: forwarding to core runtime", {
-    channelId,
-    threadId,
-    messageId,
-    userId: senderOpenId,
-  });
-  await coreRuntime.handleIncomingMessage(
-    {
-      channelId,
-      replyThreadId: threadId,
-      threadId,
-      userId: senderOpenId,
-      messageId,
     },
-    text
-  );
-  logLarkEvent("Lark inbound handled by core runtime", {
-    channelId,
-    threadId,
-    messageId,
   });
 }
 
@@ -849,32 +793,43 @@ export async function handleLarkEventPayload(payload: unknown): Promise<{ status
 }
 
 export async function startLarkRuntime(reason: string): Promise<boolean> {
-  if (larkRuntimeStarted) return true;
-  const workspaces = getLarkAppCredentials();
-  if (workspaces.length === 0) {
-    log.debug("Lark runtime skipped (Lark app credentials missing)", { reason });
-    return false;
+  if (larkRuntimeStarted) {
+    log.debug("Lark runtime start skipped; already running", { reason });
   }
-  larkRuntimeStarted = true;
-  tenantTokenCache.clear();
-  botOpenIdCache.clear();
-  sentMessageThreadMap.clear();
-  log.debug("Lark runtime started", {
-    reason,
-    workspaceCount: workspaces.length,
-  });
-  await startLarkLongConnections(reason);
-  return true;
+  return larkRuntimeController.start(reason);
 }
 
 export async function stopLarkRuntime(reason: string): Promise<void> {
-  if (!larkRuntimeStarted) return;
-  larkRuntimeStarted = false;
-  await stopLarkLongConnections(reason);
-  tenantTokenCache.clear();
-  botOpenIdCache.clear();
-  sentMessageThreadMap.clear();
-  log.debug("Lark runtime stopped", { reason });
+  await larkRuntimeController.stop(reason);
 }
+
+const larkRuntimeController = createRuntimeController({
+  isRunning: () => larkRuntimeStarted,
+  startInternal: async (reason: string): Promise<boolean> => {
+    const workspaces = getLarkAppCredentials();
+    if (workspaces.length === 0) {
+      log.debug("Lark runtime skipped (Lark app credentials missing)", { reason });
+      return false;
+    }
+    larkRuntimeStarted = true;
+    tenantTokenCache.clear();
+    botOpenIdCache.clear();
+    sentMessageThreadMap.clear();
+    log.debug("Lark runtime started", {
+      reason,
+      workspaceCount: workspaces.length,
+    });
+    await startLarkLongConnections(reason);
+    return true;
+  },
+  stopInternal: async (reason: string): Promise<void> => {
+    larkRuntimeStarted = false;
+    await stopLarkLongConnections(reason);
+    tenantTokenCache.clear();
+    botOpenIdCache.clear();
+    sentMessageThreadMap.clear();
+    log.debug("Lark runtime stopped", { reason });
+  },
+});
 
 export const recoverPendingRequests = coreRuntime.recoverPendingRequests;
