@@ -158,20 +158,35 @@ async function getTenantAccessToken(appId: string, appSecret: string): Promise<s
   return payload.tenant_access_token;
 }
 
+function buildLarkPostContent(text: string): Record<string, unknown> {
+  const block = [{ tag: "md", text }];
+  return {
+    zh_cn: {
+      title: "",
+      content: [block],
+    },
+    en_us: {
+      title: "",
+      content: [block],
+    },
+  };
+}
+
 async function postTextMessage(params: {
   token: string;
   channelId: string;
   text: string;
   threadId?: string;
 }): Promise<{ messageId: string; channelId: string }> {
+  const content = buildLarkPostContent(params.text);
   const data = params.threadId
     ? await larkRequest<{ message_id?: string }>(
       "POST",
       `/open-apis/im/v1/messages/${encodeURIComponent(params.threadId)}/reply`,
       params.token,
       {
-        msg_type: "text",
-        content: JSON.stringify({ text: params.text }),
+        msg_type: "post",
+        content: JSON.stringify(content),
         reply_in_thread: true,
       }
     )
@@ -181,8 +196,8 @@ async function postTextMessage(params: {
       params.token,
       {
         receive_id: params.channelId,
-        msg_type: "text",
-        content: JSON.stringify({ text: params.text }),
+        msg_type: "post",
+        content: JSON.stringify(content),
       }
     );
   return {
@@ -240,8 +255,8 @@ async function handleLarkAction(payload: LarkActionRequest): Promise<unknown> {
       const messageId = requireString(payload.messageId, "messageId");
       const text = requireString(payload.text, "text");
       const body = {
-        msg_type: "text",
-        content: JSON.stringify({ text }),
+        msg_type: "post",
+        content: JSON.stringify(buildLarkPostContent(text)),
       };
       try {
         await larkRequest<Record<string, unknown>>(
