@@ -331,43 +331,10 @@ export function buildLarkSettingsDetailCard(params: {
         : provider === "opencode"
           ? getOpenCodeModels()
           : [];
-    const modelOptions = Array.from(new Set([...(model !== "(not set)" ? [model] : []), ...providerModels]))
+    const providerModelHints = Array.from(new Set(providerModels))
       .filter((item) => item && item.trim().length > 0)
-      .slice(0, 100)
-      .map((item) => ({
-        text: { tag: "plain_text", content: item },
-        value: item,
-      }));
-    const workingDirectoryOptions = Array.from(new Set([
-      cwd === "(not set)" ? "" : cwd,
-      "/root/ode-new",
-      "/root",
-      "/",
-    ])).map((item) => ({
-      text: { tag: "plain_text", content: item || "(empty)" },
-      value: item,
-    }));
-    const baseBranchOptions = Array.from(new Set([
-      baseBranch,
-      "main",
-      "master",
-      "develop",
-      "dev",
-    ])).map((item) => ({
-      text: { tag: "plain_text", content: item || "main" },
-      value: item || "main",
-    }));
-    const channelSystemMessageOptions = [
-      { text: "(empty)", value: "" },
-      { text: "concise", value: "Please keep responses concise and actionable." },
-      { text: "detailed", value: "Please provide detailed reasoning and include implementation notes." },
-      { text: "current", value: systemMessage === "(none)" ? "" : systemMessage },
-    ]
-      .filter((item, idx, all) => all.findIndex((x) => x.value === item.value) === idx)
-      .map((item) => ({
-        text: { tag: "plain_text", content: item.text },
-        value: item.value,
-      }));
+      .slice(0, 8)
+      .join(", ");
     const settingsBaseValue = {
       action: "set_channel_settings",
       channelId,
@@ -411,13 +378,19 @@ export function buildLarkSettingsDetailCard(params: {
               content: `Model\nCurrent: \`${model}\``,
             },
             {
-              tag: "select_static",
+              tag: "input",
               name: "model",
-              placeholder: { tag: "plain_text", content: "Select model" },
-              options: modelOptions.length > 0
-                ? modelOptions
-                : [{ text: { tag: "plain_text", content: "(empty)" }, value: "" }],
+              placeholder: { tag: "plain_text", content: "Enter model" },
+              value: model === "(not set)" ? "" : model,
             },
+            ...(providerModelHints
+              ? [
+                {
+                  tag: "markdown",
+                  content: `Known ${provider} models: ${providerModelHints}`,
+                },
+              ]
+              : []),
             {
               tag: "markdown",
               content: "Execution",
@@ -427,30 +400,30 @@ export function buildLarkSettingsDetailCard(params: {
               content: `Working directory\nCurrent: \`${cwd}\``,
             },
             {
-              tag: "select_static",
+              tag: "input",
               name: "workingDirectory",
-              placeholder: { tag: "plain_text", content: "Select working directory" },
-              options: workingDirectoryOptions,
+              placeholder: { tag: "plain_text", content: "Enter working directory" },
+              value: cwd === "(not set)" ? "" : cwd,
             },
             {
               tag: "markdown",
               content: `Base branch\nCurrent: \`${baseBranch}\``,
             },
             {
-              tag: "select_static",
+              tag: "input",
               name: "baseBranch",
-              placeholder: { tag: "plain_text", content: "Select base branch" },
-              options: baseBranchOptions,
+              placeholder: { tag: "plain_text", content: "Enter base branch" },
+              value: baseBranch,
             },
             {
               tag: "markdown",
               content: `System message\nCurrent: ${systemMessage}`,
             },
             {
-              tag: "select_static",
+              tag: "input",
               name: "channelSystemMessage",
-              placeholder: { tag: "plain_text", content: "Select system message" },
-              options: channelSystemMessageOptions,
+              placeholder: { tag: "plain_text", content: "Enter system message" },
+              value: systemMessage === "(none)" ? "" : systemMessage,
             },
             {
               tag: "button",

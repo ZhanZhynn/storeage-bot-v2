@@ -305,17 +305,18 @@ async function sendMessage(
 }
 
 async function sendSettingsCard(channelId: string, threadId: string): Promise<string | undefined> {
+  const routeThreadId = threadId || "";
   return sendLarkSettingsCard({
     channelId,
-    threadId,
+    threadId: routeThreadId,
     sendInteractive: (card) =>
       sendLarkMessage({
         channelId,
-        threadId,
+        threadId: routeThreadId,
         msgType: "interactive",
         content: card,
       }),
-    sendText: (text) => sendMessage(channelId, threadId, text),
+    sendText: (text) => sendMessage(channelId, routeThreadId, text),
     logEvent: logLarkEvent,
   });
 }
@@ -960,7 +961,7 @@ async function processLarkCardAction(payload: unknown): Promise<void> {
     });
   }
 
-  if (!channelId || !threadId) {
+  if (!channelId) {
     logLarkEvent("Lark card action ignored: missing routing ids", {
       channelId,
       threadId,
@@ -1019,13 +1020,13 @@ async function processLarkCardAction(payload: unknown): Promise<void> {
     });
 
   if (!card) {
-    await sendSettingsCard(channelId, threadId);
+    await sendSettingsCard(channelId, "");
     return;
   }
 
   await sendLarkMessage({
     channelId,
-    threadId,
+    threadId: "",
     msgType: "interactive",
     content: card,
   });
@@ -1135,7 +1136,7 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent): Promise<void>
       topLevelMessage,
       isMentioned,
     });
-    await sendSettingsCard(channelId, threadId);
+    await sendSettingsCard(channelId, "");
     return;
   }
 
