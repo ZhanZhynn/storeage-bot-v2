@@ -7,14 +7,19 @@ import * as opencode from "./opencode";
 import * as qwen from "./qwen";
 import * as goose from "./goose";
 import * as gemini from "./gemini";
+import {
+  AGENT_PROVIDERS,
+  normalizeAgentProviderId,
+  providerSupportsEventStream,
+  type AgentProviderId,
+} from "@/shared/agent-provider";
+export type { AgentProviderId } from "@/shared/agent-provider";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
   OpenCodeSessionInfo,
 } from "./types";
-
-export type AgentProviderId = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
 
 export type AgentStaticConfig = {
   displayName: string;
@@ -47,10 +52,10 @@ export type AgentProvider = {
   getStaticConfig: () => AgentStaticConfig;
 };
 
-const providers: Record<AgentProviderId, AgentProvider> = {
+type AgentProviderRuntime = Omit<AgentProvider, "id" | "supportsEventStream">;
+
+const providerRuntimes: Record<AgentProviderId, AgentProviderRuntime> = {
   opencode: {
-    id: "opencode",
-    supportsEventStream: true,
     startServer: opencode.startServer,
     stopServer: opencode.stopServer,
     createSession: opencode.createSession,
@@ -63,8 +68,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: opencode.getStaticConfig,
   },
   claudecode: {
-    id: "claudecode",
-    supportsEventStream: false,
     startServer: claude.startServer,
     stopServer: claude.stopServer,
     createSession: claude.createSession,
@@ -77,8 +80,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: claude.getStaticConfig,
   },
   codex: {
-    id: "codex",
-    supportsEventStream: false,
     startServer: codex.startServer,
     stopServer: codex.stopServer,
     createSession: codex.createSession,
@@ -91,8 +92,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: codex.getStaticConfig,
   },
   kimi: {
-    id: "kimi",
-    supportsEventStream: false,
     startServer: kimi.startServer,
     stopServer: kimi.stopServer,
     createSession: kimi.createSession,
@@ -105,8 +104,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: kimi.getStaticConfig,
   },
   kiro: {
-    id: "kiro",
-    supportsEventStream: false,
     startServer: kiro.startServer,
     stopServer: kiro.stopServer,
     createSession: kiro.createSession,
@@ -119,8 +116,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: kiro.getStaticConfig,
   },
   kilo: {
-    id: "kilo",
-    supportsEventStream: false,
     startServer: kilo.startServer,
     stopServer: kilo.stopServer,
     createSession: kilo.createSession,
@@ -133,8 +128,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: kilo.getStaticConfig,
   },
   qwen: {
-    id: "qwen",
-    supportsEventStream: false,
     startServer: qwen.startServer,
     stopServer: qwen.stopServer,
     createSession: qwen.createSession,
@@ -147,8 +140,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: qwen.getStaticConfig,
   },
   goose: {
-    id: "goose",
-    supportsEventStream: false,
     startServer: goose.startServer,
     stopServer: goose.stopServer,
     createSession: goose.createSession,
@@ -161,8 +152,6 @@ const providers: Record<AgentProviderId, AgentProvider> = {
     getStaticConfig: goose.getStaticConfig,
   },
   gemini: {
-    id: "gemini",
-    supportsEventStream: false,
     startServer: gemini.startServer,
     stopServer: gemini.stopServer,
     createSession: gemini.createSession,
@@ -176,17 +165,19 @@ const providers: Record<AgentProviderId, AgentProvider> = {
   },
 };
 
+const providers: Record<AgentProviderId, AgentProvider> = Object.fromEntries(
+  AGENT_PROVIDERS.map((providerId) => [
+    providerId,
+    {
+      id: providerId,
+      supportsEventStream: providerSupportsEventStream(providerId),
+      ...providerRuntimes[providerId],
+    },
+  ])
+) as Record<AgentProviderId, AgentProvider>;
+
 export function getSelectedAgentProviderId(): AgentProviderId {
-  const raw = process.env.ODE_AGENT_PROVIDER?.trim().toLowerCase();
-  if (raw === "claudecode" || raw === "claude") return "claudecode";
-  if (raw === "codex") return "codex";
-  if (raw === "kimi") return "kimi";
-  if (raw === "kiro") return "kiro";
-  if (raw === "kilo") return "kilo";
-  if (raw === "qwen") return "qwen";
-  if (raw === "goose") return "goose";
-  if (raw === "gemini") return "gemini";
-  return "opencode";
+  return normalizeAgentProviderId(process.env.ODE_AGENT_PROVIDER);
 }
 
 export function getSelectedAgentProvider(): AgentProvider {
