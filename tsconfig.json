@@ -1,4 +1,7 @@
 {
+  "exclude": [
+    "packages/web-ui/**"
+  ],
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
