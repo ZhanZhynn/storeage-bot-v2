@@ -136,18 +136,20 @@ async function maybeSyncBranchAndThread(params: {
     !looksDefault &&
     session.threadNameSyncedWithBranch !== branchName
   ) {
-    try {
-      await im.renameThread(channelId, replyThreadId, branchName);
-      session.threadNameSyncedWithBranch = branchName;
-      updated = true;
-    } catch (error) {
-      log.warn("Failed to sync thread name with branch", {
-        channelId,
-        threadId,
-        branchName,
-        error: String(error),
+    void im
+      .renameThread(channelId, replyThreadId, branchName)
+      .then(() => {
+        session.threadNameSyncedWithBranch = branchName;
+        saveSession(session);
+      })
+      .catch((error) => {
+        log.warn("Failed to sync thread name with branch", {
+          channelId,
+          threadId,
+          branchName,
+          error: String(error),
+        });
       });
-    }
   }
 
   if (updated) {
