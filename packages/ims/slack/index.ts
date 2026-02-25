@@ -16,6 +16,6 @@ export { handleSlackActionPayload, type SlackActionRequest, type SlackApiRespons
 
 export { setupInteractiveHandlers } from "./commands";
 
-export { startOAuthFlow, stopOAuthServer, processOAuthCallback } from "./oauth";
+export { stopOAuthServer } from "./oauth";
 
 export { markdownToSlack, truncateForSlack, splitForSlack } from "./formatter";

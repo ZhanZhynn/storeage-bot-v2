@@ -31,12 +31,6 @@ export interface PendingRestartMessage {
 export interface Settings {
   channels: Record<string, ChannelSettings>;
   pendingRestartMessages?: PendingRestartMessage[];
-  oauthState?: {
-    state: string;
-    channelId: string;
-    threadId?: string;
-    createdAt: number;
-  };
 }
 
 let cachedSettings: Settings | null = null;
@@ -291,31 +285,4 @@ export function getActiveThreads(): ActiveThreadInfo[] {
   }
 
   return activeThreads;
-}
-
-// OAuth state management
-export function setOAuthState(
-  state: string,
-  channelId: string,
-  threadId?: string
-): void {
-  const settings = loadSettings();
-  settings.oauthState = {
-    state,
-    channelId,
-    threadId,
-    createdAt: Date.now(),
-  };
-  saveSettings(settings);
-}
-
-export function getOAuthState(): Settings["oauthState"] {
-  const settings = loadSettings();
-  return settings.oauthState;
-}
-
-export function clearOAuthState(): void {
-  const settings = loadSettings();
-  delete settings.oauthState;
-  saveSettings(settings);
 }

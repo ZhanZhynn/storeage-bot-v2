@@ -1,18 +1,19 @@
 import { WebClient } from "@slack/web-api";
-import { existsSync } from "fs";
 import {
-  getChannelAgentProvider,
-  getChannelModel,
-  getOpenCodeModels,
-  getKiloModels,
-  isAgentEnabled,
-  resolveChannelCwd,
-} from "@/config";
+  describeChannelSettingsIssues,
+  SETTINGS_LAUNCHER_ITEMS,
+} from "@/ims/shared/settings-domain";
 
 type SettingsLauncherButton = {
   actionId: string;
   label: string;
 };
+
+function toSlackSettingsActionId(action: "general" | "channel" | "github"): string {
+  if (action === "general") return "open_general_settings_modal";
+  if (action === "channel") return "open_settings_modal";
+  return "open_github_token_modal";
+}
 
 function buildSettingsLauncherBlocks(
   channelId: string,
@@ -51,49 +52,14 @@ export async function postSlackGeneralSettingsLauncher(
     blocks: buildSettingsLauncherBlocks(
       channelId,
       "Choose which settings page to open.",
-      [
-        { actionId: "open_general_settings_modal", label: "general setting" },
-        { actionId: "open_settings_modal", label: "channel setting" },
-        { actionId: "open_github_token_modal", label: "github info" },
-      ]
+      SETTINGS_LAUNCHER_ITEMS.map((item) => ({
+        actionId: toSlackSettingsActionId(item.action),
+        label: item.label.toLowerCase(),
+      }))
     ),
   });
 }
 
 export function describeSlackSettingsIssues(channelId: string): string[] {
-  const issues: string[] = [];
-  const provider = getChannelAgentProvider(channelId);
-  const model = getChannelModel(channelId);
-  const { workingDirectory } = resolveChannelCwd(channelId);
-  const normalizeModel = (value: string) => value.trim().toLowerCase();
-
-  if (!isAgentEnabled(provider)) {
-    issues.push(`Agent not enabled: ${provider}`);
-  }
-
-  if (provider === "opencode") {
-    const models = getOpenCodeModels();
-    const modelSet = new Set(models.map(normalizeModel));
-    if (!model) {
-      issues.push("Model not configured.");
-    } else if (!modelSet.has(normalizeModel(model))) {
-      issues.push("Model not available in configured OpenCode models.");
-    }
-  } else if (provider === "kilo") {
-    const models = getKiloModels();
-    const modelSet = new Set(models.map(normalizeModel));
-    if (!model) {
-      issues.push("Model not configured.");
-    } else if (!modelSet.has(normalizeModel(model))) {
-      issues.push("Model not available in configured Kilo models.");
-    }
-  }
-
-  if (!workingDirectory) {
-    issues.push("Working directory not configured.");
-  } else if (!existsSync(workingDirectory)) {
-    issues.push(`Working directory not found: ${workingDirectory}`);
-  }
-
-  return issues;
+  return describeChannelSettingsIssues(channelId);
 }

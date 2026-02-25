@@ -3,6 +3,7 @@ import {
   setThreadSessionId,
 } from "@/config/local/settings";
 import type { OpenCodeSessionInfo } from "@/agents/types";
+import type { AgentProviderId } from "@/shared/agent-provider";
 import { normalizeSessionEnvironment, type SessionEnvironment } from "./base";
 
 type SessionEnvironmentReader = (sessionId: string) => SessionEnvironment | null | undefined;
@@ -11,7 +12,7 @@ type SessionEnvironmentWriter = (sessionId: string, env: SessionEnvironment) => 
 export async function getOrCreateThreadSession(params: {
   channelId: string;
   threadId: string;
-  providerId: "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
+  providerId: AgentProviderId;
   workingPath: string;
   env: SessionEnvironment;
   createSession: (workingPath: string, env?: SessionEnvironment) => Promise<string>;

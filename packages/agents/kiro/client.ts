@@ -7,18 +7,23 @@ import {
   noopStartServer,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
-import { getOrCreateThreadSession } from "../runtime/thread-session";
+import { createCliThreadSessionManager } from "../runtime/cli-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
-  OpenCodeSessionInfo,
 } from "../types";
 
 export type SessionEnvironment = RuntimeSessionEnvironment;
 
 const runtime = new CliAgentRuntime("Kiro");
 const newSessions = new Set<string>();
+export const { createSession, getOrCreateSession } = createCliThreadSessionManager({
+  providerId: "kiro",
+  providerName: "Kiro",
+  runtime,
+  newSessions,
+});
 
 const TOOL_MARKER_PATTERN = /\(using tool:\s*([^\)]+)\)/i;
 const READ_OPERATION_PATTERN = /Reading file:\s*(.+?),\s*from line\s*(\d+)\s*to\s*(\d+)/i;
@@ -328,44 +333,6 @@ function parseKiroResponse(output: string): string {
     throw new Error("Kiro returned empty response");
   }
   return text;
-}
-
-export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  runtime.setSessionEnvironment(sessionId, env ?? {});
-  newSessions.add(sessionId);
-  log.info("Created Kiro session", { sessionId, workingPath });
-  return sessionId;
-}
-
-export async function getOrCreateSession(
-  channelId: string,
-  threadId: string,
-  workingPath: string,
-  env: SessionEnvironment = {}
-): Promise<OpenCodeSessionInfo> {
-  return getOrCreateThreadSession({
-    channelId,
-    threadId,
-    providerId: "kiro",
-    workingPath,
-    env,
-    createSession,
-    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
-    setSessionEnvironment: (sessionId, nextEnv) => {
-      runtime.setSessionEnvironment(sessionId, nextEnv);
-    },
-    onEnvironmentChanged: () => {
-      log.info("Kiro session environment changed; creating new session", {
-        channelId,
-        threadId,
-        workingPath,
-      });
-    },
-    onCreatingSession: () => {
-      log.info("Creating new Kiro session for thread", { channelId, threadId, workingPath });
-    },
-  });
 }
 
 export async function sendMessage(

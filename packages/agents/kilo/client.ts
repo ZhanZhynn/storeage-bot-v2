@@ -8,12 +8,11 @@ import {
   runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
-import { getOrCreateThreadSession } from "../runtime/thread-session";
+import { createCliThreadSessionManager } from "../runtime/cli-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
-  OpenCodeSessionInfo,
 } from "../types";
 
 export type SessionEnvironment = RuntimeSessionEnvironment;
@@ -81,6 +80,15 @@ function buildKiloSessionId(): string {
 function isValidKiloSessionId(value: string): boolean {
   return value.startsWith("ses");
 }
+
+export const { createSession, getOrCreateSession } = createCliThreadSessionManager({
+  providerId: "kilo",
+  providerName: "Kilo",
+  runtime,
+  newSessions,
+  sessionIdFactory: buildKiloSessionId,
+  validateSessionId: isValidKiloSessionId,
+});
 
 function buildModelArg(model?: OpenCodeOptions["model"]): string | undefined {
   if (!model?.modelID) return undefined;
@@ -280,53 +288,6 @@ function extractKiloFinalResponse(output: string): string {
 
   const text = assistantMessages.join("\n\n").trim();
   return text || cleaned.trim();
-}
-
-export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
-  const sessionId = buildKiloSessionId();
-  runtime.setSessionEnvironment(sessionId, env ?? {});
-  newSessions.add(sessionId);
-  log.info("Created Kilo session", { sessionId, workingPath });
-  return sessionId;
-}
-
-export async function getOrCreateSession(
-  channelId: string,
-  threadId: string,
-  workingPath: string,
-  env: SessionEnvironment = {}
-): Promise<OpenCodeSessionInfo> {
-  return getOrCreateThreadSession({
-    channelId,
-    threadId,
-    providerId: "kilo",
-    workingPath,
-    env,
-    createSession,
-    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
-    setSessionEnvironment: (sessionId, nextEnv) => {
-      runtime.setSessionEnvironment(sessionId, nextEnv);
-    },
-    validateSessionId: isValidKiloSessionId,
-    onInvalidSessionId: (existingSession) => {
-      log.info("Invalid Kilo session id found; generating new session", {
-        channelId,
-        threadId,
-        workingPath,
-        existingSession,
-      });
-    },
-    onEnvironmentChanged: () => {
-      log.info("Kilo session environment changed; creating new session", {
-        channelId,
-        threadId,
-        workingPath,
-      });
-    },
-    onCreatingSession: () => {
-      log.info("Creating new Kilo session for thread", { channelId, threadId, workingPath });
-    },
-  });
 }
 
 export async function sendMessage(

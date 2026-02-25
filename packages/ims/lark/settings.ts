@@ -1,19 +1,20 @@
 import {
-  getCodexModels,
   getChannelAgentProvider,
   getChannelBaseBranch,
   getChannelModel,
   getChannelSystemMessage,
-  getEnabledAgentProviders,
   getGitHubInfoForUser,
-  getKiloModels,
-  getOpenCodeModels,
   STATUS_MESSAGE_FREQUENCY_OPTIONS,
   getUserGeneralSettings,
   getWebHost,
   getWebPort,
   resolveChannelCwd,
 } from "@/config";
+import {
+  getEnabledProvidersWithFallback,
+  getProviderModelListsFromConfig,
+  SETTINGS_LAUNCHER_ITEMS,
+} from "@/ims/shared/settings-domain";
 
 export type LarkSettingsCardAction =
   | "open_settings_launcher"
@@ -30,9 +31,19 @@ export type LarkSettingsCardAction =
   | "clear_github_info";
 
 const SETTINGS_LAUNCHER_ACTIONS: Array<{ action: LarkSettingsCardAction; label: string; style?: "primary" | "default" }> = [
-  { action: "open_general_settings_modal", label: "General setting", style: "primary" },
-  { action: "open_settings_modal", label: "Channel setting" },
-  { action: "open_github_token_modal", label: "GitHub info" },
+  ...SETTINGS_LAUNCHER_ITEMS.map((item) => {
+    const action: LarkSettingsCardAction = item.action === "general"
+      ? "open_general_settings_modal"
+      : item.action === "channel"
+        ? "open_settings_modal"
+        : "open_github_token_modal";
+    const style: "primary" | "default" = item.action === "general" ? "primary" : "default";
+    return {
+      action,
+      label: item.label,
+      style,
+    };
+  }),
 ];
 
 function getLocalSettingsUrl(): string {
@@ -289,27 +300,17 @@ export function buildLarkSettingsDetailCard(params: {
     const cwd = resolveChannelCwd(channelId).workingDirectory || "(not set)";
     const baseBranch = getChannelBaseBranch(channelId);
     const systemMessage = getChannelSystemMessage(channelId) || "(none)";
-    const enabledProviders = getEnabledAgentProviders();
-    const providerOptions = (enabledProviders.length > 0 ? enabledProviders : [
-      "opencode",
-      "claudecode",
-      "codex",
-      "kimi",
-      "kiro",
-      "kilo",
-      "qwen",
-      "goose",
-      "gemini",
-    ]).map((item) => ({
+    const providerOptions = getEnabledProvidersWithFallback().map((item) => ({
       text: { tag: "plain_text", content: item },
       value: item,
     }));
+    const modelLists = getProviderModelListsFromConfig();
     const providerModels = provider === "codex"
-      ? getCodexModels()
+      ? modelLists.codex
       : provider === "kilo"
-        ? getKiloModels()
+        ? modelLists.kilo
         : provider === "opencode"
-          ? getOpenCodeModels()
+          ? modelLists.opencode
           : [];
     const modelOptions = Array.from(new Set(providerModels.map((item) => item.trim()).filter((item) => item.length > 0)));
     if (model !== "(not set)" && !modelOptions.includes(model)) {
