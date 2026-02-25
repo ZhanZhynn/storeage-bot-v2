@@ -12,7 +12,6 @@ import {
   getUserGeneralSettings,
   getWebHost,
   getWebPort,
-  getWorkspaces,
   resolveChannelCwd,
 } from "@/config";
 
@@ -35,25 +34,6 @@ const SETTINGS_LAUNCHER_ACTIONS: Array<{ action: LarkSettingsCardAction; label: 
   { action: "open_settings_modal", label: "Channel setting" },
   { action: "open_github_token_modal", label: "GitHub info" },
 ];
-
-function toWorkspaceSlug(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-function getWorkspaceNameByChannel(channelId: string): string {
-  for (const workspace of getWorkspaces()) {
-    if (workspace.type !== "lark") continue;
-    if (workspace.channelDetails.some((detail) => detail.id === channelId)) {
-      return workspace.name || "workspace";
-    }
-  }
-  const fallback = getWorkspaces().find((workspace) => workspace.type === "lark");
-  return fallback?.name || "workspace";
-}
 
 function getLocalSettingsUrl(): string {
   return `http://${getWebHost()}:${getWebPort()}/`;
@@ -162,9 +142,6 @@ export function buildLarkSettingsDetailCard(params: {
   notice?: string;
 }): Record<string, unknown> {
   const { action, channelId, threadId, userId, notice } = params;
-  const workspaceSlug = encodeURIComponent(toWorkspaceSlug(getWorkspaceNameByChannel(channelId)) || "workspace");
-  const localSettingsUrl = getLocalSettingsUrl();
-  const workspaceUrl = `${localSettingsUrl}slack-bot/${workspaceSlug}`;
 
   if (action === "open_general_settings_modal") {
     const general = getUserGeneralSettings();
@@ -331,10 +308,11 @@ export function buildLarkSettingsDetailCard(params: {
         : provider === "opencode"
           ? getOpenCodeModels()
           : [];
-    const providerModelHints = Array.from(new Set(providerModels))
-      .filter((item) => item && item.trim().length > 0)
-      .slice(0, 8)
-      .join(", ");
+    const modelOptions = Array.from(new Set(providerModels.map((item) => item.trim()).filter((item) => item.length > 0)));
+    if (model !== "(not set)" && !modelOptions.includes(model)) {
+      modelOptions.unshift(model);
+    }
+    modelOptions.push("");
     const settingsBaseValue = {
       action: "set_channel_settings",
       channelId,
@@ -378,19 +356,14 @@ export function buildLarkSettingsDetailCard(params: {
               content: `Model\nCurrent: \`${model}\``,
             },
             {
-              tag: "input",
+              tag: "select_static",
               name: "model",
-              placeholder: { tag: "plain_text", content: "Enter model" },
-              value: model === "(not set)" ? "" : model,
+              placeholder: { tag: "plain_text", content: "Select model" },
+              options: modelOptions.map((item) => ({
+                text: { tag: "plain_text", content: item || "(not set)" },
+                value: item,
+              })),
             },
-            ...(providerModelHints
-              ? [
-                {
-                  tag: "markdown",
-                  content: `Known ${provider} models: ${providerModelHints}`,
-                },
-              ]
-              : []),
             {
               tag: "markdown",
               content: "Execution",
@@ -447,47 +420,6 @@ export function buildLarkSettingsDetailCard(params: {
             },
           ],
         },
-        {
-          tag: "column_set",
-          columns: [
-            {
-              tag: "column",
-              width: "auto",
-              elements: [
-                {
-                  tag: "button",
-                  name: "openChannelPage",
-                  type: "default",
-                  text: { tag: "plain_text", content: "Open channel page" },
-                  behaviors: [
-                    {
-                      type: "open_url",
-                      default_url: workspaceUrl,
-                    },
-                  ],
-                },
-              ],
-            },
-            {
-              tag: "column",
-              width: "auto",
-              elements: [
-                {
-                  tag: "button",
-                  name: "backFromChannel",
-                  type: "primary",
-                  text: { tag: "plain_text", content: "Back" },
-                  behaviors: [
-                    {
-                      type: "callback",
-                      value: { action: "open_settings_launcher", channelId, threadId },
-                    },
-                  ],
-                },
-              ],
-            },
-          ],
-        },
       ]);
   }
 
@@ -525,41 +457,30 @@ export function buildLarkSettingsDetailCard(params: {
             content: `Token\nCurrent: \`${maskedToken(github?.token)}\``,
           },
           {
-            tag: "select_static",
+            tag: "input",
             name: "githubToken",
-            placeholder: { tag: "plain_text", content: "Token action" },
-            options: [
-              { text: { tag: "plain_text", content: "Keep current" }, value: githubToken },
-              { text: { tag: "plain_text", content: "Clear token" }, value: "" },
-            ],
+            placeholder: { tag: "plain_text", content: "Enter GitHub token" },
+            value: githubToken,
           },
           {
             tag: "markdown",
             content: `Git name\nCurrent: \`${github?.gitName || "(not set)"}\``,
           },
           {
-            tag: "select_static",
+            tag: "input",
             name: "githubName",
-            placeholder: { tag: "plain_text", content: "Select git name" },
-            options: [
-              { text: { tag: "plain_text", content: githubName || "(not set)" }, value: githubName },
-              { text: { tag: "plain_text", content: "LIU9293" }, value: "LIU9293" },
-              { text: { tag: "plain_text", content: "(empty)" }, value: "" },
-            ],
+            placeholder: { tag: "plain_text", content: "Enter git name" },
+            value: githubName,
           },
           {
             tag: "markdown",
             content: `Git email\nCurrent: \`${github?.gitEmail || "(not set)"}\``,
           },
           {
-            tag: "select_static",
+            tag: "input",
             name: "githubEmail",
-            placeholder: { tag: "plain_text", content: "Select git email" },
-            options: [
-              { text: { tag: "plain_text", content: githubEmail || "(not set)" }, value: githubEmail },
-              { text: { tag: "plain_text", content: "mylock.kai@gmail.com" }, value: "mylock.kai@gmail.com" },
-              { text: { tag: "plain_text", content: "(empty)" }, value: "" },
-            ],
+            placeholder: { tag: "plain_text", content: "Enter git email" },
+            value: githubEmail,
           },
           {
             tag: "button",
@@ -580,69 +501,6 @@ export function buildLarkSettingsDetailCard(params: {
               },
             ],
             form_action_type: "submit",
-          },
-        ],
-      },
-      {
-        tag: "column_set",
-        columns: [
-          {
-            tag: "column",
-            width: "auto",
-            elements: [
-              {
-                tag: "button",
-                name: "clearGitHub",
-                type: "danger",
-                text: { tag: "plain_text", content: "Clear" },
-                behaviors: [
-                  {
-                    type: "callback",
-                    value: {
-                      action: "clear_github_info",
-                      channelId,
-                      threadId,
-                    },
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            tag: "column",
-            width: "auto",
-            elements: [
-              {
-                tag: "button",
-                name: "openWorkspacePage",
-                type: "default",
-                text: { tag: "plain_text", content: "Open workspace page" },
-                behaviors: [
-                  {
-                    type: "open_url",
-                    default_url: workspaceUrl,
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            tag: "column",
-            width: "auto",
-            elements: [
-              {
-                tag: "button",
-                name: "backFromGithub",
-                type: "primary",
-                text: { tag: "plain_text", content: "Back" },
-                behaviors: [
-                  {
-                    type: "callback",
-                    value: { action: "open_settings_launcher", channelId, threadId },
-                  },
-                ],
-              },
-            ],
           },
         ],
       },
