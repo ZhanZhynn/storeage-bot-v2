@@ -1,15 +1,13 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { writeFile } from "fs/promises";
+import { unlink, writeFile } from "fs/promises";
 import {
   setChannelCwd as setChannelCwdInConfig,
 } from "./ode";
 import { loadSession, updateSessionIdForThread } from "./sessions";
 
 const readFileSync = fs.readFileSync;
-const writeFileSync = fs.writeFileSync;
-const existsSync = fs.existsSync;
 const mkdirSync = fs.mkdirSync;
 const join = typeof path.join === "function" ? path.join : (...parts: string[]) => parts.join("/");
 const homedir = typeof os.homedir === "function" ? os.homedir : () => "";
@@ -39,14 +37,20 @@ let cachedSettings: Settings | null = null;
 let pendingSettingsWriteTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingSettingsSnapshot: Settings | null = null;
 let settingsWriteChain: Promise<void> = Promise.resolve();
+const channelAgentsCache = new Map<string, string | null>();
+const channelAgentInstructionCache = new Map<string, string | null>();
+let channelFileWriteChain: Promise<void> = Promise.resolve();
+
+function runChannelFileWrite(task: () => Promise<void>): void {
+  channelFileWriteChain = channelFileWriteChain
+    .catch(() => undefined)
+    .then(task)
+    .catch(() => undefined);
+}
 
 function ensureDataDir(): void {
-  if (!existsSync(ODE_CONFIG_DIR)) {
-    mkdirSync(ODE_CONFIG_DIR, { recursive: true });
-  }
-  if (!existsSync(AGENTS_DIR)) {
-    mkdirSync(AGENTS_DIR, { recursive: true });
-  }
+  mkdirSync(ODE_CONFIG_DIR, { recursive: true });
+  mkdirSync(AGENTS_DIR, { recursive: true });
 }
 
 export function loadSettings(): Settings {
@@ -54,11 +58,6 @@ export function loadSettings(): Settings {
 
   ensureDataDir();
   const emptySettings: Settings = { channels: {} };
-
-  if (!existsSync(SETTINGS_FILE)) {
-    cachedSettings = emptySettings;
-    return cachedSettings;
-  }
 
   try {
     const raw = readFileSync(SETTINGS_FILE, "utf-8");
@@ -85,9 +84,14 @@ export function loadSettings(): Settings {
 }
 
 function normalizeChannelSettings(settings: ChannelSettings): ChannelSettings {
-  const threadSessions = settings.threadSessions ?? {};
-  const activeThreads = settings.activeThreads ?? {};
-  return { ...settings, threadSessions, activeThreads };
+  const hasThreadSessions = Boolean(settings.threadSessions);
+  const hasActiveThreads = Boolean(settings.activeThreads);
+  if (hasThreadSessions && hasActiveThreads) return settings;
+  return {
+    ...settings,
+    threadSessions: settings.threadSessions ?? {},
+    activeThreads: settings.activeThreads ?? {},
+  };
 }
 
 export function saveSettings(settings: Settings): void {
@@ -190,23 +194,39 @@ export function setChannelCwd(channelId: string, cwd: string): void {
 
 // Per-channel agents.md management
 export function getChannelAgentsMd(channelId: string): string | null {
+  if (channelAgentsCache.has(channelId)) {
+    return channelAgentsCache.get(channelId) ?? null;
+  }
+
   const filePath = join(AGENTS_DIR, `${channelId}.md`);
-  if (!existsSync(filePath)) return null;
-  return readFileSync(filePath, "utf-8");
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    channelAgentsCache.set(channelId, content);
+    return content;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      return null;
+    }
+    channelAgentsCache.set(channelId, null);
+    return null;
+  }
 }
 
 export function setChannelAgentsMd(channelId: string, content: string): void {
   ensureDataDir();
   const filePath = join(AGENTS_DIR, `${channelId}.md`);
-  writeFileSync(filePath, content);
+  channelAgentsCache.set(channelId, content);
+  runChannelFileWrite(async () => {
+    await writeFile(filePath, content, "utf-8");
+  });
 }
 
 export function deleteChannelAgentsMd(channelId: string): void {
   const filePath = join(AGENTS_DIR, `${channelId}.md`);
-  if (existsSync(filePath)) {
-    const { unlinkSync } = require("fs");
-    unlinkSync(filePath);
-  }
+  channelAgentsCache.set(channelId, null);
+  runChannelFileWrite(async () => {
+    await unlink(filePath);
+  });
 }
 
 export type AgentInstructionTarget = "plan" | "build";
@@ -220,8 +240,20 @@ export function getChannelAgentInstructions(
   agent: AgentInstructionTarget
 ): string | null {
   const filePath = getAgentInstructionsFile(channelId, agent);
-  if (!existsSync(filePath)) return null;
-  return readFileSync(filePath, "utf-8");
+  if (channelAgentInstructionCache.has(filePath)) {
+    return channelAgentInstructionCache.get(filePath) ?? null;
+  }
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    channelAgentInstructionCache.set(filePath, content);
+    return content;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      return null;
+    }
+    channelAgentInstructionCache.set(filePath, null);
+    return null;
+  }
 }
 
 export function setChannelAgentInstructions(
@@ -231,7 +263,10 @@ export function setChannelAgentInstructions(
 ): void {
   ensureDataDir();
   const filePath = getAgentInstructionsFile(channelId, agent);
-  writeFileSync(filePath, content);
+  channelAgentInstructionCache.set(filePath, content);
+  runChannelFileWrite(async () => {
+    await writeFile(filePath, content, "utf-8");
+  });
 }
 
 export function deleteChannelAgentInstructions(
@@ -239,10 +274,10 @@ export function deleteChannelAgentInstructions(
   agent: AgentInstructionTarget
 ): void {
   const filePath = getAgentInstructionsFile(channelId, agent);
-  if (existsSync(filePath)) {
-    const { unlinkSync } = require("fs");
-    unlinkSync(filePath);
-  }
+  channelAgentInstructionCache.set(filePath, null);
+  runChannelFileWrite(async () => {
+    await unlink(filePath);
+  });
 }
 
 // Session management (one session per thread)

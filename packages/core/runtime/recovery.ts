@@ -6,7 +6,7 @@ export async function recoverPendingRequests(
   im: IMAdapter,
   platform?: "slack" | "discord" | "lark"
 ): Promise<void> {
-  const pendingSessions = getSessionsWithPendingRequests(platform);
+  const pendingSessions = await getSessionsWithPendingRequests(platform);
 
   if (pendingSessions.length === 0) {
     log.debug("No pending requests to recover");

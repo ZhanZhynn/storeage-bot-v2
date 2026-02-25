@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { spawn } from "child_process";
 import {
   resolveStatusMessageFormat,
 } from "@/config";
@@ -40,6 +40,17 @@ type RuntimeState = {
   stateMachines: Map<string, CoreStateMachine>;
 };
 
+type BranchCacheEntry = {
+  value: string | null;
+  expiresAt: number;
+};
+
+const BRANCH_CACHE_TTL_MS = 30_000;
+const BRANCH_CACHE_MISS_TTL_MS = 5_000;
+const GIT_BRANCH_TIMEOUT_MS = 1_500;
+const branchNameCache = new Map<string, BranchCacheEntry>();
+const branchLookupInFlight = new Map<string, Promise<string | null>>();
+
 function createRuntimeState(): RuntimeState {
   return {
     liveEventHistory: new Map(),
@@ -48,24 +59,101 @@ function createRuntimeState(): RuntimeState {
   };
 }
 
-function getCurrentBranchName(cwd: string): string | null {
-  try {
-    const result = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+function getCachedBranchName(cwd: string): string | null | undefined {
+  const entry = branchNameCache.get(cwd);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    branchNameCache.delete(cwd);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function setCachedBranchName(cwd: string, value: string | null): void {
+  branchNameCache.set(cwd, {
+    value,
+    expiresAt: Date.now() + (value ? BRANCH_CACHE_TTL_MS : BRANCH_CACHE_MISS_TTL_MS),
+  });
+}
+
+async function resolveBranchNameFromGit(cwd: string): Promise<string | null> {
+  return await new Promise((resolve) => {
+    let settled = false;
+    let timedOut = false;
+    const stdoutChunks: Buffer[] = [];
+
+    const child = spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
       cwd,
       env: { ...process.env },
-      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    if (result.status !== 0) {
+
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore kill errors
+      }
+    }, GIT_BRANCH_TIMEOUT_MS);
+
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(value);
+    };
+
+    child.stdout?.on("data", (chunk) => {
+      if (chunk) stdoutChunks.push(Buffer.from(chunk));
+    });
+
+    child.on("error", () => {
+      finish(null);
+    });
+
+    child.on("close", (code) => {
+      if (timedOut) {
+        log.debug("Timed out resolving git branch name", { cwd, timeoutMs: GIT_BRANCH_TIMEOUT_MS });
+        finish(null);
+        return;
+      }
+      if (code !== 0) {
+        finish(null);
+        return;
+      }
+      const name = Buffer.concat(stdoutChunks).toString("utf-8").trim();
+      if (!name || name === "HEAD") {
+        finish(null);
+        return;
+      }
+      finish(name);
+    });
+  });
+}
+
+async function getCurrentBranchName(cwd: string): Promise<string | null> {
+  const cached = getCachedBranchName(cwd);
+  if (cached !== undefined) return cached;
+
+  const existing = branchLookupInFlight.get(cwd);
+  if (existing) return existing;
+
+  const inFlight = resolveBranchNameFromGit(cwd)
+    .then((name) => {
+      setCachedBranchName(cwd, name);
+      return name;
+    })
+    .catch(() => {
+      setCachedBranchName(cwd, null);
       return null;
-    }
-    const name = String(result.stdout || "").trim();
-    if (!name || name === "HEAD") {
-      return null;
-    }
-    return name;
-  } catch {
-    return null;
-  }
+    })
+    .finally(() => {
+      branchLookupInFlight.delete(cwd);
+    });
+
+  branchLookupInFlight.set(cwd, inFlight);
+  return inFlight;
 }
 
 async function maybeSyncBranchAndThread(params: {
@@ -77,7 +165,7 @@ async function maybeSyncBranchAndThread(params: {
   im: IMAdapter;
 }): Promise<void> {
   const { session, cwd, channelId, threadId, replyThreadId, im } = params;
-  const branchName = getCurrentBranchName(cwd);
+  const branchName = await getCurrentBranchName(cwd);
   if (!branchName) return;
 
   let updated = false;
