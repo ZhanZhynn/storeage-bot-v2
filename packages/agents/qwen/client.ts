@@ -8,12 +8,11 @@ import {
   runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
-import { getOrCreateThreadSession } from "../runtime/thread-session";
+import { createCliThreadSessionManager } from "../runtime/cli-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
-  OpenCodeSessionInfo,
 } from "../types";
 
 export type SessionEnvironment = RuntimeSessionEnvironment;
@@ -37,6 +36,12 @@ type QwenJsonRecord = {
 
 const runtime = new CliAgentRuntime("Qwen");
 const newSessions = new Set<string>();
+export const { createSession, getOrCreateSession } = createCliThreadSessionManager({
+  providerId: "qwen",
+  providerName: "Qwen",
+  runtime,
+  newSessions,
+});
 
 function resolveQwenBinary(): string {
   if (typeof Bun !== "undefined") {
@@ -147,44 +152,6 @@ function parseQwenResponse(output: string): {
   }
 
   return { text, sessionId };
-}
-
-export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  runtime.setSessionEnvironment(sessionId, env ?? {});
-  newSessions.add(sessionId);
-  log.info("Created Qwen session", { sessionId, workingPath });
-  return sessionId;
-}
-
-export async function getOrCreateSession(
-  channelId: string,
-  threadId: string,
-  workingPath: string,
-  env: SessionEnvironment = {}
-): Promise<OpenCodeSessionInfo> {
-  return getOrCreateThreadSession({
-    channelId,
-    threadId,
-    providerId: "qwen",
-    workingPath,
-    env,
-    createSession,
-    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
-    setSessionEnvironment: (sessionId, nextEnv) => {
-      runtime.setSessionEnvironment(sessionId, nextEnv);
-    },
-    onEnvironmentChanged: () => {
-      log.info("Qwen session environment changed; creating new session", {
-        channelId,
-        threadId,
-        workingPath,
-      });
-    },
-    onCreatingSession: () => {
-      log.info("Creating new Qwen session for thread", { channelId, threadId, workingPath });
-    },
-  });
 }
 
 export async function sendMessage(

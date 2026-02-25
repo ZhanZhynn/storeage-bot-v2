@@ -8,12 +8,11 @@ import {
   runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
-import { getOrCreateThreadSession } from "../runtime/thread-session";
+import { createCliThreadSessionManager } from "../runtime/cli-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
-  OpenCodeSessionInfo,
 } from "../types";
 
 export type SessionEnvironment = RuntimeSessionEnvironment;
@@ -43,6 +42,12 @@ type GooseJsonRecord = {
 
 const runtime = new CliAgentRuntime("Goose");
 const newSessions = new Set<string>();
+export const { createSession, getOrCreateSession } = createCliThreadSessionManager({
+  providerId: "goose",
+  providerName: "Goose",
+  runtime,
+  newSessions,
+});
 
 function resolveGooseBinary(): string {
   if (typeof Bun !== "undefined" && Bun.which("goose")) return "goose";
@@ -190,44 +195,6 @@ export function parseGooseResponse(output: string): {
   }
 
   return { text, sessionId };
-}
-
-export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  runtime.setSessionEnvironment(sessionId, env ?? {});
-  newSessions.add(sessionId);
-  log.info("Created Goose session", { sessionId, workingPath });
-  return sessionId;
-}
-
-export async function getOrCreateSession(
-  channelId: string,
-  threadId: string,
-  workingPath: string,
-  env: SessionEnvironment = {}
-): Promise<OpenCodeSessionInfo> {
-  return getOrCreateThreadSession({
-    channelId,
-    threadId,
-    providerId: "goose",
-    workingPath,
-    env,
-    createSession,
-    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
-    setSessionEnvironment: (sessionId, nextEnv) => {
-      runtime.setSessionEnvironment(sessionId, nextEnv);
-    },
-    onEnvironmentChanged: () => {
-      log.info("Goose session environment changed; creating new session", {
-        channelId,
-        threadId,
-        workingPath,
-      });
-    },
-    onCreatingSession: () => {
-      log.info("Creating new Goose session for thread", { channelId, threadId, workingPath });
-    },
-  });
 }
 
 export async function sendMessage(

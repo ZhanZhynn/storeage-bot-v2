@@ -8,15 +8,19 @@ import {
   runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
-import { getOrCreateThreadSession } from "../runtime/thread-session";
+import { createCliThreadSessionManager } from "../runtime/cli-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
-  OpenCodeSessionInfo,
 } from "../types";
 
 const runtime = new CliAgentRuntime("Codex");
+export const { createSession, getOrCreateSession } = createCliThreadSessionManager({
+  providerId: "codex",
+  providerName: "Codex",
+  runtime,
+});
 
 export type SessionEnvironment = RuntimeSessionEnvironment;
 
@@ -151,43 +155,6 @@ function parseCodexResponse(output: string): {
   }
 
   return { text, threadId };
-}
-
-export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  runtime.setSessionEnvironment(sessionId, env ?? {});
-  log.info("Created Codex session", { sessionId, workingPath });
-  return sessionId;
-}
-
-export async function getOrCreateSession(
-  channelId: string,
-  threadId: string,
-  workingPath: string,
-  env: SessionEnvironment = {}
-): Promise<OpenCodeSessionInfo> {
-  return getOrCreateThreadSession({
-    channelId,
-    threadId,
-    providerId: "codex",
-    workingPath,
-    env,
-    createSession,
-    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
-    setSessionEnvironment: (sessionId, nextEnv) => {
-      runtime.setSessionEnvironment(sessionId, nextEnv);
-    },
-    onEnvironmentChanged: () => {
-      log.info("Codex session environment changed; creating new session", {
-        channelId,
-        threadId,
-        workingPath,
-      });
-    },
-    onCreatingSession: () => {
-      log.info("Creating new Codex session for thread", { channelId, threadId, workingPath });
-    },
-  });
 }
 
 export async function sendMessage(

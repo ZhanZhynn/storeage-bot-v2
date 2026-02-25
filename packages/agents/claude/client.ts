@@ -7,12 +7,11 @@ import {
   runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
-import { getOrCreateThreadSession } from "../runtime/thread-session";
+import { createCliThreadSessionManager } from "../runtime/cli-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
-  OpenCodeSessionInfo,
 } from "../types";
 
 export type SessionEnvironment = RuntimeSessionEnvironment;
@@ -50,52 +49,13 @@ function isValidUuid(value: string): boolean {
   return uuidRegex.test(value);
 }
 
-export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  runtime.setSessionEnvironment(sessionId, env ?? {});
-  newSessions.add(sessionId);
-  log.info("Created Claude session", { sessionId, workingPath });
-  return sessionId;
-}
-
-export async function getOrCreateSession(
-  channelId: string,
-  threadId: string,
-  workingPath: string,
-  env: SessionEnvironment = {}
-): Promise<OpenCodeSessionInfo> {
-  return getOrCreateThreadSession({
-    channelId,
-    threadId,
-    providerId: "claudecode",
-    workingPath,
-    env,
-    createSession,
-    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
-    setSessionEnvironment: (sessionId, nextEnv) => {
-      runtime.setSessionEnvironment(sessionId, nextEnv);
-    },
-    validateSessionId: isValidUuid,
-    onInvalidSessionId: (existingSession) => {
-      log.info("Invalid Claude session id found; generating new session", {
-        channelId,
-        threadId,
-        workingPath,
-        existingSession,
-      });
-    },
-    onEnvironmentChanged: () => {
-      log.info("Claude session environment changed; creating new session", {
-        channelId,
-        threadId,
-        workingPath,
-      });
-    },
-    onCreatingSession: () => {
-      log.info("Creating new Claude session for thread", { channelId, threadId, workingPath });
-    },
-  });
-}
+export const { createSession, getOrCreateSession } = createCliThreadSessionManager({
+  providerId: "claudecode",
+  providerName: "Claude",
+  runtime,
+  newSessions,
+  validateSessionId: isValidUuid,
+});
 
 function extractJsonPayload(output: string): string {
   const trimmed = output.trim();

@@ -8,12 +8,11 @@ import {
   runCliJsonCommand,
   type SessionEnvironment as RuntimeSessionEnvironment,
 } from "../runtime/base";
-import { getOrCreateThreadSession } from "../runtime/thread-session";
+import { createCliThreadSessionManager } from "../runtime/cli-session";
 import type {
   OpenCodeMessage,
   OpenCodeMessageContext,
   OpenCodeOptions,
-  OpenCodeSessionInfo,
 } from "../types";
 
 export type SessionEnvironment = RuntimeSessionEnvironment;
@@ -39,6 +38,12 @@ type GeminiJsonRecord = {
 
 const runtime = new CliAgentRuntime("Gemini");
 const newSessions = new Set<string>();
+export const { createSession, getOrCreateSession } = createCliThreadSessionManager({
+  providerId: "gemini",
+  providerName: "Gemini",
+  runtime,
+  newSessions,
+});
 
 function resolveGeminiBinary(): string {
   if (typeof Bun !== "undefined" && Bun.which("gemini")) return "gemini";
@@ -156,44 +161,6 @@ function parseGeminiResponse(output: string): {
   }
 
   return { text, sessionId };
-}
-
-export async function createSession(workingPath: string, env?: SessionEnvironment): Promise<string> {
-  const sessionId = crypto.randomUUID();
-  runtime.setSessionEnvironment(sessionId, env ?? {});
-  newSessions.add(sessionId);
-  log.info("Created Gemini session", { sessionId, workingPath });
-  return sessionId;
-}
-
-export async function getOrCreateSession(
-  channelId: string,
-  threadId: string,
-  workingPath: string,
-  env: SessionEnvironment = {}
-): Promise<OpenCodeSessionInfo> {
-  return getOrCreateThreadSession({
-    channelId,
-    threadId,
-    providerId: "gemini",
-    workingPath,
-    env,
-    createSession,
-    getSessionEnvironment: (sessionId) => runtime.getSessionEnvironment(sessionId),
-    setSessionEnvironment: (sessionId, nextEnv) => {
-      runtime.setSessionEnvironment(sessionId, nextEnv);
-    },
-    onEnvironmentChanged: () => {
-      log.info("Gemini session environment changed; creating new session", {
-        channelId,
-        threadId,
-        workingPath,
-      });
-    },
-    onCreatingSession: () => {
-      log.info("Creating new Gemini session for thread", { channelId, threadId, workingPath });
-    },
-  });
 }
 
 export async function sendMessage(

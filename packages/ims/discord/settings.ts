@@ -13,8 +13,12 @@ import {
   findMatchingModel,
   getProviderModelList,
   resolveStoredModelForProvider,
-  type ProviderModelLists,
 } from "@/shared/channel-settings";
+import {
+  getProviderModelListsFromConfig,
+  SETTINGS_LAUNCHER_ITEMS,
+  type SettingsLauncherAction,
+} from "@/ims/shared/settings-domain";
 import {
   AGENT_PROVIDERS,
   isAgentProviderId,
@@ -27,9 +31,6 @@ import {
   getChannelModel,
   getChannelBaseBranch,
   resolveChannelCwd,
-  getOpenCodeModels,
-  getCodexModels,
-  getKiloModels,
   isAgentEnabled,
   setChannelAgentProvider,
   setChannelModel,
@@ -68,7 +69,7 @@ const generalSettingsDrafts = new Map<string, {
 }>();
 
 type LauncherCommand = "setting";
-type LauncherAction = "general" | "channel" | "github";
+type LauncherAction = SettingsLauncherAction;
 
 export const DISCORD_LAUNCHER_COMMANDS = [
   {
@@ -90,21 +91,14 @@ function getResolvedChannelId(target: any): string {
 }
 
 function buildSettingsChooserRows(channelId: string): ActionRowBuilder<ButtonBuilder>[] {
+  const buttons = SETTINGS_LAUNCHER_ITEMS.map((item) =>
+    new ButtonBuilder()
+      .setCustomId(`ode:launcher:${item.action}:${channelId}`)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(item.label)
+  );
   return [
-    new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`ode:launcher:general:${channelId}`)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("General setting"),
-      new ButtonBuilder()
-        .setCustomId(`ode:launcher:channel:${channelId}`)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("Channel setting"),
-      new ButtonBuilder()
-        .setCustomId(`ode:launcher:github:${channelId}`)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel("GitHub info")
-    ),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons),
   ];
 }
 
@@ -151,15 +145,7 @@ function parseProvider(value: string): AgentProviderId | null {
 }
 
 function getProviderModels(provider: typeof PROVIDERS[number]): string[] {
-  return getProviderModelList(provider, getProviderModelLists());
-}
-
-function getProviderModelLists(): ProviderModelLists {
-  return {
-    opencode: getOpenCodeModels(),
-    codex: getCodexModels(),
-    kilo: getKiloModels(),
-  };
+  return getProviderModelList(provider, getProviderModelListsFromConfig());
 }
 
 function draftKey(userId: string, channelId: string): string {
@@ -660,7 +646,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<boolean> 
     setChannelModel(channelId, resolveStoredModelForProvider({
       provider: parsedProvider,
       selectedModel: modelInput,
-      lists: getProviderModelLists(),
+      lists: getProviderModelListsFromConfig(),
     }));
     setChannelWorkingDirectory(channelId, workingDirectory.length > 0 ? workingDirectory : null);
     setChannelBaseBranch(channelId, baseBranch);
@@ -885,7 +871,7 @@ async function handleChannelSettingsComponentInteraction(interaction: any): Prom
     setChannelModel(channelId, resolveStoredModelForProvider({
       provider: draft.provider,
       selectedModel: draft.model,
-      lists: getProviderModelLists(),
+      lists: getProviderModelListsFromConfig(),
     }));
     channelSettingsDrafts.delete(key);
     await interaction.reply({ content: "Channel provider/model updated.", flags: MessageFlags.Ephemeral });
