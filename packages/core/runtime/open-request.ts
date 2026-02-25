@@ -84,14 +84,6 @@ export async function runOpenRequest(params: {
   saveSession(session);
 
   const statusMessageKey = getStatusMessageKey(request);
-  const triggerThreadRenameFromTitle = () => {
-    void maybeGenerateSessionTitle({
-      prompt: message,
-      stateKey: statusMessageKey,
-      liveParsedState,
-      startedAt: request.startedAt,
-    });
-  };
 
   const progressIntervalMs = resolveMessageUpdateIntervalMs();
   let lastHeartbeat = Date.now();
@@ -159,7 +151,18 @@ export async function runOpenRequest(params: {
   if (result.responses === null) return null;
 
   if (deps.platform === "discord" && isFirstMessageInThread) {
-    triggerThreadRenameFromTitle();
+    setTimeout(() => {
+      void maybeGenerateSessionTitle({
+        prompt: message,
+        stateKey: statusMessageKey,
+        liveParsedState,
+        startedAt: request.startedAt,
+        onTitleGenerated: async (title) => {
+          if (!deps.im.renameThread) return;
+          await deps.im.renameThread(context.channelId, context.replyThreadId, title);
+        },
+      });
+    }, 10_000);
   }
 
   if (result.stopFallbackText) {
