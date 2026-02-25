@@ -85,6 +85,19 @@ export async function runOpenRequest(params: {
 
   const statusMessageKey = getStatusMessageKey(request);
 
+  void maybeGenerateSessionTitle({
+    prompt: message,
+    stateKey: statusMessageKey,
+    liveParsedState,
+    startedAt: request.startedAt,
+    onTitleGenerated: async (title) => {
+      if (!deps.im.renameThread) return;
+      if (deps.platform === "discord" && isFirstMessageInThread) {
+        await deps.im.renameThread(context.channelId, context.replyThreadId, title);
+      }
+    },
+  });
+
   const progressIntervalMs = resolveMessageUpdateIntervalMs();
   let lastHeartbeat = Date.now();
   const result = await runTrackedRequest({
@@ -149,21 +162,6 @@ export async function runOpenRequest(params: {
   });
 
   if (result.responses === null) return null;
-
-  if (deps.platform === "discord" && isFirstMessageInThread) {
-    setTimeout(() => {
-      void maybeGenerateSessionTitle({
-        prompt: message,
-        stateKey: statusMessageKey,
-        liveParsedState,
-        startedAt: request.startedAt,
-        onTitleGenerated: async (title) => {
-          if (!deps.im.renameThread) return;
-          await deps.im.renameThread(context.channelId, context.replyThreadId, title);
-        },
-      });
-    }, 10_000);
-  }
 
   if (result.stopFallbackText) {
     return [{ text: result.stopFallbackText, messageType: "assistant" }];
