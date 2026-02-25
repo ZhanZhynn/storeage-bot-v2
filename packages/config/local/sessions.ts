@@ -1,13 +1,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { writeFile } from "fs/promises";
+import { mkdir, readdir, readFile, unlink, writeFile } from "fs/promises";
 import { log } from "@/utils";
 
 const readFileSync = fs.readFileSync;
-const existsSync = fs.existsSync;
-const mkdirSync = fs.mkdirSync;
 const readdirSync = fs.readdirSync;
+const mkdirSync = fs.mkdirSync;
 const unlinkSync = fs.unlinkSync;
 const join = typeof path.join === "function" ? path.join : (...parts: string[]) => parts.join("/");
 const homedir = typeof os.homedir === "function" ? os.homedir : () => "";
@@ -85,11 +84,15 @@ const pendingWriteTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const pendingWriteSnapshots = new Map<string, PersistedSession>();
 const writeChains = new Map<string, Promise<void>>();
 const deletedSessionKeys = new Set<string>();
+let sessionsHydrated = false;
+let sessionsHydrationPromise: Promise<void> | null = null;
 
 function ensureSessionsDir(): void {
-  if (!existsSync(SESSIONS_DIR)) {
-    mkdirSync(SESSIONS_DIR, { recursive: true });
-  }
+  mkdirSync(SESSIONS_DIR, { recursive: true });
+}
+
+async function ensureSessionsDirAsync(): Promise<void> {
+  await mkdir(SESSIONS_DIR, { recursive: true });
 }
 
 function getSessionKey(channelId: string, threadId: string): string {
@@ -123,6 +126,73 @@ function sanitizeSessionForStorage(session: PersistedSession): PersistedSession 
     delete (snapshot.activeRequest as Partial<ActiveRequest>).tools;
   }
   return snapshot;
+}
+
+function normalizeLoadedSession(session: PersistedSession): PersistedSession {
+  if (!session.activeRequest) return session;
+  const active = session.activeRequest as ActiveRequest & {
+    settingsChannelId?: string;
+    replyChannelId?: string;
+  };
+  active.channelId = active.settingsChannelId || active.channelId || session.channelId;
+  active.replyThreadId = active.replyThreadId || active.replyChannelId || session.threadId;
+  active.tools = Array.isArray(active.tools) ? active.tools : [];
+  return session;
+}
+
+async function hydrateSessionsFromDisk(): Promise<void> {
+  await ensureSessionsDirAsync();
+  const files = await readdir(SESSIONS_DIR);
+  const now = Date.now();
+
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    const filePath = join(SESSIONS_DIR, file);
+    try {
+      const data = await readFile(filePath, "utf-8");
+      const session = normalizeLoadedSession(JSON.parse(data) as PersistedSession);
+      if (isSessionExpired(session, now)) {
+        const sessionKey = getSessionKey(session.channelId, session.threadId);
+        activeSessions.delete(sessionKey);
+        deletedSessionKeys.add(sessionKey);
+        try {
+          await unlink(filePath);
+        } catch {
+          // Ignore delete errors
+        }
+        continue;
+      }
+
+      const sessionKey = getSessionKey(session.channelId, session.threadId);
+      if (!activeSessions.has(sessionKey)) {
+        activeSessions.set(sessionKey, session);
+      }
+    } catch {
+      // Skip invalid session files
+    }
+  }
+}
+
+function scheduleSessionsHydration(): void {
+  if (sessionsHydrated || sessionsHydrationPromise) return;
+  sessionsHydrationPromise = hydrateSessionsFromDisk()
+    .then(() => {
+      sessionsHydrated = true;
+    })
+    .catch((err) => {
+      log.warn("Failed to hydrate sessions from disk", { error: String(err) });
+    })
+    .finally(() => {
+      sessionsHydrationPromise = null;
+    });
+}
+
+async function ensureSessionsHydrated(): Promise<void> {
+  if (sessionsHydrated) return;
+  scheduleSessionsHydration();
+  if (sessionsHydrationPromise) {
+    await sessionsHydrationPromise;
+  }
 }
 
 function enqueueSessionWrite(sessionKey: string, immediate = false): void {
@@ -183,29 +253,20 @@ export function loadSession(channelId: string, threadId: string): PersistedSessi
   }
 
   const filePath = getSessionFilePath(sessionKey);
-  if (!existsSync(filePath)) {
-    return null;
-  }
 
   try {
     const data = readFileSync(filePath, "utf-8");
-    const session = JSON.parse(data) as PersistedSession;
+    const session = normalizeLoadedSession(JSON.parse(data) as PersistedSession);
     if (isSessionExpired(session)) {
       deleteSession(channelId, threadId);
       return null;
     }
-    if (session.activeRequest) {
-      const active = session.activeRequest as ActiveRequest & {
-        settingsChannelId?: string;
-        replyChannelId?: string;
-      };
-      active.channelId = active.settingsChannelId || active.channelId || session.channelId;
-      active.replyThreadId = active.replyThreadId || active.replyChannelId || session.threadId;
-      active.tools = Array.isArray(active.tools) ? active.tools : [];
-    }
     activeSessions.set(sessionKey, session);
     return session;
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return null;
+    }
     log.warn("Failed to load session", { sessionKey, error: String(err) });
     return null;
   }
@@ -238,23 +299,19 @@ export function deleteSession(channelId: string, threadId: string): void {
     void inFlight.finally(() => {
       if (!deletedSessionKeys.has(sessionKey)) return;
       const pathAfterWrite = getSessionFilePath(sessionKey);
-      if (existsSync(pathAfterWrite)) {
-        try {
-          unlinkSync(pathAfterWrite);
-        } catch {
-          // Ignore delete errors
-        }
+      try {
+        unlinkSync(pathAfterWrite);
+      } catch {
+        // Ignore delete errors
       }
     });
   }
 
   const filePath = getSessionFilePath(sessionKey);
-  if (existsSync(filePath)) {
-    try {
-      unlinkSync(filePath);
-    } catch {
-      // Ignore delete errors
-    }
+  try {
+    unlinkSync(filePath);
+  } catch {
+    // Ignore delete errors
   }
 }
 
@@ -362,7 +419,7 @@ export function getActiveRequest(channelId: string, threadId: string): ActiveReq
 }
 
 export function loadAllSessions(): PersistedSession[] {
-  ensureSessionsDir();
+  scheduleSessionsHydration();
   const sessionsByKey = new Map<string, PersistedSession>();
 
   for (const [sessionKey, session] of Array.from(activeSessions.entries())) {
@@ -373,37 +430,19 @@ export function loadAllSessions(): PersistedSession[] {
     sessionsByKey.set(sessionKey, session);
   }
 
-  try {
-    const files = readdirSync(SESSIONS_DIR).filter(f => f.endsWith(".json"));
-    for (const file of files) {
-      const filePath = join(SESSIONS_DIR, file);
-      try {
-        const data = readFileSync(filePath, "utf-8");
-        const session = JSON.parse(data) as PersistedSession;
-        if (isSessionExpired(session)) {
-          deleteSession(session.channelId, session.threadId);
-          continue;
-        }
-        const sessionKey = getSessionKey(session.channelId, session.threadId);
-        if (!sessionsByKey.has(sessionKey)) {
-          sessionsByKey.set(sessionKey, session);
-        }
-        if (!activeSessions.has(sessionKey)) {
-          activeSessions.set(sessionKey, session);
-        }
-      } catch {
-        // Skip invalid session files
-      }
-    }
-  } catch {
-    // Sessions dir doesn't exist yet
-  }
-
   return Array.from(sessionsByKey.values());
 }
 
-export function getSessionsWithPendingRequests(platform?: "slack" | "discord" | "lark"): PersistedSession[] {
-  return loadAllSessions().filter((s) => {
+export async function loadAllSessionsAsync(): Promise<PersistedSession[]> {
+  await ensureSessionsHydrated();
+  return loadAllSessions();
+}
+
+export async function getSessionsWithPendingRequests(
+  platform?: "slack" | "discord" | "lark"
+): Promise<PersistedSession[]> {
+  const sessions = await loadAllSessionsAsync();
+  return sessions.filter((s) => {
     if (!s.activeRequest || s.activeRequest.state !== "processing") return false;
     if (!platform) return true;
     return s.platform === platform;
@@ -419,16 +458,57 @@ export function updateSessionIdForThread(channelId: string, threadId: string, se
 }
 
 export function findReplyThreadIdByStatusMessageTs(messageTs: string): string | null {
-  if (activeSessions.size === 0) {
-    loadAllSessions();
-  }
-
   for (const session of activeSessions.values()) {
     const activeRequest = session.activeRequest;
     if (!activeRequest) continue;
     if (activeRequest.statusMessageTs === messageTs) {
       return activeRequest.replyThreadId || null;
     }
+  }
+
+  if (!sessionsHydrated) {
+    const foundFromDisk = findReplyThreadIdByStatusMessageTsFromDisk(messageTs);
+    if (foundFromDisk) {
+      return foundFromDisk;
+    }
+    scheduleSessionsHydration();
+  }
+
+  return null;
+}
+
+function findReplyThreadIdByStatusMessageTsFromDisk(messageTs: string): string | null {
+  try {
+    ensureSessionsDir();
+    const files = readdirSync(SESSIONS_DIR);
+    const now = Date.now();
+
+    for (const file of files) {
+      if (!file.endsWith(".json")) continue;
+      const filePath = join(SESSIONS_DIR, file);
+      try {
+        const data = readFileSync(filePath, "utf-8");
+        const session = normalizeLoadedSession(JSON.parse(data) as PersistedSession);
+        if (isSessionExpired(session, now)) {
+          continue;
+        }
+
+        const sessionKey = getSessionKey(session.channelId, session.threadId);
+        if (!activeSessions.has(sessionKey)) {
+          activeSessions.set(sessionKey, session);
+        }
+
+        const activeRequest = session.activeRequest;
+        if (!activeRequest) continue;
+        if (activeRequest.statusMessageTs === messageTs) {
+          return activeRequest.replyThreadId || null;
+        }
+      } catch {
+        // Skip invalid session files
+      }
+    }
+  } catch {
+    // Ignore directory read errors
   }
 
   return null;

@@ -8,15 +8,12 @@ import {
 import { loadSession, updateSessionIdForThread } from "./sessions";
 
 const readFileSync = fs.readFileSync;
-const writeFileSync = fs.writeFileSync;
-const existsSync = fs.existsSync;
 const mkdirSync = fs.mkdirSync;
 const join = typeof path.join === "function" ? path.join : (...parts: string[]) => parts.join("/");
 const homedir = typeof os.homedir === "function" ? os.homedir : () => "";
 
 const ODE_CONFIG_DIR = join(homedir(), ".config", "ode");
 const SETTINGS_FILE = join(ODE_CONFIG_DIR, "settings.json");
-const AGENTS_DIR = join(ODE_CONFIG_DIR, "agents");
 const SETTINGS_SAVE_DEBOUNCE_MS = 1000;
 
 export interface ChannelSettings {
@@ -41,12 +38,7 @@ let pendingSettingsSnapshot: Settings | null = null;
 let settingsWriteChain: Promise<void> = Promise.resolve();
 
 function ensureDataDir(): void {
-  if (!existsSync(ODE_CONFIG_DIR)) {
-    mkdirSync(ODE_CONFIG_DIR, { recursive: true });
-  }
-  if (!existsSync(AGENTS_DIR)) {
-    mkdirSync(AGENTS_DIR, { recursive: true });
-  }
+  mkdirSync(ODE_CONFIG_DIR, { recursive: true });
 }
 
 export function loadSettings(): Settings {
@@ -54,11 +46,6 @@ export function loadSettings(): Settings {
 
   ensureDataDir();
   const emptySettings: Settings = { channels: {} };
-
-  if (!existsSync(SETTINGS_FILE)) {
-    cachedSettings = emptySettings;
-    return cachedSettings;
-  }
 
   try {
     const raw = readFileSync(SETTINGS_FILE, "utf-8");
@@ -85,9 +72,14 @@ export function loadSettings(): Settings {
 }
 
 function normalizeChannelSettings(settings: ChannelSettings): ChannelSettings {
-  const threadSessions = settings.threadSessions ?? {};
-  const activeThreads = settings.activeThreads ?? {};
-  return { ...settings, threadSessions, activeThreads };
+  const hasThreadSessions = Boolean(settings.threadSessions);
+  const hasActiveThreads = Boolean(settings.activeThreads);
+  if (hasThreadSessions && hasActiveThreads) return settings;
+  return {
+    ...settings,
+    threadSessions: settings.threadSessions ?? {},
+    activeThreads: settings.activeThreads ?? {},
+  };
 }
 
 export function saveSettings(settings: Settings): void {
@@ -186,63 +178,6 @@ export function setChannelCwd(channelId: string, cwd: string): void {
   // Clear thread sessions when cwd changes (sessions are project-scoped)
   setChannelCwdInConfig(channelId, cwd);
   updateChannelSettings(channelId, { threadSessions: {} });
-}
-
-// Per-channel agents.md management
-export function getChannelAgentsMd(channelId: string): string | null {
-  const filePath = join(AGENTS_DIR, `${channelId}.md`);
-  if (!existsSync(filePath)) return null;
-  return readFileSync(filePath, "utf-8");
-}
-
-export function setChannelAgentsMd(channelId: string, content: string): void {
-  ensureDataDir();
-  const filePath = join(AGENTS_DIR, `${channelId}.md`);
-  writeFileSync(filePath, content);
-}
-
-export function deleteChannelAgentsMd(channelId: string): void {
-  const filePath = join(AGENTS_DIR, `${channelId}.md`);
-  if (existsSync(filePath)) {
-    const { unlinkSync } = require("fs");
-    unlinkSync(filePath);
-  }
-}
-
-export type AgentInstructionTarget = "plan" | "build";
-
-function getAgentInstructionsFile(channelId: string, agent: AgentInstructionTarget): string {
-  return join(AGENTS_DIR, `${channelId}.${agent}.md`);
-}
-
-export function getChannelAgentInstructions(
-  channelId: string,
-  agent: AgentInstructionTarget
-): string | null {
-  const filePath = getAgentInstructionsFile(channelId, agent);
-  if (!existsSync(filePath)) return null;
-  return readFileSync(filePath, "utf-8");
-}
-
-export function setChannelAgentInstructions(
-  channelId: string,
-  agent: AgentInstructionTarget,
-  content: string
-): void {
-  ensureDataDir();
-  const filePath = getAgentInstructionsFile(channelId, agent);
-  writeFileSync(filePath, content);
-}
-
-export function deleteChannelAgentInstructions(
-  channelId: string,
-  agent: AgentInstructionTarget
-): void {
-  const filePath = getAgentInstructionsFile(channelId, agent);
-  if (existsSync(filePath)) {
-    const { unlinkSync } = require("fs");
-    unlinkSync(filePath);
-  }
 }
 
 // Session management (one session per thread)
