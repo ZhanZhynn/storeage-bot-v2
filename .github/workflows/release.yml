@@ -72,10 +72,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
 
       - name: Generate checksums
         run: |
-          find dist -type f -name "ode-*" -exec cp {} dist/ \;
           cd dist
           sha256sum ode-* > SHA256SUMS
 
