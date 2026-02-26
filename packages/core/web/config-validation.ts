@@ -129,11 +129,6 @@ function resolveDiscordBotTokenFromConfig(payload: Record<string, unknown>): str
 export function attachDiscordBotToken(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
   const record = payload as Record<string, unknown>;
-  const existing = typeof record.botToken === "string" ? record.botToken.trim() : "";
-  if (existing) {
-    record.botToken = existing;
-    return;
-  }
   const resolved = resolveDiscordBotTokenFromConfig(record);
   if (resolved) {
     record.botToken = resolved;
@@ -171,13 +166,6 @@ function getLarkWorkspaceCredentialsByWorkspace(workspaceId: string): { appId: s
 export function attachLarkCredentials(payload: unknown): void {
   if (!payload || typeof payload !== "object") return;
   const record = payload as Record<string, unknown>;
-  const existingAppId = typeof record.appId === "string" ? record.appId.trim() : "";
-  const existingAppSecret = typeof record.appSecret === "string" ? record.appSecret.trim() : "";
-  if (existingAppId && existingAppSecret) {
-    record.appId = existingAppId;
-    record.appSecret = existingAppSecret;
-    return;
-  }
 
   const channelId = typeof record.channelId === "string" ? record.channelId.trim() : "";
   if (channelId) {

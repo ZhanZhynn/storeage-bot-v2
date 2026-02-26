@@ -94,9 +94,9 @@ function normalizeDiscordUserId(userId: string): string {
 }
 
 function getDiscordBotToken(payload: DiscordActionRequest): string {
-  const token = payload.botToken?.trim() || process.env.DISCORD_BOT_TOKEN?.trim();
+  const token = payload.botToken?.trim();
   if (!token) {
-    throw new Error("Discord bot token missing (set payload.botToken or DISCORD_BOT_TOKEN)");
+    throw new Error("Discord bot token missing");
   }
   return token;
 }

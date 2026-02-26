@@ -43,11 +43,7 @@ const statusMessageThreadMap = new Map<string, string>();
 
 function getConfiguredDiscordRuntimeTokens(): string[] {
   const configuredTokens = getDiscordBotTokens();
-  const envToken = process.env.DISCORD_BOT_TOKEN?.trim() || "";
-  return Array.from(new Set([
-    ...configuredTokens.map((entry) => entry.token?.trim() || "").filter(Boolean),
-    ...(envToken ? [envToken] : []),
-  ]));
+  return Array.from(new Set(configuredTokens.map((entry) => entry.token?.trim() || "").filter(Boolean)));
 }
 
 function splitForDiscord(text: string): string[] {
