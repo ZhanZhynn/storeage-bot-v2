@@ -1,6 +1,6 @@
 # Ode
 
-[中文Readmd](README.zh-CN.md) [Official Doc](https://ode.fun/docs/quickstart)
+[Official Doc](https://ode.fun/docs/quickstart)
 
 Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Codex and much more) to your favorite chat apps (Slack, Discord, and Lark). Perfect for personal or team developers working on the go.
 
