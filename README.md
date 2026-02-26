@@ -1,6 +1,6 @@
 # Ode
 
-[简体中文文档](README.zh-CN.md)
+[中文Readmd](README.zh-CN.md) [Official Doc](https://ode.fun/docs/quickstart)
 
 Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Codex and much more) to your favorite chat apps (Slack, Discord, and Lark). Perfect for personal or team developers working on the go.
 
@@ -23,18 +23,15 @@ Ode is a agent tool that bridges your coding agents (OpenCode, Claude Code, Code
 * **Team focused**, just allow people to join channel to give them permissions to work together.
 * Ode supports multiple chat tools including Slack, Discord, and Lark.
 
-![Threads](static/threads.png)
-*Each thread is a session, each channel can setup different directories or coding tools/models*
-
 ## Setup
 
 ### Prerequisites
 
 - Configured OpenCode / Claude Code / Codex / Kimi Code... at least 1 coding cli.
 - Choose one chatting app.
-  - Slack - Slack Bot with Socket Mode enabled, have its APP TOKEN (xapp...) and BOT TOKEN (xbot..). Configuration and auth scope can be a little bit complicated if not so familiar with slack bots. If not sure, download [`slack-app-manifest.json`](https://raw.githubusercontent.com/odefun/ode/main/static/slack-app-manifest.json) and generate from the manifest file.
-  - Discord - Discord Bot (real discord app, not webhook), have its BOT TOKEN.
-  - 飞书 Bot - Just CN version for now, as Lark global is not supportting long connection with socket yet. Prepare the larkAppId and larkAppSecret.
+  - **Slack** - follow [doc](https://ode.fun/docs/chat-app-setup/slack) and to get your APP TOKEN (xapp...) and BOT TOKEN (xbot..).
+  - **Discord** - follow [doc](https://ode.fun/docs/chat-app-setup/discord) and to get your BOT TOKEN.
+  - **飞书** - Just CN version for now, as Lark global is not supportting long connection with socket yet. Prepare the larkAppId and larkAppSecret.
 
 ### Installation and Running
 

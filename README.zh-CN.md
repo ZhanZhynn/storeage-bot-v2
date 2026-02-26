@@ -21,16 +21,15 @@ Ode 是一个编程代理工具，可将你的编码Agent（OpenCode、Claude Co
 * **基于频道的设置**，可在同一台机器和同一个Slack工作区中轻松配置多个工作目录。
 * 我们也希望后续支持尽可能多的聊天工具。
 
-![Threads](static/threads.png)
-*Each thread is a session, each channel can setup different directories or coding tools/models*
-
 ## 安装与配置
 
 ### 前置要求
 
 - 已配置 OpenCode / Claude Code / Codex / Kimi Code... 至少一个编码 CLI。
-- 注册并配置一个启用了 Socket Mode 的 Slack Bot，获取其 APP TOKEN（xapp...）和 BOT TOKEN（xbot..）。
-  - 如果你不太熟悉 Slack Bot 的配置与权限范围，可能会稍显复杂。可直接下载 [`slack-app-manifest.json`](https://raw.githubusercontent.com/odefun/ode/main/static/slack-app-manifest.json) 并通过 manifest 文件生成。
+- 选择并配置一个Chat App
+  - **Slack** - follow [doc](https://ode.fun/docs/chat-app-setup/slack) and to get your APP TOKEN (xapp...) and BOT TOKEN (xbot..).
+  - **Discord** - follow [doc](https://ode.fun/docs/chat-app-setup/discord) and to get your BOT TOKEN.
+  - **飞书** - Just CN version for now, as Lark global is not supportting long connection with socket yet. Prepare the larkAppId and larkAppSecret.
 
 ### 安装与运行
 
@@ -46,13 +45,6 @@ ode
 ```
 
 设置界面可通过 http://127.0.0.1:9293 访问，或在 Slack 中使用 `/setting` 命令，例如 `@bot /setting`。
-
-Lark 开放平台事件订阅回调地址可使用：`POST /api/lark/event`。
-在 Lark 聊天里发送 `/setting` 可收到设置卡片并快速打开本地设置页面。
-默认情况下，只要配置了 Lark 凭据，Ode 也会启动 Lark 长连接（WS）模式，因此本地测试不需要公网回调地址。可通过 `LARK_LONG_CONNECTION=false` 关闭。
-
-![Channel](static/channel-setting.png)
-*Run `@bot /setting` to trigger setting dialog.*
 
 ## 代理列表
 
