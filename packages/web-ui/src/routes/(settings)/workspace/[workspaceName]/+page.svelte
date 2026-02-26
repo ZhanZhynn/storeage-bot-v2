@@ -6,7 +6,7 @@
   import { Badge, Button, Card, Input, Label, Select, Textarea } from "$lib/components/ui";
   import { locale } from "$lib/i18n";
   import { localSettingStore } from "$lib/local-setting/store";
-  import { getSelectedWorkspace, getWorkspacePath, slugify } from "$lib/local-setting/workspaces";
+  import { getSelectedWorkspace, getWorkspacePath, getWorkspaceRouteKey } from "$lib/local-setting/workspaces";
 
   type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
 
@@ -92,7 +92,7 @@
     if ($localSettingStore.isLoading || isCanonicalizingWorkspaceRoute || !selectedWorkspace) return;
     const currentWorkspaceName = $page.params.workspaceName ?? "";
     const canonicalPath = getWorkspacePath(selectedWorkspace);
-    const canonicalWorkspaceName = slugify(selectedWorkspace.name) || "workspace-1";
+    const canonicalWorkspaceName = getWorkspaceRouteKey(selectedWorkspace);
     if (decodeURIComponent(currentWorkspaceName) === canonicalWorkspaceName) return;
 
     isCanonicalizingWorkspaceRoute = true;

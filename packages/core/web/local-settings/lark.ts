@@ -2,7 +2,12 @@ import {
   readDashboardConfig,
   updateDashboardConfig,
 } from "@/config";
-import { normalizeChannelAgentProvider, resolveFallbackModel, type WorkspaceConfig } from "./shared";
+import {
+  createWorkspaceCredentialId,
+  normalizeChannelAgentProvider,
+  resolveFallbackModel,
+  type WorkspaceConfig,
+} from "./shared";
 
 type LarkTenantAccessTokenResponse = {
   code?: number;
@@ -142,7 +147,7 @@ export const discoverLarkWorkspace = async (
     || `Lark ${appId.slice(0, 8)}`;
 
   return {
-    id: `lark-${appId}`,
+    id: createWorkspaceCredentialId("lark", appId),
     type: "lark",
     name: workspaceName,
     domain: "larksuite.com",

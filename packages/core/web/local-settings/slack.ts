@@ -3,7 +3,12 @@ import {
   updateDashboardConfig,
   type DashboardConfig,
 } from "@/config";
-import { normalizeChannelAgentProvider, resolveFallbackModel, type WorkspaceConfig } from "./shared";
+import {
+  createWorkspaceCredentialId,
+  normalizeChannelAgentProvider,
+  resolveFallbackModel,
+  type WorkspaceConfig,
+} from "./shared";
 
 type SlackChannel = {
   id: string;
@@ -109,8 +114,7 @@ export const discoverSlackWorkspace = async (
   const config = readDashboardConfig();
   const snapshot = await fetchSlackWorkspaceSnapshot(botToken);
   const fallbackModel = config.agents.opencode.models[0] ?? "";
-  const discoveredWorkspaceId = snapshot.team.id?.trim();
-  const workspaceId = discoveredWorkspaceId || `workspace-${config.workspaces.length + 1}`;
+  const workspaceId = createWorkspaceCredentialId("slack", botToken);
   const workspaceName = snapshot.team.name?.trim() || `Workspace ${config.workspaces.length + 1}`;
   const channelDetails = buildDiscoveredChannelDetails(snapshot.channels, fallbackModel);
 
