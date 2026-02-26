@@ -41,9 +41,16 @@ const DISCORD_UPDATE_RETRY_BASE_MS = 400;
 const discordClients = new Map<string, Client>();
 const statusMessageThreadMap = new Map<string, string>();
 
-function getConfiguredDiscordRuntimeTokens(): string[] {
-  const configuredTokens = getDiscordBotTokens();
-  return Array.from(new Set(configuredTokens.map((entry) => entry.token?.trim() || "").filter(Boolean)));
+function getConfiguredDiscordRuntimeBots(): Array<{ workspaceId: string; token: string }> {
+  const uniqueByWorkspace = new Map<string, { workspaceId: string; token: string }>();
+  for (const entry of getDiscordBotTokens()) {
+    const workspaceId = entry.workspaceId?.trim() || "";
+    const token = entry.token?.trim() || "";
+    if (!workspaceId || !token) continue;
+    if (uniqueByWorkspace.has(workspaceId)) continue;
+    uniqueByWorkspace.set(workspaceId, { workspaceId, token });
+  }
+  return Array.from(uniqueByWorkspace.values());
 }
 
 function splitForDiscord(text: string): string[] {
@@ -397,9 +404,9 @@ async function registerDiscordCommands(client: Client): Promise<void> {
 }
 
 async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
-  const tokens = getConfiguredDiscordRuntimeTokens();
+  const bots = getConfiguredDiscordRuntimeBots();
 
-  if (tokens.length === 0) {
+  if (bots.length === 0) {
     log.debug("Discord runtime skipped (Discord bot token missing)", { reason });
     return false;
   }
@@ -407,11 +414,11 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
   let startedCount = 0;
   log.debug("Discord runtime starting", {
     reason,
-    tokenCount: tokens.length,
+    tokenCount: bots.length,
   });
 
-  for (const token of tokens) {
-    if (discordClients.has(token)) {
+  for (const bot of bots) {
+    if (discordClients.has(bot.workspaceId)) {
       continue;
     }
 
@@ -592,16 +599,21 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
         }
       });
 
-      await client.login(token);
+      await client.login(bot.token);
       await registerDiscordCommands(client);
-      discordClients.set(token, client);
+      discordClients.set(bot.workspaceId, client);
       startedCount += 1;
       log.debug("Discord runtime started", {
         reason,
+        workspaceId: bot.workspaceId,
         botUserId: client.user?.id ?? "unknown",
       });
     } catch (error) {
-      log.error("Discord runtime failed for token", { reason, error: String(error) });
+      log.error("Discord runtime failed for token", {
+        reason,
+        workspaceId: bot.workspaceId,
+        error: String(error),
+      });
     }
   }
 
@@ -610,13 +622,13 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
 
 export async function startDiscordRuntime(reason: string): Promise<boolean> {
   if (discordClients.size > 0) {
-    const configuredTokens = getConfiguredDiscordRuntimeTokens();
-    const hasMissingClient = configuredTokens.some((token) => !discordClients.has(token));
+    const configuredBots = getConfiguredDiscordRuntimeBots();
+    const hasMissingClient = configuredBots.some((bot) => !discordClients.has(bot.workspaceId));
     if (hasMissingClient) {
       log.debug("Discord runtime refreshing to include newly configured bots", {
         reason,
         clientCount: discordClients.size,
-        configuredTokenCount: configuredTokens.length,
+        configuredTokenCount: configuredBots.length,
       });
       return startDiscordRuntimeInternal(`${reason}:refresh`);
     }

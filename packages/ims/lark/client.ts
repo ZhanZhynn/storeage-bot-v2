@@ -42,6 +42,7 @@ import {
 let larkRuntimeStarted = false;
 
 type LarkCredentials = {
+  workspaceId: string;
   appId: string;
   appSecret: string;
 };
@@ -105,7 +106,11 @@ function getLarkCredentialsForChannel(channelId: string): LarkCredentials | null
       const appSecret = workspace.larkAppSecret?.trim() ?? "";
       if (!appId || !appSecret) continue;
       if (workspace.channelDetails.some((entry) => entry.id === channel)) {
-        return { appId, appSecret };
+        return {
+          workspaceId: workspace.id,
+          appId,
+          appSecret,
+        };
       }
     }
   }
@@ -113,13 +118,14 @@ function getLarkCredentialsForChannel(channelId: string): LarkCredentials | null
   const first = getLarkAppCredentials()[0];
   if (!first) return null;
   return {
+    workspaceId: first.workspaceId,
     appId: first.appId,
     appSecret: first.appSecret,
   };
 }
 
 async function getLarkTenantAccessToken(creds: LarkCredentials): Promise<string> {
-  const cached = tenantTokenCache.get(creds.appId);
+  const cached = tenantTokenCache.get(creds.workspaceId);
   const now = Date.now();
   if (cached && cached.expiresAt > now + 30_000) {
     return cached.token;
@@ -147,7 +153,7 @@ async function getLarkTenantAccessToken(creds: LarkCredentials): Promise<string>
   }
 
   const ttlSec = typeof payload.expire === "number" ? payload.expire : 3600;
-  tenantTokenCache.set(creds.appId, {
+  tenantTokenCache.set(creds.workspaceId, {
     token: payload.tenant_access_token,
     expiresAt: now + Math.max(ttlSec - 30, 30) * 1000,
   });
@@ -545,17 +551,18 @@ const coreRuntime = createCoreRuntime({
 async function getBotOpenIdForChannel(channelId: string): Promise<string | null> {
   const creds = getLarkCredentialsForChannel(channelId);
   if (!creds) return null;
-  const cached = botOpenIdCache.get(creds.appId);
+  const cached = botOpenIdCache.get(creds.workspaceId);
   if (cached) return cached;
   const token = await getLarkTenantAccessToken(creds);
   const data = await larkApi<LarkBotInfoResponse>(token, "GET", "/open-apis/bot/v3/info");
   const openId = data.bot?.open_id?.trim();
   if (openId) {
-    botOpenIdCache.set(creds.appId, openId);
+    botOpenIdCache.set(creds.workspaceId, openId);
     return openId;
   }
   logLarkEvent("Lark bot open_id missing from bot/v3/info response", {
     channelId,
+    workspaceId: creds.workspaceId,
     appId: creds.appId,
     responseKeys: Object.keys((data as Record<string, unknown>) ?? {}),
   });
