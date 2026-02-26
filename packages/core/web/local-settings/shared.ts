@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { DashboardConfig } from "@/config";
 import { normalizeAgentProviderId } from "@/shared/agent-provider";
 
@@ -17,4 +18,13 @@ export function resolveFallbackModel(
   return agentProvider === "opencode" || agentProvider === "codex"
     ? fallbackModel
     : "";
+}
+
+export function createWorkspaceCredentialId(
+  platform: "slack" | "discord" | "lark",
+  credential: string
+): string {
+  const normalized = credential.trim();
+  const digest = createHash("sha256").update(normalized).digest("hex");
+  return `${platform}-${digest}`;
 }

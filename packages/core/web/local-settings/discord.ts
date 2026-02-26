@@ -2,7 +2,12 @@ import {
   readDashboardConfig,
   updateDashboardConfig,
 } from "@/config";
-import { normalizeChannelAgentProvider, resolveFallbackModel, type WorkspaceConfig } from "./shared";
+import {
+  createWorkspaceCredentialId,
+  normalizeChannelAgentProvider,
+  resolveFallbackModel,
+  type WorkspaceConfig,
+} from "./shared";
 
 type DiscordGuild = {
   id: string;
@@ -87,7 +92,7 @@ export const discoverDiscordWorkspace = async (
   const channelDetails = buildDiscordChannelDetails(snapshot.channels, null, fallbackModel);
 
   return {
-    id: snapshot.guild.id,
+    id: createWorkspaceCredentialId("discord", botToken),
     type: "discord",
     name: snapshot.guild.name,
     domain: "discord.com",
