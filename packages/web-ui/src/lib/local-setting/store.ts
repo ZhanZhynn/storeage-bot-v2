@@ -202,11 +202,12 @@ function updateWorkspace(
   }));
 }
 
-function removeWorkspace(workspaceId: string): void {
+async function removeWorkspace(workspaceId: string): Promise<void> {
   updateConfig((config) => ({
     ...config,
     workspaces: config.workspaces.filter((workspace: DashboardConfig["workspaces"][number]) => workspace.id !== workspaceId),
   }));
+  await saveConfig();
 }
 
 async function loadConfig(): Promise<void> {

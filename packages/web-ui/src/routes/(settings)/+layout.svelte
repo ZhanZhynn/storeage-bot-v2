@@ -100,7 +100,7 @@
     pendingLarkAppSecret = (event.currentTarget as HTMLInputElement).value;
   }
 
-  function removeWorkspace(workspaceId: string): void {
+  async function removeWorkspace(workspaceId: string): Promise<void> {
     const workspaces = $localSettingStore.config.workspaces;
     const removingIndex = workspaces.findIndex((workspace) => workspace.id === workspaceId);
     if (removingIndex < 0) return;
@@ -115,7 +115,7 @@
     }
 
     const remainingWorkspaces = workspaces.filter((workspace) => workspace.id !== workspaceId);
-    localSettingStore.removeWorkspace(workspaceId);
+    await localSettingStore.removeWorkspace(workspaceId);
 
     if (activeSection !== "workspace" || selectedWorkspace?.id !== workspaceId) return;
 
@@ -248,7 +248,7 @@
             <Button
               variant="destructive"
               type="button"
-              on:click={() => removeWorkspace(selectedWorkspace.id)}
+              on:click={() => void removeWorkspace(selectedWorkspace.id)}
               disabled={isBusy}
             >
               <Trash2 class="h-4 w-4" />

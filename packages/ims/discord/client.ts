@@ -26,7 +26,7 @@ import {
   toCoreMessageContext,
   type UnifiedMessageContext,
 } from "@/ims/shared/message-context";
-import { createProcessorId, scopeChannelId, unscopeChannelId } from "@/ims/shared/processor-scope";
+import { createProcessorId, getScopedProcessorId, scopeChannelId, unscopeChannelId } from "@/ims/shared/processor-scope";
 import {
   DISCORD_LAUNCHER_COMMANDS,
   handleDiscordSettingsInteraction,
@@ -41,6 +41,7 @@ const DISCORD_UPDATE_MAX_ATTEMPTS = 3;
 const DISCORD_UPDATE_RETRY_BASE_MS = 400;
 
 const discordClients = new Map<string, Client>();
+const discordClientByProcessorId = new Map<string, Client>();
 const statusMessageThreadMap = new Map<string, string>();
 const discordProcessorManager = createProcessorManager({
   createRuntime: () => createCoreRuntime({
@@ -115,9 +116,26 @@ function parseDiscordRetryAfterMs(error: unknown): number | null {
   return parsed <= 30 ? Math.ceil(parsed * 1000) : Math.ceil(parsed);
 }
 
-async function resolveTextChannel(channelId: string) {
+async function resolveTextChannel(channelId: string, processorId?: string) {
   const attempts: string[] = [];
+  if (processorId) {
+    const pinnedClient = discordClientByProcessorId.get(processorId);
+    if (pinnedClient) {
+      try {
+        const channel = await pinnedClient.channels.fetch(channelId);
+        if (channel && channel.isTextBased()) {
+          return channel as any;
+        }
+        attempts.push(`bot=${pinnedClient.user?.id || "unknown"}: channel_not_text_or_missing`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        attempts.push(`bot=${pinnedClient.user?.id || "unknown"}: ${errorMessage}`);
+      }
+    }
+  }
+
   for (const client of discordClients.values()) {
+    if (processorId && discordClientByProcessorId.get(processorId) === client) continue;
     try {
       const channel = await client.channels.fetch(channelId);
       if (channel && channel.isTextBased()) {
@@ -164,12 +182,13 @@ async function buildDiscordContext(
 }
 
 async function sendMessage(
-  _channelId: string,
+  channelId: string,
   threadId: string,
   text: string
 ): Promise<string | undefined> {
   try {
-    const channel = await resolveTextChannel(threadId);
+    const processorId = getScopedProcessorId(channelId);
+    const channel = await resolveTextChannel(threadId, processorId);
     const chunks = splitForDiscord(text);
     let firstId: string | undefined;
     for (let index = 0; index < chunks.length; index += 1) {
@@ -206,6 +225,7 @@ async function updateMessage(
   text: string
 ): Promise<void> {
   const rawChannelId = unscopeChannelId(channelId);
+  const processorId = getScopedProcessorId(channelId);
   try {
     const mappedThreadId = statusMessageThreadMap.get(messageId);
     const persistedThreadId = findReplyThreadIdByStatusMessageTs(messageId);
@@ -217,7 +237,7 @@ async function updateMessage(
     if (!mappedThreadId && persistedThreadId) {
       statusMessageThreadMap.set(messageId, persistedThreadId);
     }
-    const channel = await resolveTextChannel(threadId);
+    const channel = await resolveTextChannel(threadId, processorId);
     const content = splitForDiscord(text)[0] ?? text;
     let lastRateLimitError: unknown;
 
@@ -280,20 +300,22 @@ async function updateMessage(
 
 async function deleteMessage(channelId: string, messageId: string): Promise<void> {
   const rawChannelId = unscopeChannelId(channelId);
+  const processorId = getScopedProcessorId(channelId);
   const threadId = statusMessageThreadMap.get(messageId) || findReplyThreadIdByStatusMessageTs(messageId) || rawChannelId;
   if (!threadId) return;
-  const channel = await resolveTextChannel(threadId);
+  const channel = await resolveTextChannel(threadId, processorId);
   const message = await channel.messages.fetch(messageId);
   await message.delete();
 }
 
 async function fetchThreadHistory(
-  _channelId: string,
+  channelId: string,
   threadId: string,
   messageId: string
 ): Promise<string | null> {
   try {
-    const channel = await resolveTextChannel(threadId);
+    const processorId = getScopedProcessorId(channelId);
+    const channel = await resolveTextChannel(threadId, processorId);
     const history = await channel.messages.fetch({ limit: 20, before: messageId });
     const ordered = Array.from(history.values() as Iterable<any>).reverse();
     const lines = ordered
@@ -336,8 +358,25 @@ function cleanBotMention(content: string, botUserId: string): string {
 }
 
 function isBotMentioned(message: any, botUserId: string): boolean {
-  if (message?.mentions?.users?.has?.(botUserId)) return true;
+  const debugMention = ["1", "true", "yes", "on"].includes(
+    process.env.DISCORD_DEBUG_MENTION?.trim().toLowerCase() ?? ""
+  );
+  const mentionIds = Array.from(message?.mentions?.users?.keys?.() ?? []);
+  const hasMention = message?.mentions?.users?.has?.(botUserId) ?? false;
   const content = typeof message?.content === "string" ? message.content : "";
+
+  if (debugMention) {
+    log.debug("Discord mention evaluate", {
+      messageId: typeof message?.id === "string" ? message.id : "",
+      botUserId,
+      mentionIds,
+      hasMentionByCollection: hasMention,
+      hasMentionByContent: content.includes(`<@${botUserId}>`) || content.includes(`<@!${botUserId}>`),
+      content,
+    });
+  }
+
+  if (hasMention) return true;
   return content.includes(`<@${botUserId}>`) || content.includes(`<@!${botUserId}>`);
 }
 
@@ -391,7 +430,8 @@ async function renameDiscordThread(
   if (!targetName) return;
 
   try {
-    const channel = await resolveTextChannel(threadId);
+    const processorId = getScopedProcessorId(channelId);
+    const channel = await resolveTextChannel(threadId, processorId);
     if (channel && typeof (channel as any).setName === "function") {
       if ((channel as any).name === targetName) return;
       await (channel as any).setName(targetName);
@@ -546,6 +586,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
             return;
           }
 
+          const topLevelMentioned = isBotMentioned(message, client.user.id);
           const topLevelContext: UnifiedMessageContext = buildIncomingContext({
             platform: "discord",
             channelId: scopeChannelId(processorId, parentId),
@@ -553,7 +594,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
             messageId: message.id,
             userId: message.author.id,
             isTopLevel: true,
-            mentionedBot: isBotMentioned(message, client.user.id),
+            mentionedBot: topLevelMentioned,
             activeThread: false,
             rawText: message.content,
             normalizedText: cleanBotMention(message.content, client.user.id),
@@ -591,10 +632,10 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
             return;
           }
 
-      const thread = await message.startThread({
-        name: buildMeaningfulThreadName(topLevelFlow.text),
-        autoArchiveDuration: 60,
-      });
+          const thread = await message.startThread({
+            name: buildMeaningfulThreadName(topLevelFlow.text),
+            autoArchiveDuration: 60,
+          });
 
           markThreadActive(scopeChannelId(processorId, parentId), thread.id);
           await runtime.handleIncomingMessage(
@@ -621,6 +662,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
       await client.login(bot.token);
       await registerDiscordCommands(client);
       discordClients.set(bot.workspaceId, client);
+      discordClientByProcessorId.set(processorId, client);
       startedCount += 1;
       log.debug("Discord runtime started", {
         reason,
@@ -672,6 +714,7 @@ const discordRuntimeController = createRuntimeController({
       client.destroy();
     }
     discordClients.clear();
+    discordClientByProcessorId.clear();
     discordProcessorManager.clear();
     statusMessageThreadMap.clear();
     log.debug("Discord runtime stopped", { reason });
