@@ -8,7 +8,6 @@ const ORIGINAL_FETCH = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = ORIGINAL_FETCH;
-  delete process.env.DISCORD_BOT_TOKEN;
   mock.restore();
 });
 
@@ -20,7 +19,6 @@ describe("handleDiscordActionPayload", () => {
   });
 
   it("posts a message via Discord API", async () => {
-    process.env.DISCORD_BOT_TOKEN = "token";
     globalThis.fetch = mock(async () => {
       return new Response(
         JSON.stringify({ id: "m1", channel_id: "c1", content: "hello" }),
@@ -30,6 +28,7 @@ describe("handleDiscordActionPayload", () => {
 
     const result = await handleDiscordActionPayload({
       action: "post_message",
+      botToken: "token",
       channelId: "c1",
       text: "hello",
     });
@@ -39,7 +38,6 @@ describe("handleDiscordActionPayload", () => {
   });
 
   it("adds a reaction via Discord API", async () => {
-    process.env.DISCORD_BOT_TOKEN = "token";
     const fetchMock = mock(async (_url: string, init?: RequestInit) => {
       expect(init?.method).toBe("PUT");
       return new Response(null, { status: 204 });
@@ -48,6 +46,7 @@ describe("handleDiscordActionPayload", () => {
 
     const result = await handleDiscordActionPayload({
       action: "add_reaction",
+      botToken: "token",
       channelId: "c1",
       messageId: "m1",
       emoji: "thumbsup",
@@ -59,7 +58,6 @@ describe("handleDiscordActionPayload", () => {
   });
 
   it("fetches user info via Discord API", async () => {
-    process.env.DISCORD_BOT_TOKEN = "token";
     globalThis.fetch = mock(async () => {
       return new Response(
         JSON.stringify({ id: "u1", username: "tester", global_name: "Test User", bot: false }),
@@ -69,6 +67,7 @@ describe("handleDiscordActionPayload", () => {
 
     const result = await handleDiscordActionPayload({
       action: "get_user_info",
+      botToken: "token",
       userId: "<@u1>",
     });
 
@@ -77,7 +76,6 @@ describe("handleDiscordActionPayload", () => {
   });
 
   it("fetches current bot user info with @me", async () => {
-    process.env.DISCORD_BOT_TOKEN = "token";
     const fetchMock = mock(async (url: string) => {
       expect(url).toContain("/users/@me");
       return new Response(
@@ -89,6 +87,7 @@ describe("handleDiscordActionPayload", () => {
 
     const result = await handleDiscordActionPayload({
       action: "get_user_info",
+      botToken: "token",
       userId: "@me",
     });
 
@@ -97,7 +96,6 @@ describe("handleDiscordActionPayload", () => {
   });
 
   it("uploads a file via Discord API", async () => {
-    process.env.DISCORD_BOT_TOKEN = "token";
     const tempFilePath = join(tmpdir(), `ode-discord-upload-${Date.now()}.txt`);
     await Bun.write(tempFilePath, "hello file");
 
@@ -115,6 +113,7 @@ describe("handleDiscordActionPayload", () => {
 
       const result = await handleDiscordActionPayload({
         action: "upload_file",
+        botToken: "token",
         channelId: "c1",
         filePath: tempFilePath,
         filename: "sample.txt",

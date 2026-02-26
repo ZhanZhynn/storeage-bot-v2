@@ -8,8 +8,6 @@ const ORIGINAL_FETCH = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = ORIGINAL_FETCH;
-  delete process.env.LARK_APP_ID;
-  delete process.env.LARK_APP_SECRET;
   mock.restore();
 });
 
@@ -21,9 +19,6 @@ describe("handleLarkActionPayload", () => {
   });
 
   it("posts a message via Lark API", async () => {
-    process.env.LARK_APP_ID = "cli_app";
-    process.env.LARK_APP_SECRET = "secret";
-
     const fetchMock = mock(async (url: string, init?: RequestInit) => {
       if (url.includes("tenant_access_token")) {
         return new Response(
@@ -47,6 +42,8 @@ describe("handleLarkActionPayload", () => {
 
     const result = await handleLarkActionPayload({
       action: "post_message",
+      appId: "cli_app",
+      appSecret: "secret",
       channelId: "oc_123",
       text: "hello",
     });
@@ -56,9 +53,6 @@ describe("handleLarkActionPayload", () => {
   });
 
   it("posts a thread reply via reply endpoint", async () => {
-    process.env.LARK_APP_ID = "cli_app";
-    process.env.LARK_APP_SECRET = "secret";
-
     const fetchMock = mock(async (url: string, init?: RequestInit) => {
       if (url.includes("tenant_access_token")) {
         return new Response(
@@ -82,6 +76,8 @@ describe("handleLarkActionPayload", () => {
 
     const result = await handleLarkActionPayload({
       action: "post_message",
+      appId: "cli_app",
+      appSecret: "secret",
       channelId: "oc_123",
       threadId: "om_root",
       text: "reply",
@@ -92,9 +88,6 @@ describe("handleLarkActionPayload", () => {
   });
 
   it("updates a message via Lark API", async () => {
-    process.env.LARK_APP_ID = "cli_app";
-    process.env.LARK_APP_SECRET = "secret";
-
     const fetchMock = mock(async (url: string, init?: RequestInit) => {
       if (url.includes("tenant_access_token")) {
         return new Response(
@@ -114,6 +107,8 @@ describe("handleLarkActionPayload", () => {
 
     const result = await handleLarkActionPayload({
       action: "update_message",
+      appId: "cli_app",
+      appSecret: "secret",
       messageId: "om_123",
       text: "updated",
     });
@@ -123,9 +118,6 @@ describe("handleLarkActionPayload", () => {
   });
 
   it("adds a reaction via Lark API", async () => {
-    process.env.LARK_APP_ID = "cli_app";
-    process.env.LARK_APP_SECRET = "secret";
-
     const fetchMock = mock(async (url: string) => {
       if (url.includes("tenant_access_token")) {
         return new Response(
@@ -142,6 +134,8 @@ describe("handleLarkActionPayload", () => {
 
     const result = await handleLarkActionPayload({
       action: "add_reaction",
+      appId: "cli_app",
+      appSecret: "secret",
       messageId: "om_123",
       emoji: "thumbsup",
     });
@@ -151,9 +145,6 @@ describe("handleLarkActionPayload", () => {
   });
 
   it("lists channels via Lark API", async () => {
-    process.env.LARK_APP_ID = "cli_app";
-    process.env.LARK_APP_SECRET = "secret";
-
     const fetchMock = mock(async (url: string) => {
       if (url.includes("tenant_access_token")) {
         return new Response(
@@ -168,16 +159,17 @@ describe("handleLarkActionPayload", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const result = await handleLarkActionPayload({ action: "get_channels" });
+    const result = await handleLarkActionPayload({
+      action: "get_channels",
+      appId: "cli_app",
+      appSecret: "secret",
+    });
 
     expect(result.ok).toBe(true);
     expect(result.result).toEqual({ channels: [{ chat_id: "oc_1", name: "dev" }] });
   });
 
   it("filters thread messages from chat list", async () => {
-    process.env.LARK_APP_ID = "cli_app";
-    process.env.LARK_APP_SECRET = "secret";
-
     const fetchMock = mock(async (url: string) => {
       if (url.includes("tenant_access_token")) {
         return new Response(
@@ -203,6 +195,8 @@ describe("handleLarkActionPayload", () => {
 
     const result = await handleLarkActionPayload({
       action: "get_thread_messages",
+      appId: "cli_app",
+      appSecret: "secret",
       channelId: "oc_123",
       threadId: "om_root",
     });
@@ -217,8 +211,6 @@ describe("handleLarkActionPayload", () => {
   });
 
   it("uploads a file via Lark API", async () => {
-    process.env.LARK_APP_ID = "cli_app";
-    process.env.LARK_APP_SECRET = "secret";
     const tempFilePath = join(tmpdir(), `ode-lark-upload-${Date.now()}.txt`);
     await Bun.write(tempFilePath, "hello lark file");
 
@@ -254,6 +246,8 @@ describe("handleLarkActionPayload", () => {
 
       const result = await handleLarkActionPayload({
         action: "upload_file",
+        appId: "cli_app",
+        appSecret: "secret",
         channelId: "oc_123",
         threadId: "om_root",
         filePath: tempFilePath,

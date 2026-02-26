@@ -91,10 +91,10 @@ function normalizeLarkReactionEmoji(emoji: string): string {
 }
 
 function getLarkCredentials(payload: LarkActionRequest): { appId: string; appSecret: string } {
-  const appId = payload.appId?.trim() || process.env.LARK_APP_ID?.trim() || "";
-  const appSecret = payload.appSecret?.trim() || process.env.LARK_APP_SECRET?.trim() || "";
+  const appId = payload.appId?.trim() || "";
+  const appSecret = payload.appSecret?.trim() || "";
   if (!appId || !appSecret) {
-    throw new Error("Lark app credentials missing (set appId/appSecret or LARK_APP_ID/LARK_APP_SECRET)");
+    throw new Error("Lark app credentials missing");
   }
   return { appId, appSecret };
 }
