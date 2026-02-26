@@ -52,15 +52,17 @@ type WorkspaceAuth = {
   userId: string | null;
 };
 
-const teamAuthMap = new Map<string, WorkspaceAuth>();
-const enterpriseAuthMap = new Map<string, WorkspaceAuth>();
+const workspaceAuthMap = new Map<string, WorkspaceAuth>();
+const botTokenAuthMap = new Map<string, WorkspaceAuth>();
+const appTokenAuthMap = new Map<string, WorkspaceAuth>();
 const channelWorkspaceMap = new Map<string, string>();
 const channelWorkspaceAuthMap = new Map<string, WorkspaceAuth>();
 const backgroundWorkspaceSyncInFlight = new Set<string>();
 
 export function clearSlackAuthState(): void {
-  teamAuthMap.clear();
-  enterpriseAuthMap.clear();
+  workspaceAuthMap.clear();
+  botTokenAuthMap.clear();
+  appTokenAuthMap.clear();
   channelWorkspaceMap.clear();
   channelWorkspaceAuthMap.clear();
 }
@@ -107,22 +109,16 @@ export async function createSlackApp(appToken: string): Promise<App> {
     return appRegistry.get(normalizedAppToken)!;
   }
 
+  const auth = appTokenAuthMap.get(normalizedAppToken);
+  if (!auth) {
+    log.warn("No Slack auth for app token", { appToken: truncateToken(normalizedAppToken) });
+    throw new Error("Missing Slack auth for app token");
+  }
+
   const createdApp = new App({
     socketMode: true,
     appToken: normalizedAppToken,
-    authorize: async ({ teamId, enterpriseId }) => {
-      const auth = resolveWorkspaceAuth(teamId, enterpriseId);
-      if (!auth) {
-        log.warn("No Slack auth for workspace", { teamId, enterpriseId });
-        throw new Error("Missing Slack auth for workspace");
-      }
-
-      return {
-        botToken: auth.botToken,
-        botId: auth.botId ?? undefined,
-        botUserId: auth.botUserId ?? undefined,
-      };
-    },
+    token: auth.botToken,
   });
 
   appRegistry.set(normalizedAppToken, createdApp);
@@ -146,18 +142,10 @@ function isAuthorizedChannel(channelId: string): boolean {
 }
 
 function resolveWorkspaceAuth(
-  teamId?: string,
-  enterpriseId?: string
+  credentialKey?: string
 ): WorkspaceAuth | undefined {
-  if (teamId && teamAuthMap.has(teamId)) {
-    return teamAuthMap.get(teamId);
-  }
-
-  if (enterpriseId && enterpriseAuthMap.has(enterpriseId)) {
-    return enterpriseAuthMap.get(enterpriseId);
-  }
-
-  return undefined;
+  if (!credentialKey) return undefined;
+  return workspaceAuthMap.get(credentialKey) ?? botTokenAuthMap.get(credentialKey);
 }
 
 export function getSlackBotToken(channelId?: string): string | undefined {
@@ -165,7 +153,7 @@ export function getSlackBotToken(channelId?: string): string | undefined {
     const channelAuth = channelWorkspaceAuthMap.get(channelId);
     if (channelAuth?.botToken) return channelAuth.botToken;
   }
-  const registered = teamAuthMap.values().next().value as WorkspaceAuth | undefined;
+  const registered = workspaceAuthMap.values().next().value as WorkspaceAuth | undefined;
   if (registered?.botToken) return registered.botToken;
   const tokens = getSlackBotTokens()
     .map((entry) => entry.token)
@@ -268,12 +256,9 @@ async function fetchWorkspaceAuth(
 }
 
 function registerWorkspaceAuth(auth: WorkspaceAuth): void {
-  if (auth.teamId) {
-    teamAuthMap.set(auth.teamId, auth);
-  }
-  if (auth.enterpriseId) {
-    enterpriseAuthMap.set(auth.enterpriseId, auth);
-  }
+  workspaceAuthMap.set(auth.workspaceId, auth);
+  botTokenAuthMap.set(auth.botToken, auth);
+  appTokenAuthMap.set(auth.appToken, auth);
 }
 
 export async function initializeWorkspaceAuth(): Promise<void> {
@@ -474,8 +459,7 @@ export function setupMessageHandlers(): void {
       },
       setChannelWorkspaceAuth: (channelId, auth) => {
         if (!auth?.botToken) return;
-        const fullAuth = Array.from(teamAuthMap.values()).find((entry) => entry.botToken === auth.botToken)
-          ?? Array.from(enterpriseAuthMap.values()).find((entry) => entry.botToken === auth.botToken);
+        const fullAuth = botTokenAuthMap.get(auth.botToken);
         if (fullAuth) channelWorkspaceAuthMap.set(channelId, fullAuth);
       },
       isThreadActive,

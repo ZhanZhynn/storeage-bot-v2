@@ -93,6 +93,7 @@ describe("registerSlackMessageRouter", () => {
           registeredHandler = handler;
         },
       },
+      resolveWorkspaceAuth: () => ({ workspaceId: "ws_123" }),
       handleIncomingMessage,
     });
 

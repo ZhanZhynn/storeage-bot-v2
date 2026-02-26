@@ -15,8 +15,7 @@ type RouterDeps = {
   app: any;
   isAuthorizedChannel: (channelId: string) => boolean;
   resolveWorkspaceAuth: (
-    teamId?: string,
-    enterpriseId?: string
+    credentialKey?: string
   ) => { workspaceId?: string; workspaceName?: string; botToken?: string; [key: string]: unknown } | undefined;
   syncWorkspaceForChannel: (
     channelId: string,
@@ -63,11 +62,9 @@ type IncomingMessageData = {
 function syncWorkspaceAuth(
   deps: RouterDeps,
   channelId: string,
-  teamId?: string,
-  enterpriseId?: string
+  credentialKey?: string
 ): WorkspaceAuth {
-  if (!teamId) return undefined;
-  const auth = deps.resolveWorkspaceAuth(teamId, enterpriseId);
+  const auth = deps.resolveWorkspaceAuth(credentialKey);
   if (auth?.workspaceName && !deps.getChannelWorkspaceName(channelId)) {
     deps.setChannelWorkspaceName(channelId, auth.workspaceName);
   }
@@ -96,6 +93,11 @@ function extractIncomingMessageData(message: any): IncomingMessageData | null {
 
 function shouldDropForOtherMentions(text: string, isMention: boolean): boolean {
   return /<@U[A-Z0-9]+>/g.test(text) && !isMention;
+}
+
+function tokenLast6(token?: string): string | undefined {
+  if (!token) return undefined;
+  return token.slice(-6);
 }
 
 async function maybeRefreshWorkspaceForMention(params: {
@@ -167,20 +169,18 @@ async function maybeHandleLauncherCommand(params: {
   return true;
 }
 
-function getCacheKey(teamId?: string, enterpriseId?: string): string | undefined {
-  if (teamId) return `team:${teamId}`;
-  if (enterpriseId) return `enterprise:${enterpriseId}`;
-  return undefined;
+function getCacheKey(credentialKey?: string): string | undefined {
+  if (!credentialKey) return undefined;
+  return `credential:${credentialKey}`;
 }
 
 async function getBotIdentity(params: {
   client: any;
   cache: Map<string, BotIdentity>;
-  teamId?: string;
-  enterpriseId?: string;
+  credentialKey?: string;
 }): Promise<BotIdentity> {
-  const { client, cache, teamId, enterpriseId } = params;
-  const key = getCacheKey(teamId, enterpriseId);
+  const { client, cache, credentialKey } = params;
+  const key = getCacheKey(credentialKey);
   if (key) {
     const cached = cache.get(key);
     if (cached) {
@@ -191,8 +191,8 @@ async function getBotIdentity(params: {
   const authResult = await client.auth.test();
   const identity: BotIdentity = {
     botUserId: (authResult.user_id as string) || "",
-    teamId: (authResult.team_id as string | undefined) ?? teamId,
-    enterpriseId: (authResult.enterprise_id as string | undefined) ?? enterpriseId,
+    teamId: authResult.team_id as string | undefined,
+    enterpriseId: authResult.enterprise_id as string | undefined,
   };
 
   if (key) {
@@ -214,20 +214,26 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
       contextData = incoming;
 
       const { channelId, userId, text, threadId, messageId } = incoming;
+      const contextBotToken = context?.botToken as string | undefined;
+      let workspaceAuth = syncWorkspaceAuth(
+        deps,
+        channelId,
+        contextBotToken
+      );
+      const credentialKey =
+        workspaceAuth?.workspaceId
+        ?? contextBotToken
+        ?? undefined;
       const identity = await getBotIdentity({
         client,
         cache: botIdentityCache,
-        teamId: (context?.teamId as string | undefined) ?? (body?.team_id as string | undefined),
-        enterpriseId: (context?.enterpriseId as string | undefined) ?? (body?.enterprise_id as string | undefined),
+        credentialKey,
       });
 
       const currentBotUserId = identity.botUserId;
-      const workspaceAuth = syncWorkspaceAuth(
-        deps,
-        channelId,
-        identity.teamId,
-        identity.enterpriseId
-      );
+      if (!workspaceAuth && contextBotToken) {
+        workspaceAuth = syncWorkspaceAuth(deps, channelId, contextBotToken);
+      }
 
       if (userId === currentBotUserId) {
         log.debug("[DROP] Message from bot user", { channelId, userId });
@@ -259,7 +265,13 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
       const flowResult = evaluateIncomingMessage(messageContext, isStopCommand);
 
       if (shouldDropForOtherMentions(text, isMention)) {
-        log.info("[DROP] Mentions other user", { channelId, threadId });
+        log.info("[DROP] Mentions other user", {
+          channelId,
+          threadId,
+          imName: workspaceAuth?.workspaceName ?? deps.getChannelWorkspaceName(channelId) ?? "unknown",
+          botTokenLast6: tokenLast6(workspaceAuth?.botToken),
+          botUserId: currentBotUserId || "unknown",
+        });
         return;
       }
 
