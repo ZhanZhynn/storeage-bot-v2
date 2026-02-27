@@ -17,7 +17,8 @@ import { findReplyThreadIdByStatusMessageTs } from "@/config/local/sessions";
 import { isThreadActive, markThreadActive } from "@/config/local/sessions";
 import { log } from "@/utils";
 import {
-  IncomingMessageProcessor,
+  formatIncomingDropMessage,
+  parseIncomingCommand,
 } from "@/ims/shared/incoming-message-processor";
 import { createRuntimeController } from "@/ims/shared/runtime-controller";
 import { createProcessorId, getScopedProcessorId, scopeChannelId, unscopeChannelId } from "@/ims/shared/processor-scope";
@@ -48,7 +49,6 @@ const DISCORD_THREAD_NAME_LIMIT = 25;
 const DISCORD_THREAD_RENAME_LIMIT = 90;
 const DISCORD_UPDATE_MAX_ATTEMPTS = 3;
 const DISCORD_UPDATE_RETRY_BASE_MS = 400;
-const incomingMessageProcessor = new IncomingMessageProcessor();
 
 const discordClients = new Map<string, Client>();
 const discordClientByProcessorId = new Map<string, Client>();
@@ -417,7 +417,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
             const threadId = message.channel.id;
             const scopedChannelId = scopeChannelId(processorId, parentId);
             const text = message.content.trim();
-            const launcherCommand = incomingMessageProcessor.parseCommand(text);
+            const launcherCommand = parseIncomingCommand(text);
             if (launcherCommand) {
               await sendLauncherReplyForMessage({
                 message,
@@ -456,7 +456,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
           const parentId = message.channel.id;
           if (configuredChannels && !configuredChannels.includes(parentId)) return;
 
-          const parentLauncherCommand = incomingMessageProcessor.parseCommand(message.content);
+          const parentLauncherCommand = parseIncomingCommand(message.content);
           if (parentLauncherCommand) {
             await sendLauncherReplyForMessage({
               message,
@@ -473,7 +473,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
           const topLevelMentioned = isBotMentioned(message, client.user.id);
           const topLevelText = cleanBotMention(message.content, client.user.id);
           if (!topLevelMentioned) {
-            log.debug(incomingMessageProcessor.formatDropMessage("not_mentioned_and_inactive"), {
+            log.debug(formatIncomingDropMessage("not_mentioned_and_inactive"), {
               platform: "discord",
               channelId: parentId,
               threadId: message.id,
@@ -489,7 +489,7 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
             return;
           }
 
-          const cleanedLauncherCommand = incomingMessageProcessor.parseCommand(topLevelText);
+          const cleanedLauncherCommand = parseIncomingCommand(topLevelText);
           if (cleanedLauncherCommand) {
             await sendLauncherReplyForMessage({
               message,

@@ -1,6 +1,7 @@
 import { log } from "@/utils";
 import {
-  IncomingMessageProcessor,
+  formatIncomingDropMessage,
+  parseIncomingCommand,
   type IncomingFlowResult,
 } from "@/ims/shared/incoming-message-processor";
 import type { InboundDecision } from "@/core/model/inbound-decision";
@@ -47,7 +48,6 @@ type RouterDeps = {
 
 type WorkspaceAuth = ReturnType<RouterDeps["resolveWorkspaceAuth"]>;
 
-const incomingMessageProcessor = new IncomingMessageProcessor();
 const slackInboundAdapter = new SlackInboundAdapter();
 
 function toIncomingFlowResult(decision: InboundDecision): IncomingFlowResult {
@@ -168,7 +168,7 @@ async function maybeHandleLauncherCommand(params: {
   client: any;
 }): Promise<boolean> {
   const { deps, cleanText, isMention, channelId, userId, client } = params;
-  const command = incomingMessageProcessor.parseCommand(cleanText);
+  const command = parseIncomingCommand(cleanText);
   if (command !== "setting") return false;
   if (isMention) {
     log.info("Slack settings launcher command matched", {
@@ -320,7 +320,7 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
 
       if (flowResult.type === "ignore") {
         if (flowResult.reason === "not_mentioned_and_inactive") {
-          log.debug(incomingMessageProcessor.formatDropMessage(flowResult.reason), { channelId, threadId });
+          log.debug(formatIncomingDropMessage(flowResult.reason), { channelId, threadId });
           return;
         }
         await say({

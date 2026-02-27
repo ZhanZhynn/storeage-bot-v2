@@ -24,7 +24,7 @@ import { createCoreRuntime } from "@/core/runtime";
 import type { IMAdapter } from "@/core/types";
 import { log } from "@/utils";
 import {
-  IncomingMessageProcessor,
+  parseIncomingCommand,
 } from "@/ims/shared/incoming-message-processor";
 import {
   createProcessorId,
@@ -50,7 +50,6 @@ import { LarkRuntimeState } from "@/ims/lark/state/runtime-state";
 import type { RawInboundEvent } from "@/core/model/raw-inbound-event";
 
 let larkRuntimeStarted = false;
-const incomingMessageProcessor = new IncomingMessageProcessor();
 
 type LarkCredentials = {
   workspaceId: string;
@@ -1117,7 +1116,7 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
     textLength: text.length,
   });
 
-  const command = incomingMessageProcessor.parseCommand(text);
+  const command = parseIncomingCommand(text);
   if (command === "setting") {
     logLarkEvent("Lark inbound matched /setting", {
       channelId,

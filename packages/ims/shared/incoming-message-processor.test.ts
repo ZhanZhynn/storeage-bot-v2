@@ -1,10 +1,13 @@
-import { describe, expect, it, mock } from "bun:test";
-import { IncomingMessageProcessor, buildIncomingContext } from "./incoming-message-processor";
+import { describe, expect, it } from "bun:test";
+import {
+  buildIncomingContext,
+  evaluateIncomingFlow,
+  formatIncomingDropMessage,
+  parseIncomingCommand,
+} from "./incoming-message-processor";
 
-describe("IncomingMessageProcessor", () => {
+describe("incoming message flow helpers", () => {
   it("evaluates behavior matrix for top-level and thread messages", () => {
-    const processor = new IncomingMessageProcessor();
-
     const cases: Array<{
       name: string;
       input: {
@@ -14,7 +17,7 @@ describe("IncomingMessageProcessor", () => {
         normalizedText: string;
       };
       detectStop?: boolean;
-      expected: ReturnType<IncomingMessageProcessor["evaluate"]>;
+      expected: ReturnType<typeof evaluateIncomingFlow>;
     }> = [
       {
         name: "top-level without mention is ignored",
@@ -50,62 +53,16 @@ describe("IncomingMessageProcessor", () => {
     ];
 
     for (const testCase of cases) {
-      const actual = processor.evaluate(testCase.input, { detectStop: testCase.detectStop });
+      const actual = evaluateIncomingFlow(testCase.input, { detectStop: testCase.detectStop });
       expect(actual).toEqual(testCase.expected);
     }
   });
 
-  it("executes forward/stop/ignore branches with side-effect isolation", async () => {
-    const processor = new IncomingMessageProcessor();
-    const markThreadActive = mock(() => {});
-    const handleStopCommand = mock(async () => true);
-    const sendStopAck = mock(async () => {});
-    const forwardToCore = mock(async () => {});
-    const onIgnore = mock(() => {});
-
-    await processor.execute({
-      context: { channelId: "C1", threadId: "T1" },
-      flowResult: { type: "ignore", reason: "empty_text" },
-      markThreadActive,
-      handleStopCommand,
-      sendStopAck,
-      forwardToCore,
-      onIgnore,
-    });
-
-    await processor.execute({
-      context: { channelId: "C1", threadId: "T1" },
-      flowResult: { type: "stop", text: "stop" },
-      markThreadActive,
-      handleStopCommand,
-      sendStopAck,
-      forwardToCore,
-      onIgnore,
-    });
-
-    await processor.execute({
-      context: { channelId: "C1", threadId: "T1" },
-      flowResult: { type: "forward", text: "hello" },
-      markThreadActive,
-      handleStopCommand,
-      sendStopAck,
-      forwardToCore,
-      onIgnore,
-    });
-
-    expect(onIgnore).toHaveBeenCalledWith("empty_text");
-    expect(handleStopCommand).toHaveBeenCalledWith("C1", "T1");
-    expect(sendStopAck).toHaveBeenCalledTimes(1);
-    expect(markThreadActive).toHaveBeenCalledWith("C1", "T1");
-    expect(forwardToCore).toHaveBeenCalledWith("hello");
-  });
-
   it("parses command variants and normalizes context", () => {
-    const processor = new IncomingMessageProcessor();
-    expect(processor.parseCommand("<@U123> settings")).toBe("setting");
-    expect(processor.parseCommand("@ode: setting")).toBe("setting");
-    expect(processor.parseCommand("／settings")).toBe("setting");
-    expect(processor.parseCommand("help")).toBeNull();
+    expect(parseIncomingCommand("<@U123> settings")).toBe("setting");
+    expect(parseIncomingCommand("@ode: setting")).toBe("setting");
+    expect(parseIncomingCommand("／settings")).toBe("setting");
+    expect(parseIncomingCommand("help")).toBeNull();
 
     const context = buildIncomingContext({
       platform: "slack",
@@ -122,6 +79,6 @@ describe("IncomingMessageProcessor", () => {
     expect(context.channelId).toBe("C1");
     expect(context.threadId).toBe("T1");
     expect(context.replyThreadId).toBe("T1");
-    expect(processor.formatDropMessage("not_mentioned_and_inactive")).toContain("Not mentioned");
+    expect(formatIncomingDropMessage("not_mentioned_and_inactive")).toContain("Not mentioned");
   });
 });
