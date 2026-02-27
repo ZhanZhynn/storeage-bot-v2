@@ -9,7 +9,11 @@ import {
   isAgentEnabled,
   resolveChannelCwd,
 } from "@/config";
-import type { AgentProviderId } from "@/shared/agent-provider";
+import {
+  getAgentProviderLabel,
+  providerSupportsModelSelection,
+  type AgentProviderId,
+} from "@/shared/agent-provider";
 import type { ProviderModelLists } from "@/shared/channel-settings";
 
 export type SettingsLauncherAction = "general" | "channel" | "github";
@@ -54,7 +58,7 @@ export function describeChannelSettingsIssues(channelId: string): string[] {
     issues.push(`Agent not enabled: ${provider}`);
   }
 
-  if (provider === "opencode" || provider === "codex" || provider === "kilo") {
+  if (providerSupportsModelSelection(provider)) {
     const lists = getProviderModelListsFromConfig();
     const models = provider === "opencode"
       ? lists.opencode
@@ -65,8 +69,7 @@ export function describeChannelSettingsIssues(channelId: string): string[] {
     if (!model) {
       issues.push("Model not configured.");
     } else if (!modelSet.has(normalizeModel(model))) {
-      const providerLabel = provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : "Kilo";
-      issues.push(`Model not available in configured ${providerLabel} models.`);
+      issues.push(`Model not available in configured ${getAgentProviderLabel(provider)} models.`);
     }
   }
 

@@ -28,7 +28,3 @@ export type {
   OpenCodeOptions,
   OpenCodeSessionInfo,
 } from "../types";
-
-export function getStaticConfig(): { displayName: string } {
-  return { displayName: "OpenCode" };
-}

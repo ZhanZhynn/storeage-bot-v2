@@ -108,7 +108,7 @@ jobs:
       - name: Read version
         id: vars
         run: |
-          version="$(bun -e 'import pkg from "./package.json" with { type: "json" }; console.log(pkg.version)')"
+          version="$(node -p "require('./package.json').version")"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Build release notes

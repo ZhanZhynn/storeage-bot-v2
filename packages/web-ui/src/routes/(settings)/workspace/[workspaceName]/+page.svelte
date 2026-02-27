@@ -3,34 +3,26 @@
   import { page } from "$app/stores";
   import { ChevronDown, RefreshCw } from "lucide-svelte";
   import type { DashboardConfig } from "$lib/localConfig";
+  import {
+    AGENT_PROVIDERS,
+    AGENT_PROVIDER_LABELS,
+    normalizeAgentProviderId,
+    type AgentProviderId,
+  } from "@/shared/agent-provider";
   import { Badge, Button, Card, Input, Label, Select, Textarea } from "$lib/components/ui";
   import { locale } from "$lib/i18n";
   import { localSettingStore } from "$lib/local-setting/store";
   import { getSelectedWorkspace, getWorkspacePath, getWorkspaceRouteKey } from "$lib/local-setting/workspaces";
 
-  type AgentProvider = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
+  type AgentProvider = AgentProviderId;
 
-  const providerLabels: Record<AgentProvider, string> = {
-    opencode: "OpenCode",
-    claudecode: "Claude Code",
-    codex: "Codex",
-    kimi: "Kimi",
-    kiro: "Kiro",
-    kilo: "Kilo",
-    qwen: "Qwen Code",
-    goose: "Goose",
-    gemini: "Gemini",
-  };
-
-  const agentProviders = Object.keys(providerLabels) as AgentProvider[];
+  const agentProviders = AGENT_PROVIDERS;
 
   let openChannelId = $state("");
   let hasAutoOpenedChannel = $state(false);
 
   function parseAgentProvider(value: unknown): AgentProvider {
-    return typeof value === "string" && agentProviders.includes(value as AgentProvider)
-      ? value as AgentProvider
-      : "opencode";
+    return normalizeAgentProviderId(value);
   }
 
   function isProviderEnabled(provider: AgentProvider): boolean {
@@ -469,7 +461,7 @@
                     on:change={(event) => onChannelProviderChange(selectedWorkspace.id, channel.id, event)}
                   >
                     {#each enabledProviders as provider}
-                      <option value={provider}>{providerLabels[provider]}</option>
+                      <option value={provider}>{AGENT_PROVIDER_LABELS[provider]}</option>
                     {/each}
                   </Select>
                 </div>

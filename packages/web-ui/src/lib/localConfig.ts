@@ -13,4 +13,15 @@ export {
   type StatusMessageFrequencyValue,
 } from "@/config/status-message-frequency";
 
-export { type GitStrategy, type StatusMessageFormat, TOOL_DISPLAY_CONFIG } from "@/config/web";
+export {
+  STATUS_MESSAGE_FORMAT_VALUES,
+  STATUS_MESSAGE_FORMAT_OPTIONS,
+  GIT_STRATEGY_VALUES,
+  GIT_STRATEGY_OPTIONS,
+  AUTO_UPDATE_VALUES,
+  AUTO_UPDATE_OPTIONS,
+  TOOL_DISPLAY_CONFIG,
+  type AutoUpdateSetting,
+  type GitStrategy,
+  type StatusMessageFormat,
+} from "@/config/web";

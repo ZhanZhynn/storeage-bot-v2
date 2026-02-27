@@ -1,6 +1,7 @@
 import type { AgentAdapter, NormalizedQuestion } from "@/core/types";
 import { getChannelAgentProvider } from "@/config";
 import type { QuestionInfo } from "@opencode-ai/sdk/v2";
+import { getAgentProviderLabel } from "@/shared/agent-provider";
 import { getAgentProvider, type AgentProviderId } from "./registry";
 import { getSessionClient } from "./opencode";
 import {
@@ -29,7 +30,7 @@ export function createAgentAdapter(): AgentAdapter {
     },
     getDisplayNameForSession(sessionId) {
       const providerId = getProviderForSession(sessionId);
-      return getAgentProvider(providerId).getStaticConfig().displayName;
+      return getAgentProviderLabel(providerId);
     },
     async getOrCreateSession(channelId, threadId, cwd, env) {
       const providerId = getProviderForChannel(channelId);

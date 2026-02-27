@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import type { AgentStatusProvider } from "../../../../utils/status";
+  import { getAgentProviderLabel } from "@/shared/agent-provider";
   import EventLog from "./EventLog.svelte";
   import IMPreview from "./IMPreview.svelte";
 
@@ -165,17 +166,6 @@
     return "opencode";
   }
 
-  function providerLabel(provider: AgentStatusProvider): string {
-    if (provider === "claudecode") return "Claude Code";
-    if (provider === "codex") return "Codex";
-    if (provider === "kimi") return "Kimi";
-    if (provider === "kiro") return "Kiro";
-    if (provider === "kilo") return "Kilo";
-    if (provider === "qwen") return "Qwen Code";
-    if (provider === "goose") return "Goose";
-    if (provider === "gemini") return "Gemini";
-    return "OpenCode";
-  }
 </script>
 
 <div class="session-detail">
@@ -190,7 +180,7 @@
       <div class="session-meta">
         <div class="session-id-row">
           <div class="session-id">{meta.sessionId}</div>
-          <span class="provider-badge">{providerLabel(inferProvider(meta))}</span>
+          <span class="provider-badge">{getAgentProviderLabel(inferProvider(meta))}</span>
         </div>
         <div class="session-sub">{meta.workingDirectory}</div>
       </div>

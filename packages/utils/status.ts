@@ -2,7 +2,7 @@ import {
   TOOL_DISPLAY_CONFIG,
   type StatusMessageFormat,
 } from "@/config/web";
-import type { AgentProviderId } from "@/shared/agent-provider";
+import { getAgentProviderRunningTitle, type AgentProviderId } from "@/shared/agent-provider";
 import type { SessionMessageState } from "./session-inspector";
 
 export type StatusRequest = {
@@ -15,18 +15,6 @@ export type StatusRequest = {
 };
 
 export type AgentStatusProvider = AgentProviderId;
-
-const PROVIDER_FALLBACK_TITLES: Record<AgentStatusProvider, string> = {
-  opencode: "Opencode is running...",
-  claudecode: "Claude Code is running...",
-  codex: "Codex is running...",
-  kimi: "Kimi is running...",
-  kiro: "Kiro is running...",
-  kilo: "Kilo is running...",
-  qwen: "Qwen is running...",
-  goose: "Goose is running...",
-  gemini: "Gemini is running...",
-};
 
 type StatusTodo = {
   content: string;
@@ -365,7 +353,7 @@ export function buildStatusMessageByProvider(
   state?: SessionMessageState,
   statusMessageFormat: StatusMessageFormat = "medium"
 ): string {
-  const fallbackTitle = PROVIDER_FALLBACK_TITLES[provider];
+  const fallbackTitle = getAgentProviderRunningTitle(provider);
 
   const effectiveState: SessionMessageState = state
     ? {

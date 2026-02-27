@@ -12,6 +12,30 @@ export const AGENT_PROVIDERS = [
 
 export type AgentProviderId = (typeof AGENT_PROVIDERS)[number];
 
+export const AGENT_PROVIDER_LABELS: Record<AgentProviderId, string> = {
+  opencode: "OpenCode",
+  claudecode: "Claude Code",
+  codex: "Codex",
+  kimi: "Kimi",
+  kiro: "Kiro",
+  kilo: "Kilo",
+  qwen: "Qwen Code",
+  goose: "Goose",
+  gemini: "Gemini",
+};
+
+export const AGENT_PROVIDER_COMMANDS: Record<AgentProviderId, string> = {
+  opencode: "opencode",
+  claudecode: "claude",
+  codex: "codex",
+  kimi: "kimi",
+  kiro: "kiro-cli",
+  kilo: "kilo",
+  qwen: "qwen",
+  goose: "goose",
+  gemini: "gemini",
+};
+
 type AgentProviderMetadata = {
   aliases: readonly string[];
   supportsEventStream: boolean;
@@ -93,4 +117,12 @@ export function providerSupportsModelSelection(provider: AgentProviderId): boole
 
 export function providerSupportsEventStream(provider: AgentProviderId): boolean {
   return AGENT_PROVIDER_MANIFEST[provider].supportsEventStream;
+}
+
+export function getAgentProviderLabel(provider: AgentProviderId): string {
+  return AGENT_PROVIDER_LABELS[provider];
+}
+
+export function getAgentProviderRunningTitle(provider: AgentProviderId): string {
+  return `${getAgentProviderLabel(provider)} is running...`;
 }

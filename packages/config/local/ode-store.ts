@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { DEFAULT_STATUS_MESSAGE_FREQUENCY_MS } from "../status-message-frequency";
+import { normalizeGitStrategy, normalizeStatusMessageFormat } from "../baseConfig";
 import {
   odeConfigSchema,
   type OdeConfig,
@@ -73,10 +74,8 @@ export function normalizeBaseBranch(baseBranch: string | null | undefined): stri
 }
 
 function normalizeConfig(config: OdeConfig): OdeConfig {
-  const statusMessageFormat = config.user.defaultStatusMessageFormat ?? "medium";
-  const normalizedFrequency = statusMessageFormat;
-  const normalizedGitStrategy =
-    config.user.gitStrategy === "default" ? "default" : "worktree";
+  const normalizedStatusMessageFormat = normalizeStatusMessageFormat(config.user.defaultStatusMessageFormat);
+  const normalizedGitStrategy = normalizeGitStrategy(config.user.gitStrategy);
   const messageUpdateIntervalCandidate =
     config.user.IM_MESSAGE_UPDATE_INTERVAL_MS ?? DEFAULT_MESSAGE_UPDATE_INTERVAL_MS;
   const normalizedMessageUpdateInterval =
@@ -117,7 +116,7 @@ function normalizeConfig(config: OdeConfig): OdeConfig {
     user: {
       ...config.user,
       gitStrategy: normalizedGitStrategy,
-      defaultStatusMessageFormat: normalizedFrequency,
+      defaultStatusMessageFormat: normalizedStatusMessageFormat,
       IM_MESSAGE_UPDATE_INTERVAL_MS: normalizedMessageUpdateInterval,
     },
     updates: {

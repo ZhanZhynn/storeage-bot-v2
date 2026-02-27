@@ -8,6 +8,12 @@ import {
   type StatusMessageFrequencyMs,
 } from "../status-message-frequency";
 import {
+  normalizeGitStrategy,
+  normalizeStatusMessageFormat,
+  type GitStrategy,
+  type StatusMessageFormat,
+} from "../baseConfig";
+import {
   type WorkspaceConfig,
   type AgentProvider,
   type AgentsConfig,
@@ -52,10 +58,7 @@ const MIN_MESSAGE_UPDATE_INTERVAL_MS = 250;
 export const DEFAULT_CODEX_MODEL = "gpt-5.3-codex";
 
 function toDashboardConfig(config: OdeConfig): DashboardConfig {
-  const defaultStatusMessageFormat =
-    config.user.defaultStatusMessageFormat === "aggressive" || config.user.defaultStatusMessageFormat === "minimum"
-      ? config.user.defaultStatusMessageFormat
-      : "medium";
+  const defaultStatusMessageFormat = normalizeStatusMessageFormat(config.user.defaultStatusMessageFormat);
 
   return {
     completeOnboarding: config.completeOnboarding,
@@ -292,8 +295,8 @@ export type GitHubInfo = {
 };
 
 export type UserGeneralSettings = {
-  defaultStatusMessageFormat: "minimum" | "medium" | "aggressive";
-  gitStrategy: "default" | "worktree";
+  defaultStatusMessageFormat: StatusMessageFormat;
+  gitStrategy: GitStrategy;
   statusMessageFrequencyMs: StatusMessageFrequencyMs;
   autoUpdate: boolean;
 };
@@ -326,11 +329,8 @@ export function getUserGeneralSettings(): UserGeneralSettings {
   const user = odeConfig.user;
   const updates = odeConfig.updates;
   return {
-    defaultStatusMessageFormat:
-      user.defaultStatusMessageFormat === "minimum" || user.defaultStatusMessageFormat === "aggressive"
-        ? user.defaultStatusMessageFormat
-        : "medium",
-    gitStrategy: user.gitStrategy === "default" ? "default" : "worktree",
+    defaultStatusMessageFormat: normalizeStatusMessageFormat(user.defaultStatusMessageFormat),
+    gitStrategy: normalizeGitStrategy(user.gitStrategy),
     statusMessageFrequencyMs: parseStatusMessageFrequencyMs(user.IM_MESSAGE_UPDATE_INTERVAL_MS),
     autoUpdate: updates.autoUpgrade !== false,
   };

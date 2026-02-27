@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AGENT_PROVIDERS } from "@/shared/agent-provider";
 import { DEFAULT_STATUS_MESSAGE_FREQUENCY_MS } from "../status-message-frequency";
+import { GIT_STRATEGY_VALUES, STATUS_MESSAGE_FORMAT_VALUES } from "../baseConfig";
 
 const DEFAULT_UPDATE_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -9,8 +10,8 @@ const userSchema = z.object({
   email: z.string().optional().default(""),
   initials: z.string().optional().default(""),
   avatar: z.string().optional().default(""),
-  gitStrategy: z.enum(["default", "worktree"]).optional().default("worktree"),
-  defaultStatusMessageFormat: z.enum(["minimum", "medium", "aggressive"]).optional().default("medium"),
+  gitStrategy: z.enum(GIT_STRATEGY_VALUES).optional().default("worktree"),
+  defaultStatusMessageFormat: z.enum(STATUS_MESSAGE_FORMAT_VALUES).optional().default("medium"),
   IM_MESSAGE_UPDATE_INTERVAL_MS: z.number().optional().default(DEFAULT_STATUS_MESSAGE_FREQUENCY_MS),
 });
 

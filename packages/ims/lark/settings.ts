@@ -5,6 +5,9 @@ import {
   getChannelSystemMessage,
   getGitHubInfoForUser,
   STATUS_MESSAGE_FREQUENCY_OPTIONS,
+  STATUS_MESSAGE_FORMAT_OPTIONS,
+  GIT_STRATEGY_OPTIONS,
+  AUTO_UPDATE_OPTIONS,
   getUserGeneralSettings,
   getWebHost,
   getWebPort,
@@ -157,19 +160,6 @@ export function buildLarkSettingsDetailCard(params: {
 
   if (action === "open_general_settings_modal") {
     const general = getUserGeneralSettings();
-    const statusFormatOptions = [
-      { value: "minimum", label: "Minimum" },
-      { value: "medium", label: "Medium" },
-      { value: "aggressive", label: "Aggressive" },
-    ];
-    const gitOptions = [
-      { value: "worktree", label: "Worktree" },
-      { value: "default", label: "Default" },
-    ];
-    const autoUpdateOptions = [
-      { value: "on", label: "On" },
-      { value: "off", label: "Off" },
-    ];
 
     const elements: Array<Record<string, unknown>> = [];
     if (notice) {
@@ -196,7 +186,7 @@ export function buildLarkSettingsDetailCard(params: {
             tag: "select_static",
             name: "statusFormat",
             placeholder: { tag: "plain_text", content: "Select format" },
-            options: statusFormatOptions.map((item) => ({
+            options: STATUS_MESSAGE_FORMAT_OPTIONS.map((item) => ({
               text: { tag: "plain_text", content: item.label },
               value: item.value,
             })),
@@ -222,7 +212,7 @@ export function buildLarkSettingsDetailCard(params: {
             tag: "select_static",
             name: "gitStrategy",
             placeholder: { tag: "plain_text", content: "Select strategy" },
-            options: gitOptions.map((item) => ({
+            options: GIT_STRATEGY_OPTIONS.map((item) => ({
               text: { tag: "plain_text", content: item.label },
               value: item.value,
             })),
@@ -235,7 +225,7 @@ export function buildLarkSettingsDetailCard(params: {
             tag: "select_static",
             name: "autoUpdate",
             placeholder: { tag: "plain_text", content: "Select auto update" },
-            options: autoUpdateOptions.map((item) => ({
+            options: AUTO_UPDATE_OPTIONS.map((item) => ({
               text: { tag: "plain_text", content: item.label },
               value: item.value,
             })),

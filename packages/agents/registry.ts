@@ -21,10 +21,6 @@ import type {
   OpenCodeSessionInfo,
 } from "./types";
 
-export type AgentStaticConfig = {
-  displayName: string;
-};
-
 export type AgentProvider = {
   id: AgentProviderId;
   supportsEventStream: boolean;
@@ -49,7 +45,6 @@ export type AgentProvider = {
   cancelActiveRequest: (channelId: string, sessionId: string, directory?: string) => Promise<boolean>;
   ensureSession: (sessionId: string) => Promise<void>;
   subscribeToSession: (sessionId: string, handler: (event: unknown) => void) => () => void;
-  getStaticConfig: () => AgentStaticConfig;
 };
 
 type AgentProviderRuntime = Omit<AgentProvider, "id" | "supportsEventStream">;

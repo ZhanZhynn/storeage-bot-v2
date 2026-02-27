@@ -10,29 +10,21 @@ import {
   type OdeConfig,
   type WorkspaceConfig,
 } from "@/config";
+import {
+  AGENT_PROVIDERS,
+  AGENT_PROVIDER_COMMANDS,
+  getAgentProviderLabel,
+  type AgentProviderId,
+} from "@/shared/agent-provider";
 import { getInstalledAgentStatus } from "@/core/web/agent-check";
 import { discoverDiscordWorkspace, discoverLarkWorkspace, discoverSlackWorkspace } from "./web/local-settings";
 
-type AgentId = "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
-
 type AgentOption = {
-  id: AgentId;
+  id: AgentProviderId;
   label: string;
   command: string;
   installed: boolean;
 };
-
-const agentOptions: Omit<AgentOption, "installed">[] = [
-  { id: "opencode", label: "OpenCode", command: "opencode" },
-  { id: "claudecode", label: "Claude Code", command: "claude" },
-  { id: "codex", label: "Codex", command: "codex" },
-  { id: "kimi", label: "Kimi", command: "kimi" },
-  { id: "kiro", label: "Kiro", command: "kiro-cli" },
-  { id: "kilo", label: "Kilo", command: "kilo" },
-  { id: "qwen", label: "Qwen Code", command: "qwen" },
-  { id: "goose", label: "Goose", command: "goose" },
-  { id: "gemini", label: "Gemini CLI", command: "gemini" },
-];
 
 function isInteractiveTerminal(): boolean {
   return Boolean(process.stdin.isTTY && process.stdout.isTTY);
@@ -148,9 +140,11 @@ async function askRequired(rl: Interface, prompt: string): Promise<string> {
 
 function detectAgents(): AgentOption[] {
   const installed = getInstalledAgentStatus();
-  return agentOptions.map((agent) => ({
-    ...agent,
-    installed: installed[agent.id],
+  return AGENT_PROVIDERS.map((id) => ({
+    id,
+    label: getAgentProviderLabel(id),
+    command: AGENT_PROVIDER_COMMANDS[id],
+    installed: installed[id],
   }));
 }
 
@@ -370,7 +364,7 @@ async function setupCodingAgents(rl: Interface, config: OdeConfig): Promise<OdeC
   } finally {
     rl.resume();
   }
-  const selectedIds = new Set<AgentId>(
+  const selectedIds = new Set<AgentProviderId>(
     finalIndices.map((index) => agents[index - 1]!.id)
   );
 

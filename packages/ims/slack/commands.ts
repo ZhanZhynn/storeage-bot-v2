@@ -10,6 +10,7 @@ import {
 } from "@/shared/channel-settings";
 import {
   AGENT_PROVIDERS,
+  getAgentProviderLabel,
   normalizeAgentProviderId,
   providerSupportsModelSelection,
   type AgentProviderId,
@@ -37,7 +38,16 @@ import {
   parseStatusMessageFrequencyValue,
   parseStatusMessageFrequencyMs,
   STATUS_MESSAGE_FREQUENCY_OPTIONS,
+  STATUS_MESSAGE_FORMAT_OPTIONS,
+  GIT_STRATEGY_OPTIONS,
+  AUTO_UPDATE_OPTIONS,
+  normalizeAutoUpdateSetting,
+  normalizeStatusMessageFormat,
+  normalizeGitStrategy,
+  type AutoUpdateSetting,
   type StatusMessageFrequencyMs,
+  type StatusMessageFormat,
+  type GitStrategy,
 } from "@/config";
 import { startServer as startOpenCodeServer } from "@/agents/opencode";
 import { startServer as startCodexServer } from "@/agents/codex";
@@ -74,8 +84,6 @@ const GENERAL_AUTO_UPDATE_BLOCK = "general_auto_update";
 const GENERAL_AUTO_UPDATE_ACTION = "general_auto_update_select";
 
 type AgentProvider = AgentProviderId;
-type StatusMessageFormat = "aggressive" | "medium" | "minimum";
-type GitStrategy = "default" | "worktree";
 
 type SlackActionBody = {
   actions?: Array<{
@@ -105,39 +113,6 @@ type SlackActionBody = {
     text?: string;
   };
 };
-
-const AGENT_PROVIDER_LABELS: Record<AgentProvider, string> = {
-  opencode: "OpenCode",
-  claudecode: "Claude Code",
-  codex: "Codex",
-  kimi: "Kimi",
-  kiro: "Kiro",
-  kilo: "Kilo",
-  qwen: "Qwen Code",
-  goose: "Goose",
-  gemini: "Gemini",
-};
-
-const STATUS_MESSAGE_FORMAT_OPTIONS: Array<{ label: string; value: StatusMessageFormat }> = [
-  { label: "Aggressive", value: "aggressive" },
-  { label: "Medium", value: "medium" },
-  { label: "Minimum", value: "minimum" },
-];
-
-const STATUS_MESSAGE_FREQUENCY_ITEMS = STATUS_MESSAGE_FREQUENCY_OPTIONS.map((option) => ({
-  label: option.label,
-  value: option.value,
-}));
-
-const GIT_STRATEGY_OPTIONS: Array<{ label: string; value: GitStrategy }> = [
-  { label: "Worktree", value: "worktree" },
-  { label: "Default", value: "default" },
-];
-
-const AUTO_UPDATE_OPTIONS: Array<{ label: string; value: "on" | "off" }> = [
-  { label: "On", value: "on" },
-  { label: "Off", value: "off" },
-];
 
 function parseAgentProvider(value: unknown): AgentProvider {
   return normalizeAgentProviderId(value);
@@ -220,7 +195,7 @@ function buildSettingsModal(params: {
     channelSystemMessage,
   } = params;
   const providerOptions = enabledProviders.map((provider) => ({
-    text: { type: "plain_text" as const, text: AGENT_PROVIDER_LABELS[provider] },
+    text: { type: "plain_text" as const, text: getAgentProviderLabel(provider) },
     value: provider,
   }));
   const providerModels = providerSupportsModelSelection(selectedProvider)
@@ -444,7 +419,7 @@ function buildGeneralSettingsModal(params: {
     text: { type: "plain_text" as const, text: option.label },
     value: option.value,
   }));
-  const statusMessageFrequencyOptions = STATUS_MESSAGE_FREQUENCY_ITEMS.map((option) => ({
+  const statusMessageFrequencyOptions = STATUS_MESSAGE_FREQUENCY_OPTIONS.map((option) => ({
     text: { type: "plain_text" as const, text: option.label },
     value: option.value,
   }));
@@ -813,20 +788,16 @@ export function setupInteractiveHandlers(): void {
     const selectedGitStrategy = values?.[GENERAL_GIT_STRATEGY_BLOCK]?.[GENERAL_GIT_STRATEGY_ACTION]?.selected_option?.value;
     const selectedAutoUpdate = values?.[GENERAL_AUTO_UPDATE_BLOCK]?.[GENERAL_AUTO_UPDATE_ACTION]?.selected_option?.value;
 
-    const statusMessageFormat: StatusMessageFormat =
-      selectedStatusMessageFormat === "aggressive"
-      || selectedStatusMessageFormat === "minimum"
-      || selectedStatusMessageFormat === "medium"
-        ? selectedStatusMessageFormat
-        : "medium";
-    const gitStrategy: GitStrategy = selectedGitStrategy === "default" ? "default" : "worktree";
+    const statusMessageFormat: StatusMessageFormat = normalizeStatusMessageFormat(selectedStatusMessageFormat);
+    const gitStrategy: GitStrategy = normalizeGitStrategy(selectedGitStrategy);
     const parsedStatusMessageFrequency = selectedStatusMessageFrequency
       ? parseStatusMessageFrequencyValue(selectedStatusMessageFrequency)
       : null;
     const statusMessageFrequencyMs: StatusMessageFrequencyMs = parseStatusMessageFrequencyMs(
       parsedStatusMessageFrequency ? Number(parsedStatusMessageFrequency) : undefined
     );
-    const autoUpdate = selectedAutoUpdate !== "off";
+    const autoUpdateSetting: AutoUpdateSetting = normalizeAutoUpdateSetting(selectedAutoUpdate);
+    const autoUpdate = autoUpdateSetting !== "off";
 
     await ack();
 

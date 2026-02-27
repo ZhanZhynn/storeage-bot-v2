@@ -41,31 +41,35 @@ import {
   setGitHubInfoForUser,
   getUserGeneralSettings,
   setUserGeneralSettings,
+  GIT_STRATEGY_VALUES,
+  STATUS_MESSAGE_FORMAT_VALUES,
+  AUTO_UPDATE_VALUES,
+  AUTO_UPDATE_OPTIONS,
   STATUS_MESSAGE_FREQUENCY_OPTIONS,
+  normalizeAutoUpdateSetting,
+  normalizeGitStrategy,
+  normalizeStatusMessageFormat,
   parseStatusMessageFrequencyValue,
   parseStatusMessageFrequencyMs,
   toStatusMessageFrequencyValue,
+  type AutoUpdateSetting,
+  type GitStrategy,
   type StatusMessageFrequencyValue,
+  type StatusMessageFormat,
 } from "@/config";
 import { log } from "@/utils";
 
 const DISCORD_MODAL_CHANNEL = "ode:modal:channel_details";
 const DISCORD_MODAL_GITHUB = "ode:modal:github";
 const DISCORD_MODAL_GENERAL = "ode:modal:general";
-const STATUS_FORMAT_OPTIONS = ["aggressive", "medium", "minimum"] as const;
-const STATUS_FREQUENCY_OPTIONS: StatusMessageFrequencyValue[] =
-  STATUS_MESSAGE_FREQUENCY_OPTIONS.map((option) => option.value);
-const GIT_STRATEGY_OPTIONS = ["worktree", "default"] as const;
-const AUTO_UPDATE_OPTIONS = ["on", "off"] as const;
-const PROVIDERS = AGENT_PROVIDERS;
 const PROVIDER_DEFAULT_MODEL_VALUE = "__provider_default__";
 
 const channelSettingsDrafts = new Map<string, { provider: AgentProviderId; model: string }>();
 const generalSettingsDrafts = new Map<string, {
-  statusFormat: typeof STATUS_FORMAT_OPTIONS[number];
+  statusFormat: StatusMessageFormat;
   statusFrequencyMs: StatusMessageFrequencyValue;
-  gitStrategy: typeof GIT_STRATEGY_OPTIONS[number];
-  autoUpdate: typeof AUTO_UPDATE_OPTIONS[number];
+  gitStrategy: GitStrategy;
+  autoUpdate: AutoUpdateSetting;
 }>();
 
 type LauncherCommand = "setting";
@@ -144,7 +148,7 @@ function parseProvider(value: string): AgentProviderId | null {
   return isAgentProviderId(normalized) ? normalized : null;
 }
 
-function getProviderModels(provider: typeof PROVIDERS[number]): string[] {
+function getProviderModels(provider: AgentProviderId): string[] {
   return getProviderModelList(provider, getProviderModelListsFromConfig());
 }
 
@@ -173,7 +177,7 @@ function buildChannelSettingsPickerPayload(params: {
 } {
   const { channelId, userId } = params;
   const draft = getDraftOrInitial(userId, channelId);
-  const providerOptions = PROVIDERS.map((provider) => ({
+  const providerOptions = AGENT_PROVIDERS.map((provider) => ({
     label: provider,
     value: provider,
     default: provider === draft.provider,
@@ -230,35 +234,36 @@ function buildChannelSettingsPickerPayload(params: {
   };
 }
 
-function parseGeneralStatusFormat(value: string): "aggressive" | "medium" | "minimum" | null {
+function parseGeneralStatusFormat(value: string): StatusMessageFormat | null {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "aggressive" || normalized === "medium" || normalized === "minimum") {
-    return normalized;
-  }
-  return null;
+  return STATUS_MESSAGE_FORMAT_VALUES.some((item) => item === normalized)
+    ? normalizeStatusMessageFormat(normalized)
+    : null;
 }
 
-function parseGitStrategy(value: string): "default" | "worktree" | null {
+function parseGitStrategy(value: string): GitStrategy | null {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "default" || normalized === "worktree") return normalized;
-  return null;
+  return GIT_STRATEGY_VALUES.some((item) => item === normalized)
+    ? normalizeGitStrategy(normalized)
+    : null;
 }
 
 function parseStatusFrequency(value: string): StatusMessageFrequencyValue | null {
   return parseStatusMessageFrequencyValue(value);
 }
 
-function parseAutoUpdate(value: string): "on" | "off" | null {
+function parseAutoUpdate(value: string): AutoUpdateSetting | null {
   const normalized = value.trim().toLowerCase();
-  if (normalized === "on" || normalized === "off") return normalized;
-  return null;
+  return AUTO_UPDATE_VALUES.some((item) => item === normalized)
+    ? normalizeAutoUpdateSetting(normalized)
+    : null;
 }
 
 function getInitialGeneralDraft(): {
-  statusFormat: typeof STATUS_FORMAT_OPTIONS[number];
+  statusFormat: StatusMessageFormat;
   statusFrequencyMs: StatusMessageFrequencyValue;
-  gitStrategy: typeof GIT_STRATEGY_OPTIONS[number];
-  autoUpdate: typeof AUTO_UPDATE_OPTIONS[number];
+  gitStrategy: GitStrategy;
+  autoUpdate: AutoUpdateSetting;
 } {
   const settings = getUserGeneralSettings();
   return {
@@ -270,10 +275,10 @@ function getInitialGeneralDraft(): {
 }
 
 function getGeneralDraftOrInitial(userId: string, channelId: string): {
-  statusFormat: typeof STATUS_FORMAT_OPTIONS[number];
+  statusFormat: StatusMessageFormat;
   statusFrequencyMs: StatusMessageFrequencyValue;
-  gitStrategy: typeof GIT_STRATEGY_OPTIONS[number];
-  autoUpdate: typeof AUTO_UPDATE_OPTIONS[number];
+  gitStrategy: GitStrategy;
+  autoUpdate: AutoUpdateSetting;
 } {
   return generalSettingsDrafts.get(draftKey(userId, channelId)) ?? getInitialGeneralDraft();
 }
@@ -291,7 +296,7 @@ function buildGeneralSettingsPickerPayload(params: {
     .setCustomId(`ode:general:status:${params.channelId}`)
     .setPlaceholder("Status format")
     .addOptions(
-      STATUS_FORMAT_OPTIONS.map((value) => ({
+      STATUS_MESSAGE_FORMAT_VALUES.map((value) => ({
         label: value,
         value,
         default: value === draft.statusFormat,
@@ -302,7 +307,7 @@ function buildGeneralSettingsPickerPayload(params: {
     .setCustomId(`ode:general:git:${params.channelId}`)
     .setPlaceholder("Git strategy")
     .addOptions(
-      GIT_STRATEGY_OPTIONS.map((value) => ({
+      GIT_STRATEGY_VALUES.map((value) => ({
         label: value,
         value,
         default: value === draft.gitStrategy,
@@ -313,10 +318,10 @@ function buildGeneralSettingsPickerPayload(params: {
     .setCustomId(`ode:general:frequency:${params.channelId}`)
     .setPlaceholder("Status frequency")
     .addOptions(
-      STATUS_FREQUENCY_OPTIONS.map((value) => ({
-        label: `${Number(value) / 1000} seconds`,
-        value,
-        default: value === draft.statusFrequencyMs,
+      STATUS_MESSAGE_FREQUENCY_OPTIONS.map((item) => ({
+        label: item.label,
+        value: item.value,
+        default: item.value === draft.statusFrequencyMs,
       }))
     );
 
@@ -324,10 +329,10 @@ function buildGeneralSettingsPickerPayload(params: {
     .setCustomId(`ode:general:auto_update:${params.channelId}`)
     .setPlaceholder("Auto update")
     .addOptions(
-      AUTO_UPDATE_OPTIONS.map((value) => ({
-        label: value === "on" ? "On" : "Off",
-        value,
-        default: value === draft.autoUpdate,
+      AUTO_UPDATE_OPTIONS.map((item) => ({
+        label: item.label,
+        value: item.value,
+        default: item.value === draft.autoUpdate,
       }))
     );
 
@@ -427,12 +432,12 @@ function buildChannelSettingsModal(channelId: string): ModalBuilder {
     stringSelectLabel({
       id: "agent_provider",
       label: "Agent provider",
-      options: PROVIDERS.map((item) => ({
+      options: AGENT_PROVIDERS.map((item) => ({
         label: item,
         value: item,
         default: item === provider,
       })),
-      placeholder: PROVIDERS.join(", "),
+      placeholder: AGENT_PROVIDERS.join(", "),
     }),
   ];
 
@@ -526,42 +531,42 @@ function buildGeneralSettingsModal(channelId: string): ModalBuilder {
       stringSelectLabel({
         id: "status_format",
         label: "Status format",
-        options: STATUS_FORMAT_OPTIONS.map((item) => ({
+        options: STATUS_MESSAGE_FORMAT_VALUES.map((item) => ({
           label: item,
           value: item,
           default: item === settings.defaultStatusMessageFormat,
         })),
-        placeholder: STATUS_FORMAT_OPTIONS.join(", "),
+        placeholder: STATUS_MESSAGE_FORMAT_VALUES.join(", "),
       }),
       stringSelectLabel({
         id: "status_frequency",
         label: "Status frequency",
-        options: STATUS_FREQUENCY_OPTIONS.map((value) => ({
-          label: `${Number(value) / 1000} seconds`,
-          value,
-          default: value === statusFrequencyValue,
+        options: STATUS_MESSAGE_FREQUENCY_OPTIONS.map((item) => ({
+          label: item.label,
+          value: item.value,
+          default: item.value === statusFrequencyValue,
         })),
-        placeholder: STATUS_FREQUENCY_OPTIONS.join(", "),
+        placeholder: STATUS_MESSAGE_FREQUENCY_OPTIONS.map((item) => item.value).join(", "),
       }),
       stringSelectLabel({
         id: "git_strategy",
         label: "Git strategy",
-        options: GIT_STRATEGY_OPTIONS.map((item) => ({
+        options: GIT_STRATEGY_VALUES.map((item) => ({
           label: item,
           value: item,
           default: item === settings.gitStrategy,
         })),
-        placeholder: GIT_STRATEGY_OPTIONS.join(", "),
+        placeholder: GIT_STRATEGY_VALUES.join(", "),
       }),
       stringSelectLabel({
         id: "auto_update",
         label: "Auto update",
         options: AUTO_UPDATE_OPTIONS.map((item) => ({
-          label: item === "on" ? "On" : "Off",
-          value: item,
-          default: item === (settings.autoUpdate ? "on" : "off"),
+          label: item.label,
+          value: item.value,
+          default: item.value === (settings.autoUpdate ? "on" : "off"),
         })),
-        placeholder: AUTO_UPDATE_OPTIONS.join(", "),
+        placeholder: AUTO_UPDATE_VALUES.join(", "),
       })
     );
 }
@@ -621,7 +626,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<boolean> 
     const parsedProvider = parseProvider(providerValue);
     if (!parsedProvider || !isAgentEnabled(parsedProvider)) {
       await interaction.reply({
-        content: `Invalid provider. Use one of: ${PROVIDERS.join(", ")}`,
+        content: `Invalid provider. Use one of: ${AGENT_PROVIDERS.join(", ")}`,
         flags: MessageFlags.Ephemeral,
       });
       return true;
@@ -661,7 +666,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<boolean> 
     const statusFormat = parseGeneralStatusFormat(statusFormatRaw);
     if (!statusFormat) {
       await interaction.reply({
-        content: `Invalid status format. Use one of: ${STATUS_FORMAT_OPTIONS.join(", ")}`,
+        content: `Invalid status format. Use one of: ${STATUS_MESSAGE_FORMAT_VALUES.join(", ")}`,
         flags: MessageFlags.Ephemeral,
       });
       return true;
@@ -671,7 +676,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<boolean> 
     const statusFrequency = parseStatusFrequency(statusFrequencyRaw);
     if (!statusFrequency) {
       await interaction.reply({
-        content: `Invalid status frequency. Use one of: ${STATUS_FREQUENCY_OPTIONS.join(", ")}`,
+        content: `Invalid status frequency. Use one of: ${STATUS_MESSAGE_FREQUENCY_OPTIONS.map((item) => item.value).join(", ")}`,
         flags: MessageFlags.Ephemeral,
       });
       return true;
@@ -681,7 +686,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<boolean> 
     const gitStrategy = parseGitStrategy(gitStrategyRaw);
     if (!gitStrategy) {
       await interaction.reply({
-        content: `Invalid git strategy. Use one of: ${GIT_STRATEGY_OPTIONS.join(", ")}`,
+        content: `Invalid git strategy. Use one of: ${GIT_STRATEGY_VALUES.join(", ")}`,
         flags: MessageFlags.Ephemeral,
       });
       return true;
@@ -691,7 +696,7 @@ async function handleModalSubmitInteraction(interaction: any): Promise<boolean> 
     const autoUpdate = parseAutoUpdate(autoUpdateRaw);
     if (!autoUpdate) {
       await interaction.reply({
-        content: `Invalid auto update value. Use one of: ${AUTO_UPDATE_OPTIONS.join(", ")}`,
+        content: `Invalid auto update value. Use one of: ${AUTO_UPDATE_VALUES.join(", ")}`,
         flags: MessageFlags.Ephemeral,
       });
       return true;

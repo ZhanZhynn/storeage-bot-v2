@@ -4,6 +4,12 @@ import {
   type StatusMessageFrequencyMs,
 } from "./status-message-frequency";
 import {
+  normalizeGitStrategy,
+  normalizeStatusMessageFormat,
+  type GitStrategy,
+  type StatusMessageFormat,
+} from "./baseConfig";
+import {
   AGENT_PROVIDERS,
   normalizeAgentProviderId,
   providerSupportsModelSelection,
@@ -17,8 +23,8 @@ export type DashboardConfig = {
     email: string;
     initials?: string;
     avatar?: string;
-    gitStrategy: "default" | "worktree";
-    defaultStatusMessageFormat: "aggressive" | "medium" | "minimum";
+    gitStrategy: GitStrategy;
+    defaultStatusMessageFormat: StatusMessageFormat;
     statusMessageFrequencyMs?: StatusMessageFrequencyMs;
   };
   updates: {
@@ -132,8 +138,7 @@ const asStringArray = (value: unknown) =>
 const asFrequency = (
   value: unknown
 ): DashboardConfig["user"]["defaultStatusMessageFormat"] => {
-  if (value === "aggressive" || value === "minimum") return value;
-  return "medium";
+  return normalizeStatusMessageFormat(value);
 };
 
 const asStatusMessageFrequencyMs = (value: unknown): StatusMessageFrequencyMs =>
@@ -142,7 +147,7 @@ const asStatusMessageFrequencyMs = (value: unknown): StatusMessageFrequencyMs =>
 const asGitStrategy = (
   value: unknown
 ): DashboardConfig["user"]["gitStrategy"] =>
-  value === "default" ? "default" : "worktree";
+  normalizeGitStrategy(value);
 
 const asStatus = (value: unknown): DashboardConfig["workspaces"][number]["status"] =>
   value === "paused" ? "paused" : "active";
