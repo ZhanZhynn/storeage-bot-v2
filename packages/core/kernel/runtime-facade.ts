@@ -92,7 +92,7 @@ export class KernelRuntimeFacade {
     this.runtimeKernel = new RuntimeKernel({
       createBotRuntime: (botKey) => new BotRuntime(botKey, {
         inboundAdapter,
-        commandService: { handle: async () => {} },
+        handleCommand: async () => {},
         threadRuntimeRegistry,
       }),
     });

@@ -5,4 +5,3 @@ export * from "./stop-command";
 export * from "./session-bootstrap";
 export * from "./pending-question";
 export * from "./request-run";
-export * from "./command-service";

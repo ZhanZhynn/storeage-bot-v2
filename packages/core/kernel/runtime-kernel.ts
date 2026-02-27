@@ -1,4 +1,3 @@
-import type { CommandService } from "@/core/kernel/command-service";
 import type { InboundDecision } from "@/core/model/inbound-decision";
 import type { BotKey } from "@/core/model/bot-key";
 import { toBotKeyId } from "@/core/model/bot-key";
@@ -20,7 +19,7 @@ type ThreadRuntimeRegistryDeps = {
 
 type BotRuntimeDeps = {
   inboundAdapter: InboundAdapter;
-  commandService: CommandService;
+  handleCommand: (event: RawInboundEvent, commandName: string, args: string[]) => Promise<void>;
   threadRuntimeRegistry: ThreadRuntimeRegistry;
 };
 
@@ -107,7 +106,7 @@ export class BotRuntime {
     if (decision.kind === "ignore") return;
 
     if (decision.kind === "command") {
-      await this.deps.commandService.handle(event, decision.name, decision.args);
+      await this.deps.handleCommand(event, decision.name, decision.args);
       return;
     }
 
