@@ -6,7 +6,8 @@ import {
   type PendingQuestion,
 } from "@/config/local/sessions";
 import { buildQuestionAnswers } from "@/core/runtime/helpers";
-import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@/core/types";
+import type { AgentAdapter, IMAdapter } from "@/core/types";
+import type { RuntimeRequestContext } from "@/core/runtime/request-context";
 import { log } from "@/utils";
 
 export async function handlePendingQuestionReply(params: {
@@ -15,7 +16,7 @@ export async function handlePendingQuestionReply(params: {
     agent: AgentAdapter;
   };
   pendingQuestion: PendingQuestion;
-  context: CoreMessageContext;
+  context: RuntimeRequestContext;
   text: string;
 }): Promise<boolean> {
   const { deps, pendingQuestion, context, text } = params;

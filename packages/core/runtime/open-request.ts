@@ -12,7 +12,8 @@ import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import { maybeGenerateSessionTitle } from "@/core/runtime/session-title";
 import { CoreStateMachine } from "@/core/state-machine";
 import type { OpenCodeOptions } from "@/agents";
-import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@/core/types";
+import type { AgentAdapter, IMAdapter } from "@/core/types";
+import type { RuntimeRequestContext } from "@/core/runtime/request-context";
 import { getStatusMessageKey, type SessionEvent, type SessionMessageState, log } from "@/utils";
 
 type OpenRequestDeps = {
@@ -24,7 +25,7 @@ type OpenRequestDeps = {
 export async function runOpenRequest(params: {
   deps: OpenRequestDeps;
   session: PersistedSession;
-  context: CoreMessageContext;
+  context: RuntimeRequestContext;
   sessionId: string;
   cwd: string;
   message: string;

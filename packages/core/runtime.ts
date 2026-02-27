@@ -18,7 +18,7 @@ import {
   log,
 } from "@/utils";
 import { CoreStateMachine } from "@/core/state-machine";
-import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@/core/types";
+import type { AgentAdapter, IMAdapter } from "@/core/types";
 import { handlePendingQuestionReply } from "@/core/runtime/pending-question";
 import { recoverPendingRequests as recoverPendingRequestsInternal } from "@/core/runtime/recovery";
 import { prepareRuntimeSession } from "@/core/runtime/session-bootstrap";
@@ -34,6 +34,7 @@ import {
 } from "@/core/kernel/runtime-kernel";
 import type { InboundAdapter } from "@/ims/shared/inbound-adapter";
 import type { RawInboundEvent } from "@/core/model/raw-inbound-event";
+import type { RuntimeRequestContext } from "@/core/runtime/request-context";
 
 type RuntimeDeps = {
   platform: "slack" | "discord" | "lark";
@@ -213,7 +214,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
     await runtimeDeps.im.updateMessage(channelId, statusTs, singleChunk);
   }
 
-  async function handleUserMessageInternal(context: CoreMessageContext, text: string): Promise<void> {
+  async function handleUserMessageInternal(context: RuntimeRequestContext, text: string): Promise<void> {
     const { channelId, replyThreadId, threadId } = context;
     const rawChannelId = context.rawChannelId ?? channelId;
     const stateMachine = getStateMachine(context);
@@ -273,7 +274,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
     if (!responses) return;
   }
 
-  async function dispatchCoreMessage(context: CoreMessageContext, text: string): Promise<void> {
+  async function dispatchCoreMessage(context: RuntimeRequestContext, text: string): Promise<void> {
     if (isMessageProcessed(context.channelId, context.threadId, context.messageId)) {
       log.debug("Skipping duplicate message", { messageId: context.messageId });
       return;

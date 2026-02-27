@@ -3,7 +3,8 @@ import { getChannelBaseBranch, getUserGeneralSettings, resolveChannelCwd } from 
 import { buildSessionEnvironment, prepareSessionWorkspace } from "@/core/session";
 import { CoreStateMachine } from "@/core/state-machine";
 import { categorizeRuntimeError } from "@/core/runtime/helpers";
-import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@/core/types";
+import type { AgentAdapter, IMAdapter } from "@/core/types";
+import type { RuntimeRequestContext } from "@/core/runtime/request-context";
 import { log } from "@/utils";
 import { createHash } from "crypto";
 
@@ -40,7 +41,7 @@ export type PreparedRuntimeSession = {
 
 export async function prepareRuntimeSession(params: {
   deps: BootstrapDeps;
-  context: CoreMessageContext;
+  context: RuntimeRequestContext;
   stateMachine: CoreStateMachine;
 }): Promise<PreparedRuntimeSession | null> {
   const { deps, context, stateMachine } = params;

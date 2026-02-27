@@ -8,16 +8,6 @@ import type { StatusMessageFormat } from "@/config";
 import type { AgentProviderId } from "@/shared/agent-provider";
 import type { SessionMessageState } from "@/utils/session-inspector";
 
-export type CoreMessageContext = {
-  channelId: string;
-  rawChannelId?: string;
-  replyThreadId: string;
-  threadId: string;
-  userId: string;
-  messageId: string;
-  botToken?: string;
-};
-
 export type AgentContextBuilderParams = {
   cwd: string;
   channelId: string;
