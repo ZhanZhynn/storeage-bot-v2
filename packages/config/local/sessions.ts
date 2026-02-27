@@ -13,8 +13,10 @@ const homedir = typeof os.homedir === "function" ? os.homedir : () => "";
 
 const ODE_CONFIG_DIR = join(homedir(), ".config", "ode");
 const SESSIONS_DIR = join(ODE_CONFIG_DIR, "sessions");
+const PENDING_RESTART_MESSAGES_FILE = join(SESSIONS_DIR, "_pending_restart_messages.json");
 const SESSION_SAVE_DEBOUNCE_MS = 5000;
 const SESSION_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const ACTIVE_THREAD_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export interface TrackedTool {
   id: string;
@@ -61,6 +63,12 @@ export interface PendingQuestion {
   messageTs?: string;
 }
 
+export interface PendingRestartMessage {
+  channelId: string;
+  messageTs: string;
+  createdAt: number;
+}
+
 export interface PersistedSession {
   sessionId: string;
   channelId: string;
@@ -86,6 +94,7 @@ const writeChains = new Map<string, Promise<void>>();
 const deletedSessionKeys = new Set<string>();
 let sessionsHydrated = false;
 let sessionsHydrationPromise: Promise<void> | null = null;
+let pendingRestartMessagesCache: PendingRestartMessage[] | null = null;
 
 function ensureSessionsDir(): void {
   mkdirSync(SESSIONS_DIR, { recursive: true });
@@ -147,6 +156,7 @@ async function hydrateSessionsFromDisk(): Promise<void> {
 
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
+    if (file === path.basename(PENDING_RESTART_MESSAGES_FILE)) continue;
     const filePath = join(SESSIONS_DIR, file);
     try {
       const data = await readFile(filePath, "utf-8");
@@ -171,6 +181,42 @@ async function hydrateSessionsFromDisk(): Promise<void> {
       // Skip invalid session files
     }
   }
+}
+
+function hydrateSessionsFromDiskSync(): void {
+  ensureSessionsDir();
+  const files = readdirSync(SESSIONS_DIR);
+  const now = Date.now();
+
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    if (file === path.basename(PENDING_RESTART_MESSAGES_FILE)) continue;
+    const filePath = join(SESSIONS_DIR, file);
+    try {
+      const data = readFileSync(filePath, "utf-8");
+      const session = normalizeLoadedSession(JSON.parse(data) as PersistedSession);
+      if (isSessionExpired(session, now)) {
+        const sessionKey = getSessionKey(session.channelId, session.threadId);
+        activeSessions.delete(sessionKey);
+        deletedSessionKeys.add(sessionKey);
+        try {
+          unlinkSync(filePath);
+        } catch {
+          // Ignore delete errors
+        }
+        continue;
+      }
+
+      const sessionKey = getSessionKey(session.channelId, session.threadId);
+      if (!activeSessions.has(sessionKey)) {
+        activeSessions.set(sessionKey, session);
+      }
+    } catch {
+      // Skip invalid session files
+    }
+  }
+
+  sessionsHydrated = true;
 }
 
 function scheduleSessionsHydration(): void {
@@ -419,7 +465,9 @@ export function getActiveRequest(channelId: string, threadId: string): ActiveReq
 }
 
 export function loadAllSessions(): PersistedSession[] {
-  scheduleSessionsHydration();
+  if (!sessionsHydrated) {
+    hydrateSessionsFromDiskSync();
+  }
   const sessionsByKey = new Map<string, PersistedSession>();
 
   for (const [sessionKey, session] of Array.from(activeSessions.entries())) {
@@ -457,6 +505,23 @@ export function updateSessionIdForThread(channelId: string, threadId: string, se
   saveSession(session);
 }
 
+export function getThreadSessionId(
+  channelId: string,
+  threadId: string,
+  providerId?: "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini"
+): string | null {
+  const session = loadSession(channelId, threadId);
+  if (!session?.sessionId) return null;
+  if (providerId && session.providerId !== providerId) {
+    return null;
+  }
+  return session.sessionId;
+}
+
+export function setThreadSessionId(channelId: string, threadId: string, sessionId: string): void {
+  updateSessionIdForThread(channelId, threadId, sessionId);
+}
+
 export function findReplyThreadIdByStatusMessageTs(messageTs: string): string | null {
   for (const session of activeSessions.values()) {
     const activeRequest = session.activeRequest;
@@ -485,6 +550,7 @@ function findReplyThreadIdByStatusMessageTsFromDisk(messageTs: string): string |
 
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
+      if (file === path.basename(PENDING_RESTART_MESSAGES_FILE)) continue;
       const filePath = join(SESSIONS_DIR, file);
       try {
         const data = readFileSync(filePath, "utf-8");
@@ -512,6 +578,95 @@ function findReplyThreadIdByStatusMessageTsFromDisk(messageTs: string): string |
   }
 
   return null;
+}
+
+function loadPendingRestartMessagesFromDisk(): PendingRestartMessage[] {
+  ensureSessionsDir();
+  try {
+    const raw = readFileSync(PENDING_RESTART_MESSAGES_FILE, "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is PendingRestartMessage => {
+        return Boolean(
+          item
+          && typeof item === "object"
+          && typeof (item as { channelId?: unknown }).channelId === "string"
+          && typeof (item as { messageTs?: unknown }).messageTs === "string"
+          && typeof (item as { createdAt?: unknown }).createdAt === "number"
+        );
+      })
+      .sort((a, b) => a.createdAt - b.createdAt);
+  } catch {
+    return [];
+  }
+}
+
+function savePendingRestartMessages(messages: PendingRestartMessage[]): void {
+  ensureSessionsDir();
+  pendingRestartMessagesCache = structuredClone(messages);
+  try {
+    writeFile(PENDING_RESTART_MESSAGES_FILE, JSON.stringify(messages, null, 2), "utf-8").catch((error) => {
+      log.warn("Failed to save pending restart messages", { error: String(error) });
+    });
+  } catch (error) {
+    log.warn("Failed to queue pending restart messages save", { error: String(error) });
+  }
+}
+
+export function getPendingRestartMessages(): PendingRestartMessage[] {
+  if (!pendingRestartMessagesCache) {
+    pendingRestartMessagesCache = loadPendingRestartMessagesFromDisk();
+  }
+  return structuredClone(pendingRestartMessagesCache);
+}
+
+export function addPendingRestartMessage(channelId: string, messageTs: string): void {
+  const pending = getPendingRestartMessages();
+  pending.push({ channelId, messageTs, createdAt: Date.now() });
+  savePendingRestartMessages(pending);
+}
+
+export function clearPendingRestartMessages(): void {
+  if (getPendingRestartMessages().length === 0) return;
+  savePendingRestartMessages([]);
+}
+
+export interface ActiveThreadInfo {
+  channelId: string;
+  threadId: string;
+  lastActiveAt: number;
+}
+
+export function markThreadActive(channelId: string, threadId: string): void {
+  const session = loadSession(channelId, threadId);
+  if (!session) return;
+  session.lastActivityAt = Date.now();
+  saveSession(session, { immediate: false });
+}
+
+export function isThreadActive(channelId: string, threadId: string): boolean {
+  const session = loadSession(channelId, threadId);
+  if (!session) return false;
+  return Date.now() - getSessionLastActiveAt(session) < ACTIVE_THREAD_WINDOW_MS;
+}
+
+export function getActiveThreads(): ActiveThreadInfo[] {
+  const now = Date.now();
+  return loadAllSessions()
+    .filter((session) => now - getSessionLastActiveAt(session) < ACTIVE_THREAD_WINDOW_MS)
+    .map((session) => ({
+      channelId: session.channelId,
+      threadId: session.threadId,
+      lastActiveAt: getSessionLastActiveAt(session),
+    }));
+}
+
+export function clearThreadSessions(channelId: string): void {
+  const sessions = loadAllSessions().filter((session) => session.channelId === channelId);
+  for (const session of sessions) {
+    deleteSession(session.channelId, session.threadId);
+  }
 }
 
 // Deduplication

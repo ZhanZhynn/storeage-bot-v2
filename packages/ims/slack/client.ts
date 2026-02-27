@@ -14,7 +14,7 @@ import {
   isThreadActive,
   getPendingRestartMessages,
   clearPendingRestartMessages,
-} from "@/config/local/settings";
+} from "@/config/local/sessions";
 import { createCoreRuntime } from "@/core/runtime";
 import type { IMAdapter } from "@/core/types";
 import { createAgentAdapter } from "@/agents/adapter";
