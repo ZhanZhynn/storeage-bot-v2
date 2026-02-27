@@ -59,7 +59,7 @@ export class KernelRuntimeFacade {
       sweepIntervalMs: 5 * 60 * 1000,
       onDecision: async (_threadKey, params) => {
         const { event, decision } = params;
-        if (decision.kind === "ignore" || decision.kind === "command") return;
+        if (decision.kind === "ignore") return;
         if (decision.kind === "stop") {
           await handleStopCommand({ deps: this.runtimeDeps, channelId: event.channelId, threadId: event.threadId });
           return;
@@ -92,7 +92,6 @@ export class KernelRuntimeFacade {
     this.runtimeKernel = new RuntimeKernel({
       createBotRuntime: (botKey) => new BotRuntime(botKey, {
         inboundAdapter,
-        handleCommand: async () => {},
         threadRuntimeRegistry,
       }),
     });
@@ -122,9 +121,6 @@ export class KernelRuntimeFacade {
       return;
     }
 
-    const text = decision.kind === "message" ? decision.text : decision.args.join(" ").trim();
-    if (!text) return;
-
     markThreadActive(event.channelId, event.threadId);
     await this.dispatchCoreMessage(
       {
@@ -136,7 +132,7 @@ export class KernelRuntimeFacade {
         messageId: event.messageId,
         botToken: event.botId,
       },
-      text
+      decision.text
     );
   }
 

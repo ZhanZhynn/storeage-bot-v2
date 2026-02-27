@@ -1,5 +1,10 @@
 export type IncomingIgnoreReason = "not_mentioned_and_inactive" | "empty_text";
 
+export type IncomingFlowResult =
+  | { type: "ignore"; reason: IncomingIgnoreReason }
+  | { type: "stop"; text: string }
+  | { type: "forward"; text: string };
+
 export type IncomingCommand = "setting";
 
 export function formatIncomingDropMessage(reason: IncomingIgnoreReason): string {
