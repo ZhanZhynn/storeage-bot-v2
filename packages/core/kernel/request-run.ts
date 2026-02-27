@@ -1,44 +1,161 @@
-import type { EventProjector } from "@/core/kernel/event-projector";
-import { isTerminalRequestPhase, type RequestPhase } from "@/core/kernel/request-phase";
-import type { SessionService } from "@/core/kernel/session-service";
-import type { StatusPublisher } from "@/core/kernel/status-publisher";
-import type { ThreadKey } from "@/core/model/thread-key";
+import type { OpenCodeMessage } from "@/agents";
+import type { ActiveRequest } from "@/config/local/sessions";
+import { buildFinalResponseText, categorizeRuntimeError, createDeferred } from "@/core/runtime/helpers";
+import { getMessageUpdateIntervalMs } from "@/config";
+import type { AgentAdapter, IMAdapter } from "@/core/types";
+import { getStatusMessageKey, type SessionEvent, type SessionMessageState, log } from "@/utils";
+import { startKernelEventStreamWatcher } from "@/core/kernel/event-stream";
 
-type RequestRunDeps = {
-  sessionService: SessionService;
-  statusPublisher: StatusPublisher;
-  eventProjector: EventProjector;
+type RunnerDeps = {
+  im: IMAdapter;
+  agent: AgentAdapter;
 };
 
-export class RequestRun {
-  private phase: RequestPhase = "idle";
+export type RunTrackedRequestParams = {
+  deps: RunnerDeps;
+  request: ActiveRequest;
+  workingPath: string;
+  liveEventHistory: Map<string, SessionEvent[]>;
+  liveParsedState: Map<string, SessionMessageState>;
+  sendPrompt: () => Promise<OpenCodeMessage[]>;
+  onProgressTick: () => Promise<void>;
+  onComplete: () => void;
+  onFail: (message: string) => void;
+  publishFinalText: (text: string) => Promise<void>;
+  failureLogLabel: string;
+};
 
-  constructor(
-    private readonly threadKey: ThreadKey,
-    private readonly deps: RequestRunDeps
-  ) {}
+export type RunTrackedRequestResult = {
+  responses: OpenCodeMessage[] | null;
+  stopFallbackText?: string;
+};
 
-  getPhase(): RequestPhase {
-    return this.phase;
-  }
+function isExternallySettled(request: ActiveRequest): boolean {
+  return request.state !== "processing";
+}
 
-  async start(message: string): Promise<void> {
-    this.setPhase("bootstrapping");
-    await this.deps.sessionService.bootstrap(this.threadKey);
-    this.setPhase("streaming");
-    this.deps.eventProjector.setCurrentText(message);
-    await this.deps.statusPublisher.publishStatus(this.threadKey, message);
-    this.setPhase("completed");
-  }
+export async function runTrackedRequest(
+  params: RunTrackedRequestParams
+): Promise<RunTrackedRequestResult> {
+  const {
+    deps,
+    request,
+    workingPath,
+    liveEventHistory,
+    liveParsedState,
+    sendPrompt,
+    onProgressTick,
+    onComplete,
+    onFail,
+    publishFinalText,
+    failureLogLabel,
+  } = params;
 
-  async cancel(): Promise<void> {
-    if (isTerminalRequestPhase(this.phase)) return;
-    this.setPhase("cancelled");
-    await this.deps.statusPublisher.publishFinal(this.threadKey, "Stopped by user");
-  }
+  const progressIntervalMs = getMessageUpdateIntervalMs();
+  let progressInFlight = false;
+  let progressTimer: ReturnType<typeof setInterval> | null = null;
+  let stopWatcher: (() => void) | null = null;
 
-  private setPhase(phase: RequestPhase): void {
-    this.phase = phase;
-    this.deps.eventProjector.setPhase(phase);
+  const runProgressTick = async (): Promise<void> => {
+    if (request.state !== "processing") return;
+    if (progressInFlight) return;
+    progressInFlight = true;
+    try {
+      await onProgressTick();
+    } finally {
+      progressInFlight = false;
+    }
+  };
+
+  const stopSignal = createDeferred<void>();
+  try {
+    progressTimer = setInterval(() => {
+      void runProgressTick();
+    }, progressIntervalMs);
+
+    stopWatcher = await startKernelEventStreamWatcher({
+      deps,
+      request,
+      workingPath,
+      liveEventHistory,
+      liveParsedState,
+      onUpdate: () => {},
+      onStop: () => {
+        stopSignal.resolve();
+      },
+    });
+
+    const promptPromise = sendPrompt();
+    const result = await Promise.race([
+      promptPromise.then((responses) => ({ type: "prompt" as const, responses })),
+      stopSignal.promise.then(() => ({ type: "stop" as const })),
+    ]);
+
+    if (isExternallySettled(request)) {
+      liveEventHistory.delete(getStatusMessageKey(request));
+      liveParsedState.delete(getStatusMessageKey(request));
+      return { responses: [] };
+    }
+
+    request.state = "completed";
+
+    liveEventHistory.delete(getStatusMessageKey(request));
+    liveParsedState.delete(getStatusMessageKey(request));
+
+    if (result.type === "stop") {
+      const fallbackText = request.currentText?.trim();
+      const finalText = fallbackText || "_Done_";
+      await publishFinalText(finalText);
+      onComplete();
+
+      void promptPromise.catch((err) => {
+        log.debug("OpenCode prompt rejected after stop", { error: String(err) });
+      });
+
+      return { responses: [], stopFallbackText: fallbackText };
+    }
+
+    if (result.responses.length === 0) {
+      log.warn("No text responses from model - tool-only response", {
+        channelId: request.channelId,
+        threadId: request.threadId,
+        promptPreview: request.prompt.slice(0, 120),
+        currentText: request.currentText,
+      });
+    }
+
+    const finalText = buildFinalResponseText(result.responses) ?? (request.currentText?.trim() || "_Done_");
+    await publishFinalText(finalText);
+    onComplete();
+    return { responses: result.responses };
+  } catch (err) {
+    if (isExternallySettled(request)) {
+      liveEventHistory.delete(getStatusMessageKey(request));
+      liveParsedState.delete(getStatusMessageKey(request));
+      return { responses: [] };
+    }
+
+    const { message, suggestion } = categorizeRuntimeError(err);
+    log.error(failureLogLabel, { channelId: request.channelId, threadId: request.threadId, error: String(err) });
+
+    request.state = "failed";
+    request.error = message;
+
+    liveEventHistory.delete(getStatusMessageKey(request));
+    liveParsedState.delete(getStatusMessageKey(request));
+
+    const errorStatus = `Error: ${message}\n_${suggestion}_`;
+    await deps.im.updateMessage(request.channelId, request.statusMessageTs, errorStatus);
+    onFail(message);
+    return { responses: null };
+  } finally {
+    if (progressTimer) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+    }
+    if (stopWatcher) {
+      stopWatcher();
+      stopWatcher = null;
+    }
   }
 }

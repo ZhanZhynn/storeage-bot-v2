@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { runTrackedRequest } from "../runtime/request-runner";
+import { runTrackedRequest } from "../kernel/request-run";
 import type { ActiveRequest } from "@/config/local/sessions";
 
 function buildRequest(): ActiveRequest {

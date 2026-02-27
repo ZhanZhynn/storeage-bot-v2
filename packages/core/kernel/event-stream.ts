@@ -20,7 +20,7 @@ import {
   log,
 } from "@/utils";
 
-type StartEventStreamWatcherParams = {
+type StartKernelEventStreamWatcherParams = {
   deps: {
     agent: AgentAdapter;
     im: IMAdapter;
@@ -35,8 +35,8 @@ type StartEventStreamWatcherParams = {
 
 const EVENT_STATE_MERGE_INTERVAL_MS = 1000;
 
-export async function startEventStreamWatcher(
-  params: StartEventStreamWatcherParams
+export async function startKernelEventStreamWatcher(
+  params: StartKernelEventStreamWatcherParams
 ): Promise<() => void> {
   const {
     deps,

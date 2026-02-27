@@ -7,7 +7,7 @@ import {
   updateActiveRequest,
   type PersistedSession,
 } from "@/config/local/sessions";
-import { runTrackedRequest } from "@/core/runtime/request-runner";
+import { runTrackedRequest } from "@/core/kernel/request-run";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import { maybeGenerateSessionTitle } from "@/core/runtime/session-title";
 import type { OpenCodeOptions } from "@/agents";
