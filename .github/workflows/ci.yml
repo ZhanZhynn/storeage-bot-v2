@@ -31,8 +31,5 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Core tests
-        run: bun test packages/core/test
-
-      - name: Agent fast tests
-        run: bun test packages/agents/test/cli-command.test.ts packages/agents/test/agent-registry.test.ts
+      - name: Test suite
+        run: bun test

@@ -9,8 +9,35 @@ permissions:
   contents: write
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          token: ${{ github.token }}
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Install web-ui deps
+        run: bun install --cwd packages/web-ui
+
+      - name: Build web UI
+        run: bun run build:web
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test suite
+        run: bun test
+
   build:
     runs-on: ${{ matrix.os }}
+    needs: verify
     strategy:
       fail-fast: false
       matrix:
@@ -43,9 +70,6 @@ jobs:
       - name: Install web-ui deps
         run: bun install --cwd packages/web-ui
 
-      - name: Run core tests
-        run: bun test packages/core/test
-
       - name: Build web UI
         run: bun run build:web
 
@@ -67,6 +91,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download artifacts
         uses: actions/download-artifact@v4
@@ -81,7 +107,41 @@ jobs:
 
       - name: Read version
         id: vars
-        run: echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+        run: |
+          version="$(bun -e 'import pkg from "./package.json" with { type: "json" }; console.log(pkg.version)')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        id: notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          current_tag="v${{ steps.vars.outputs.version }}"
+          previous_tag="$(git tag --list 'v*' --sort=-version:refname | grep -vx "${current_tag}" | head -n 1 || true)"
+
+          if [[ -n "${previous_tag}" ]]; then
+            range="${previous_tag}..HEAD"
+            summary_line="- Changes since \`${previous_tag}\`"
+          else
+            first_commit="$(git rev-list --max-parents=0 HEAD | tail -n 1)"
+            range="${first_commit}..HEAD"
+            summary_line="- Changes from initial commit"
+          fi
+
+          commit_count="$(git rev-list --count ${range})"
+
+          {
+            echo "body<<'EOF'"
+            echo "## Summary"
+            echo "- Release \`${current_tag}\`"
+            echo "${summary_line}"
+            echo "- Total commits: ${commit_count}"
+            echo
+            echo "## Commits"
+            git log --pretty='- %h %s' ${range}
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -89,6 +149,7 @@ jobs:
           tag_name: v${{ steps.vars.outputs.version }}
           name: Ode CLI v${{ steps.vars.outputs.version }}
           prerelease: false
+          body: ${{ steps.notes.outputs.body }}
           files: |
             dist/**/ode-*
             dist/SHA256SUMS
