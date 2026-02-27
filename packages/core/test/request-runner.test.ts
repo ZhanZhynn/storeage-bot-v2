@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { CoreStateMachine } from "../state-machine";
 import { runTrackedRequest } from "../runtime/request-runner";
 import type { ActiveRequest } from "@/config/local/sessions";
 
@@ -37,7 +36,6 @@ describe("runTrackedRequest", () => {
       },
       request: buildRequest(),
       workingPath: "/tmp/project",
-      stateMachine: new CoreStateMachine("C1:T1"),
       liveEventHistory: new Map(),
       liveParsedState: new Map(),
       sendPrompt: async () => [{ text: "done", messageType: "assistant" }],
@@ -72,7 +70,6 @@ describe("runTrackedRequest", () => {
       },
       request: buildRequest(),
       workingPath: "/tmp/project",
-      stateMachine: new CoreStateMachine("C1:T1"),
       liveEventHistory: new Map(),
       liveParsedState: new Map(),
       sendPrompt: async () => {
@@ -118,7 +115,6 @@ describe("runTrackedRequest", () => {
       },
       request,
       workingPath: "/tmp/project",
-      stateMachine: new CoreStateMachine("C1:T1"),
       liveEventHistory: new Map(),
       liveParsedState: new Map(),
       sendPrompt: async () => {

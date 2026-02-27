@@ -8,7 +8,6 @@ import {
   type TrackedTool,
 } from "@/config/local/sessions";
 import { getUserGeneralSettings } from "@/config";
-import { CoreStateMachine } from "@/core/state-machine";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import type { AgentAdapter, IMAdapter } from "@/core/types";
 import { formatQuestionPrompt } from "@/core/runtime/helpers";
@@ -28,7 +27,6 @@ type StartEventStreamWatcherParams = {
   };
   request: ActiveRequest;
   workingPath: string;
-  stateMachine: CoreStateMachine;
   liveEventHistory: Map<string, SessionEvent[]>;
   liveParsedState: Map<string, SessionMessageState>;
   onUpdate: () => void;
@@ -44,7 +42,6 @@ export async function startEventStreamWatcher(
     deps,
     request,
     workingPath,
-    stateMachine,
     liveEventHistory,
     liveParsedState,
     onUpdate,
@@ -159,7 +156,6 @@ export async function startEventStreamWatcher(
           return;
         }
         clearPendingQuestion(request.channelId, request.threadId);
-        stateMachine.transition("resume_processing");
         flushStateUpdates(true);
         return;
       }
@@ -185,7 +181,6 @@ export async function startEventStreamWatcher(
       if (normalized.length === 0) return;
 
       request.statusFrozen = true;
-      stateMachine.transition("wait_for_user");
       const prompt = formatQuestionPrompt(normalized);
       request.currentText = prompt;
       onUpdate();

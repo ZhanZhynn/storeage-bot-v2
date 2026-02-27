@@ -17,7 +17,6 @@ import {
   type SessionMessageState,
   log,
 } from "@/utils";
-import { CoreStateMachine } from "@/core/state-machine";
 import type { AgentAdapter, IMAdapter } from "@/core/types";
 import { handlePendingQuestionReply } from "@/core/runtime/pending-question";
 import { recoverPendingRequests as recoverPendingRequestsInternal } from "@/core/runtime/recovery";
@@ -45,14 +44,12 @@ type RuntimeDeps = {
 type RuntimeState = {
   liveEventHistory: Map<string, SessionEvent[]>;
   liveParsedState: Map<string, SessionMessageState>;
-  stateMachines: Map<string, CoreStateMachine>;
 };
 
 function createRuntimeState(): RuntimeState {
   return {
     liveEventHistory: new Map(),
     liveParsedState: new Map(),
-    stateMachines: new Map(),
   };
 }
 
@@ -101,19 +98,6 @@ export function createCoreRuntime(deps: RuntimeDeps) {
     im: createRateLimitedImAdapter(deps.im),
   };
   const state = createRuntimeState();
-
-  function getStateKey(context: { channelId: string; threadId: string }): string {
-    return `${context.channelId}:${context.threadId}`;
-  }
-
-  function getStateMachine(context: { channelId: string; threadId: string }): CoreStateMachine {
-    const key = getStateKey(context);
-    const existing = state.stateMachines.get(key);
-    if (existing) return existing;
-    const machine = new CoreStateMachine(key);
-    state.stateMachines.set(key, machine);
-    return machine;
-  }
 
   const threadRuntimeRegistry = new ThreadRuntimeRegistry({
     ttlMs: 30 * 60 * 1000,
@@ -217,11 +201,9 @@ export function createCoreRuntime(deps: RuntimeDeps) {
   async function handleUserMessageInternal(context: RuntimeRequestContext, text: string): Promise<void> {
     const { channelId, replyThreadId, threadId } = context;
     const rawChannelId = context.rawChannelId ?? channelId;
-    const stateMachine = getStateMachine(context);
     const prepared = await prepareRuntimeSession({
       deps: runtimeDeps,
       context,
-      stateMachine,
     });
     if (!prepared) return;
 
@@ -263,7 +245,6 @@ export function createCoreRuntime(deps: RuntimeDeps) {
       cwd,
       message: text,
       isFirstMessageInThread: created,
-      stateMachine,
       agentContext,
       options,
       liveEventHistory: state.liveEventHistory,

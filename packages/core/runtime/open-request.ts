@@ -10,7 +10,6 @@ import {
 import { runTrackedRequest } from "@/core/runtime/request-runner";
 import { buildStatusMessageForAgent } from "@/core/runtime/status-message";
 import { maybeGenerateSessionTitle } from "@/core/runtime/session-title";
-import { CoreStateMachine } from "@/core/state-machine";
 import type { OpenCodeOptions } from "@/agents";
 import type { AgentAdapter, IMAdapter } from "@/core/types";
 import type { RuntimeRequestContext } from "@/core/runtime/request-context";
@@ -29,7 +28,6 @@ export async function runOpenRequest(params: {
   sessionId: string;
   cwd: string;
   message: string;
-  stateMachine: CoreStateMachine;
   agentContext: Awaited<ReturnType<IMAdapter["buildAgentContext"]>>;
   options?: OpenCodeOptions;
   isFirstMessageInThread: boolean;
@@ -49,7 +47,6 @@ export async function runOpenRequest(params: {
     sessionId,
     cwd,
     message,
-    stateMachine,
     agentContext,
     options,
     isFirstMessageInThread,
@@ -101,11 +98,10 @@ export async function runOpenRequest(params: {
   const progressIntervalMs = getMessageUpdateIntervalMs();
   let lastHeartbeat = Date.now();
   const result = await runTrackedRequest({
-    deps,
-    request,
-    workingPath: cwd,
-    stateMachine,
-    liveEventHistory,
+      deps,
+      request,
+      workingPath: cwd,
+      liveEventHistory,
     liveParsedState,
     sendPrompt: () =>
       deps.agent.sendMessage(

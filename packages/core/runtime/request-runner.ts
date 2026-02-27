@@ -1,6 +1,5 @@
 import type { OpenCodeMessage } from "@/agents";
 import type { ActiveRequest } from "@/config/local/sessions";
-import { CoreStateMachine } from "@/core/state-machine";
 import { buildFinalResponseText, categorizeRuntimeError, createDeferred } from "@/core/runtime/helpers";
 import { startEventStreamWatcher } from "@/core/runtime/event-stream";
 import { getMessageUpdateIntervalMs } from "@/config";
@@ -16,7 +15,6 @@ export type RunTrackedRequestParams = {
   deps: RunnerDeps;
   request: ActiveRequest;
   workingPath: string;
-  stateMachine: CoreStateMachine;
   liveEventHistory: Map<string, SessionEvent[]>;
   liveParsedState: Map<string, SessionMessageState>;
   sendPrompt: () => Promise<OpenCodeMessage[]>;
@@ -43,7 +41,6 @@ export async function runTrackedRequest(
     deps,
     request,
     workingPath,
-    stateMachine,
     liveEventHistory,
     liveParsedState,
     sendPrompt,
@@ -80,7 +77,6 @@ export async function runTrackedRequest(
       deps,
       request,
       workingPath,
-      stateMachine,
       liveEventHistory,
       liveParsedState,
       onUpdate: () => {},
@@ -89,7 +85,6 @@ export async function runTrackedRequest(
       },
     });
 
-    stateMachine.transition("start_processing");
     const promptPromise = sendPrompt();
     const result = await Promise.race([
       promptPromise.then((responses) => ({ type: "prompt" as const, responses })),
@@ -97,7 +92,6 @@ export async function runTrackedRequest(
     ]);
 
     if (isExternallySettled(request)) {
-      stateMachine.transition("stop");
       liveEventHistory.delete(getStatusMessageKey(request));
       liveParsedState.delete(getStatusMessageKey(request));
       return { responses: [] };
@@ -109,7 +103,6 @@ export async function runTrackedRequest(
     liveParsedState.delete(getStatusMessageKey(request));
 
     if (result.type === "stop") {
-      stateMachine.transition("stop");
       const fallbackText = request.currentText?.trim();
       const finalText = fallbackText || "_Done_";
       await publishFinalText(finalText);
@@ -131,20 +124,17 @@ export async function runTrackedRequest(
       });
     }
 
-    stateMachine.transition("complete");
     const finalText = buildFinalResponseText(result.responses) ?? (request.currentText?.trim() || "_Done_");
     await publishFinalText(finalText);
     onComplete();
     return { responses: result.responses };
   } catch (err) {
     if (isExternallySettled(request)) {
-      stateMachine.transition("stop");
       liveEventHistory.delete(getStatusMessageKey(request));
       liveParsedState.delete(getStatusMessageKey(request));
       return { responses: [] };
     }
 
-    stateMachine.transition("fail");
     const { message, suggestion } = categorizeRuntimeError(err);
     log.error(failureLogLabel, { channelId: request.channelId, threadId: request.threadId, error: String(err) });
 
