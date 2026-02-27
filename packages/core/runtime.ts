@@ -8,6 +8,7 @@ import {
   failActiveRequest,
   isMessageProcessed,
   markMessageProcessed,
+  markThreadActive,
   getPendingQuestion,
   type PersistedSession,
 } from "@/config/local/sessions";
@@ -27,6 +28,13 @@ import { buildMessageOptions } from "@/core/runtime/message-options";
 import { splitResultMessage } from "@/core/runtime/result-message";
 import { createRateLimitedImAdapter } from "@/core/runtime/message-updates";
 import type { OpenCodeOptions } from "@/agents";
+import {
+  BotRuntime,
+  RuntimeKernel,
+  ThreadRuntimeRegistry,
+} from "@/core/kernel/runtime-kernel";
+import type { InboundAdapter } from "@/ims/shared/inbound-adapter";
+import type { RawInboundEvent } from "@/core/model/raw-inbound-event";
 
 type RuntimeDeps = {
   platform: "slack" | "discord" | "lark";
@@ -87,6 +95,12 @@ async function maybeSyncBranchAndThread(params: {
   }
 }
 
+function isEnabled(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
+}
+
 export function createCoreRuntime(deps: RuntimeDeps) {
   const runtimeDeps: RuntimeDeps = {
     ...deps,
@@ -110,6 +124,48 @@ export function createCoreRuntime(deps: RuntimeDeps) {
   const threadQueue = new ThreadMessageQueue<CoreMessageContext>({
     getKey: (context) => `${context.channelId}-${context.threadId}`,
     process: (context, text) => handleUserMessageInternal(context, text),
+  });
+  const useRuntimeKernel = isEnabled(process.env.NEW_RUNTIME_KERNEL);
+  const threadRuntimeRegistry = new ThreadRuntimeRegistry({
+    ttlMs: 30 * 60 * 1000,
+    sweepIntervalMs: 5 * 60 * 1000,
+    onDecision: async (_threadKey, params) => {
+      const { event, decision } = params;
+      if (decision.kind === "ignore" || decision.kind === "command") return;
+      if (decision.kind === "stop") {
+        await handleStopCommand(event.channelId, event.threadId);
+        return;
+      }
+
+      await handleUserMessageInternal(
+        {
+          channelId: event.channelId,
+          rawChannelId: event.rawChannelId,
+          replyThreadId: event.replyThreadId,
+          threadId: event.threadId,
+          userId: event.userId,
+          messageId: event.messageId,
+          botToken: event.botId,
+        },
+        decision.text
+      );
+    },
+  });
+  const inboundAdapter: InboundAdapter = {
+    evaluate: (event) => {
+      const text = event.normalizedText.trim();
+      if (!text) {
+        return { kind: "ignore", reason: "empty_text" };
+      }
+      return { kind: "message", text };
+    },
+  };
+  const runtimeKernel = new RuntimeKernel({
+    createBotRuntime: (botKey) => new BotRuntime(botKey, {
+      inboundAdapter,
+      commandService: { handle: async () => {} },
+      threadRuntimeRegistry,
+    }),
   });
 
   async function publishFinalText(params: {
@@ -249,7 +305,59 @@ export function createCoreRuntime(deps: RuntimeDeps) {
     }
 
     markMessageProcessed(context.channelId, context.threadId, context.messageId);
-    threadQueue.enqueue(context, text);
+    if (!useRuntimeKernel) {
+      threadQueue.enqueue(context, text);
+      return;
+    }
+
+    await runtimeKernel.handleInbound({
+      platform: deps.platform,
+      botId: context.botToken ?? "default",
+      channelId: context.channelId,
+      rawChannelId: context.rawChannelId,
+      threadId: context.threadId,
+      replyThreadId: context.replyThreadId,
+      messageId: context.messageId,
+      userId: context.userId,
+      isTopLevel: false,
+      mentionedBot: true,
+      activeThread: true,
+      rawText: text,
+      normalizedText: text,
+      receivedAtMs: Date.now(),
+    });
+  }
+
+  async function handleInboundEvent(event: RawInboundEvent): Promise<void> {
+    const shouldProcess = event.isTopLevel
+      ? event.mentionedBot
+      : (event.mentionedBot || event.activeThread);
+    if (!shouldProcess) return;
+
+    const text = event.normalizedText.trim();
+    if (!text) return;
+
+    if (text.toLowerCase() === "stop") {
+      const stopped = await handleStopCommand(event.channelId, event.threadId);
+      if (stopped) {
+        await runtimeDeps.im.sendMessage(event.rawChannelId ?? event.channelId, event.replyThreadId, "Request stopped.");
+      }
+      return;
+    }
+
+    markThreadActive(event.channelId, event.threadId);
+    await handleIncomingMessage(
+      {
+        channelId: event.channelId,
+        rawChannelId: event.rawChannelId,
+        replyThreadId: event.replyThreadId,
+        threadId: event.threadId,
+        userId: event.userId,
+        messageId: event.messageId,
+        botToken: event.botId,
+      },
+      text
+    );
   }
 
   async function handleStopCommand(channelId: string, threadId: string): Promise<boolean> {
@@ -315,6 +423,7 @@ export function createCoreRuntime(deps: RuntimeDeps) {
 
   return {
     handleIncomingMessage,
+    handleInboundEvent,
     handleStopCommand,
     handleButtonSelection,
     recoverPendingRequests,

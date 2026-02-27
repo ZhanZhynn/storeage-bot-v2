@@ -17,14 +17,9 @@ import { findReplyThreadIdByStatusMessageTs } from "@/config/local/sessions";
 import { isThreadActive, markThreadActive } from "@/config/local/sessions";
 import { log } from "@/utils";
 import {
-  buildIncomingContext,
   IncomingMessageProcessor,
 } from "@/ims/shared/incoming-message-processor";
 import { createRuntimeController } from "@/ims/shared/runtime-controller";
-import {
-  toCoreMessageContext,
-  type UnifiedMessageContext,
-} from "@/ims/shared/message-context";
 import { createProcessorId, getScopedProcessorId, scopeChannelId, unscopeChannelId } from "@/ims/shared/processor-scope";
 import {
   DISCORD_LAUNCHER_COMMANDS,
@@ -46,6 +41,7 @@ import {
   sleep,
 } from "@/ims/discord/utils/rate-limit";
 import { DiscordStatusMessageIndex } from "@/ims/discord/state/status-message-index";
+import type { RawInboundEvent } from "@/core/model/raw-inbound-event";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
 const DISCORD_THREAD_NAME_LIMIT = 25;
@@ -436,51 +432,24 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
             }
             const mentioned = isBotMentioned(message, client.user.id);
             const active = isThreadActive(scopedChannelId, threadId);
-            const messageContext: UnifiedMessageContext = buildIncomingContext({
+            const normalizedText = mentioned ? cleanBotMention(text, client.user.id) : text;
+            const inboundEvent: RawInboundEvent = {
               platform: "discord",
+              botId: processorId,
               channelId: scopedChannelId,
+              rawChannelId: parentId,
               threadId,
+              replyThreadId: threadId,
               messageId: message.id,
               userId: message.author.id,
               isTopLevel: false,
               mentionedBot: mentioned,
               activeThread: active,
               rawText: text,
-              normalizedText: mentioned ? cleanBotMention(text, client.user.id) : text,
-            });
-            const flowResult = incomingMessageProcessor.evaluate(messageContext);
-            await incomingMessageProcessor.execute({
-              context: messageContext,
-              flowResult,
-              markThreadActive,
-              handleStopCommand: (channelId: string, flowThreadId: string) => runtime.handleStopCommand(channelId, flowThreadId),
-              sendStopAck: async () => {
-                await message.channel.send("Request stopped.");
-              },
-              onIgnore: async (reason: "not_mentioned_and_inactive" | "empty_text") => {
-                if (reason === "not_mentioned_and_inactive") {
-                  log.debug(incomingMessageProcessor.formatDropMessage(reason), {
-                    platform: "discord",
-                    channelId: parentId,
-                    threadId,
-                    messageId: message.id,
-                    isTopLevel: false,
-                    mentioned,
-                    activeThread: active,
-                  });
-                  return;
-                }
-                if (reason === "empty_text" && mentioned) {
-                  await message.reply("Please include a request after mentioning me.");
-                }
-              },
-              forwardToCore: async (forwardText: string) => {
-                await runtime.handleIncomingMessage(
-                  toCoreMessageContext(messageContext, { rawChannelId: parentId }),
-                  forwardText
-                );
-              },
-            });
+              normalizedText,
+              receivedAtMs: Date.now(),
+            };
+            await runtime.handleInboundEvent(inboundEvent);
             return;
           }
 
@@ -502,38 +471,25 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
           }
 
           const topLevelMentioned = isBotMentioned(message, client.user.id);
-          const topLevelContext: UnifiedMessageContext = buildIncomingContext({
-            platform: "discord",
-            channelId: scopeChannelId(processorId, parentId),
-            threadId: message.id,
-            messageId: message.id,
-            userId: message.author.id,
-            isTopLevel: true,
-            mentionedBot: topLevelMentioned,
-            activeThread: false,
-            rawText: message.content,
-            normalizedText: cleanBotMention(message.content, client.user.id),
-          });
-          const topLevelFlow = incomingMessageProcessor.evaluate(topLevelContext, { detectStop: false });
-          if (topLevelFlow.type === "ignore" && topLevelFlow.reason === "not_mentioned_and_inactive") {
+          const topLevelText = cleanBotMention(message.content, client.user.id);
+          if (!topLevelMentioned) {
             log.debug(incomingMessageProcessor.formatDropMessage("not_mentioned_and_inactive"), {
               platform: "discord",
               channelId: parentId,
               threadId: message.id,
               messageId: message.id,
               isTopLevel: true,
-              mentioned: topLevelContext.mentionedBot,
+              mentioned: false,
               activeThread: false,
             });
             return;
           }
-          if (topLevelFlow.type === "ignore" && topLevelFlow.reason === "empty_text") {
+          if (!topLevelText.trim()) {
             await message.reply("Please include a request after mentioning me.");
             return;
           }
-          if (topLevelFlow.type !== "forward") return;
 
-          const cleanedLauncherCommand = incomingMessageProcessor.parseCommand(topLevelFlow.text);
+          const cleanedLauncherCommand = incomingMessageProcessor.parseCommand(topLevelText);
           if (cleanedLauncherCommand) {
             await sendLauncherReplyForMessage({
               message,
@@ -548,19 +504,27 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
           }
 
           const thread = await message.startThread({
-            name: buildMeaningfulThreadName(topLevelFlow.text, DISCORD_THREAD_NAME_LIMIT),
+            name: buildMeaningfulThreadName(topLevelText, DISCORD_THREAD_NAME_LIMIT),
             autoArchiveDuration: 60,
           });
 
           markThreadActive(scopeChannelId(processorId, parentId), thread.id);
-          await runtime.handleIncomingMessage(
-            toCoreMessageContext({
-              ...topLevelContext,
-              threadId: thread.id,
-              replyThreadId: thread.id,
-            }, { rawChannelId: parentId }),
-            topLevelFlow.text
-          );
+          await runtime.handleInboundEvent({
+            platform: "discord",
+            botId: processorId,
+            channelId: scopeChannelId(processorId, parentId),
+            rawChannelId: parentId,
+            threadId: thread.id,
+            replyThreadId: thread.id,
+            messageId: message.id,
+            userId: message.author.id,
+            isTopLevel: false,
+            mentionedBot: true,
+            activeThread: false,
+            rawText: message.content,
+            normalizedText: topLevelText,
+            receivedAtMs: Date.now(),
+          });
         } catch (error) {
           log.error("Discord message handler failed", { error: String(error) });
         }

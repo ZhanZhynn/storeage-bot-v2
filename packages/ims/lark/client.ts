@@ -24,13 +24,8 @@ import { createCoreRuntime } from "@/core/runtime";
 import type { IMAdapter } from "@/core/types";
 import { log } from "@/utils";
 import {
-  buildIncomingContext,
   IncomingMessageProcessor,
 } from "@/ims/shared/incoming-message-processor";
-import {
-  toCoreMessageContext,
-  type UnifiedMessageContext,
-} from "@/ims/shared/message-context";
 import {
   createProcessorId,
   getScopedProcessorId,
@@ -52,6 +47,7 @@ import {
   pickValueField,
 } from "@/ims/lark/utils/card-action-utils";
 import { LarkRuntimeState } from "@/ims/lark/state/runtime-state";
+import type { RawInboundEvent } from "@/core/model/raw-inbound-event";
 
 let larkRuntimeStarted = false;
 const incomingMessageProcessor = new IncomingMessageProcessor();
@@ -113,6 +109,12 @@ function hasMissingLarkLongConnectionClient(): boolean {
 function isLarkEventDebugEnabled(): boolean {
   const raw = process.env.LARK_DEBUG_EVENTS?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
+function isEnabled(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
 }
 
 function logLarkEvent(message: string, payload: Record<string, unknown>): void {
@@ -1057,6 +1059,7 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
   const processorId = createProcessorId("lark", inferredAppId ?? "");
   const scopedChannelId = scopeChannelId(processorId, channelId);
   const runtime = getLarkProcessorRuntime(processorId);
+  const useRuntimeKernel = isEnabled(process.env.NEW_RUNTIME_KERNEL);
 
   const botOpenId = await getBotOpenIdForChannel(scopedChannelId);
   if (!topLevelMessage && botOpenId && senderOpenId === botOpenId) {
@@ -1085,10 +1088,13 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
     : false;
   const active = isThreadActive(scopedChannelId, threadId);
   const text = stripLarkMentionMarkup(rawText);
-  const messageContext: UnifiedMessageContext = buildIncomingContext({
+  const inboundEvent: RawInboundEvent = {
     platform: "lark",
+    botId: processorId,
     channelId: scopedChannelId,
+    rawChannelId: channelId,
     threadId,
+    replyThreadId: threadId,
     messageId,
     userId: senderOpenId,
     isTopLevel: topLevelMessage,
@@ -1096,7 +1102,8 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
     activeThread: active,
     rawText,
     normalizedText: text,
-  });
+    receivedAtMs: Date.now(),
+  };
 
   logLarkEvent("Lark inbound parsed", {
     channelId,
@@ -1122,51 +1129,30 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
     await sendSettingsCard(scopedChannelId, "", senderOpenId);
     return;
   }
+  if (!useRuntimeKernel && !isMentioned && !active) {
+    logLarkEvent("Lark inbound ignored: not mentioned and thread inactive", {
+      channelId,
+      threadId,
+      messageId,
+      reason: "not_mentioned_and_inactive",
+      isTopLevel: topLevelMessage,
+      isMentioned,
+      activeThread: active,
+    });
+    return;
+  }
 
-  const flowResult = incomingMessageProcessor.evaluate(messageContext);
-  await incomingMessageProcessor.execute({
-    context: messageContext,
-    flowResult,
-    markThreadActive,
-    handleStopCommand: (flowChannelId, flowThreadId) => runtime.handleStopCommand(flowChannelId, flowThreadId),
-    sendStopAck: async () => {
-      await sendMessage(scopedChannelId, threadId, "Request stopped.");
-    },
-    onIgnore: (reason) => {
-      if (reason === "not_mentioned_and_inactive") {
-        logLarkEvent("Lark inbound ignored: not mentioned and thread inactive", {
-          channelId,
-          threadId,
-          messageId,
-          reason,
-          isTopLevel: topLevelMessage,
-          isMentioned,
-          activeThread: active,
-        });
-        return;
-      }
-      logLarkEvent("Lark inbound ignored: empty text after mention stripping", {
-        channelId,
-        messageId,
-      });
-    },
-    forwardToCore: async (forwardText) => {
-      logLarkEvent("Lark inbound accepted: forwarding to core runtime", {
-        channelId,
-        threadId,
-        messageId,
-        userId: senderOpenId,
-      });
-      await runtime.handleIncomingMessage(
-        toCoreMessageContext(messageContext, { rawChannelId: channelId }),
-        forwardText
-      );
-      logLarkEvent("Lark inbound handled by core runtime", {
-        channelId,
-        threadId,
-        messageId,
-      });
-    },
+  logLarkEvent("Lark inbound accepted: forwarding to core runtime", {
+    channelId,
+    threadId,
+    messageId,
+    userId: senderOpenId,
+  });
+  await runtime.handleInboundEvent(inboundEvent);
+  logLarkEvent("Lark inbound handled by core runtime", {
+    channelId,
+    threadId,
+    messageId,
   });
 }
 

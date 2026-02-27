@@ -468,6 +468,10 @@ export function setupMessageHandlers(): void {
           ?? createProcessorId("slack", context.botToken ?? "");
         return getSlackProcessorRuntime(processorId).handleIncomingMessage(context, text);
       },
+      handleInboundEvent: async (event) => {
+        const processorId = createProcessorId("slack", event.botId ?? "");
+        await getSlackProcessorRuntime(processorId).handleInboundEvent(event);
+      },
     });
 
   }
