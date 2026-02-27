@@ -1,4 +1,18 @@
-import type { UnifiedMessageContext } from "@/ims/shared/message-context";
+export type IMPlatform = "slack" | "discord" | "lark";
+
+export type UnifiedMessageContext = {
+  platform: IMPlatform;
+  channelId: string;
+  threadId: string;
+  replyThreadId: string;
+  messageId: string;
+  userId: string;
+  isTopLevel: boolean;
+  mentionedBot: boolean;
+  activeThread: boolean;
+  rawText: string;
+  normalizedText: string;
+};
 
 export type IncomingIgnoreReason = "not_mentioned_and_inactive" | "empty_text";
 

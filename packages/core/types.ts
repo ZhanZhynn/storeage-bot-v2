@@ -15,7 +15,6 @@ export type CoreMessageContext = {
   threadId: string;
   userId: string;
   messageId: string;
-  workspaceName?: string;
   botToken?: string;
 };
 
