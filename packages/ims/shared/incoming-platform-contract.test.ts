@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { IncomingMessageProcessor, buildIncomingContext } from "@/ims/shared/incoming-message-processor";
+import { buildIncomingContext, evaluateIncomingFlow } from "@/ims/shared/incoming-message-processor";
 
 type PlatformCase = {
   name: string;
@@ -8,7 +8,7 @@ type PlatformCase = {
   activeThread: boolean;
   normalizedText: string;
   detectStop?: boolean;
-  expected: ReturnType<IncomingMessageProcessor["evaluate"]>;
+  expected: ReturnType<typeof evaluateIncomingFlow>;
 };
 
 const contractCases: PlatformCase[] = [
@@ -64,7 +64,6 @@ const contractCases: PlatformCase[] = [
 ];
 
 describe("incoming message platform contract", () => {
-  const processor = new IncomingMessageProcessor();
   const platforms = ["slack", "discord", "lark"] as const;
 
   for (const platform of platforms) {
@@ -83,7 +82,7 @@ describe("incoming message platform contract", () => {
           normalizedText: testCase.normalizedText,
         });
 
-        const actual = processor.evaluate(context, { detectStop: testCase.detectStop });
+        const actual = evaluateIncomingFlow(context, { detectStop: testCase.detectStop });
         expect(actual).toEqual(testCase.expected);
       }
     });

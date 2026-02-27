@@ -1,9 +1,9 @@
 import { loadSession, saveSession, type PersistedSession } from "@/config/local/sessions";
 import { getChannelBaseBranch, getUserGeneralSettings, resolveChannelCwd } from "@/config";
 import { buildSessionEnvironment, prepareSessionWorkspace } from "@/core/session";
-import { CoreStateMachine } from "@/core/state-machine";
 import { categorizeRuntimeError } from "@/core/runtime/helpers";
-import type { AgentAdapter, CoreMessageContext, IMAdapter } from "@/core/types";
+import type { AgentAdapter, IMAdapter } from "@/core/types";
+import type { RuntimeRequestContext } from "@/core/kernel/request-context";
 import { log } from "@/utils";
 import { createHash } from "crypto";
 
@@ -40,10 +40,9 @@ export type PreparedRuntimeSession = {
 
 export async function prepareRuntimeSession(params: {
   deps: BootstrapDeps;
-  context: CoreMessageContext;
-  stateMachine: CoreStateMachine;
+  context: RuntimeRequestContext;
 }): Promise<PreparedRuntimeSession | null> {
-  const { deps, context, stateMachine } = params;
+  const { deps, context } = params;
   const { channelId, replyThreadId, threadId } = context;
   const rawChannelId = context.rawChannelId ?? channelId;
 
@@ -65,7 +64,6 @@ export async function prepareRuntimeSession(params: {
   let created: boolean;
 
   try {
-    stateMachine.transition("prepare_session");
     ({ sessionId, created } = await deps.agent.getOrCreateSession(channelId, threadId, cwd, sessionEnv));
   } catch (err) {
     const { message, suggestion } = categorizeRuntimeError(err);
@@ -80,7 +78,6 @@ export async function prepareRuntimeSession(params: {
 
   if (getUserGeneralSettings().gitStrategy === "worktree") {
     try {
-      stateMachine.transition("prepare_worktree");
       const worktreeId = resolveWorktreeId(threadId, rawChannelId, cwd);
       const baseBranch = getChannelBaseBranch(rawChannelId);
       const { cwd: resolvedCwd, worktree } = await prepareSessionWorkspace({

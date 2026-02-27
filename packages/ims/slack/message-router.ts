@@ -1,16 +1,13 @@
 import { log } from "@/utils";
 import {
-  buildIncomingContext,
-  IncomingMessageProcessor,
+  formatIncomingDropMessage,
+  parseIncomingCommand,
   type IncomingFlowResult,
 } from "@/ims/shared/incoming-message-processor";
-import type { AgentProviderId } from "@/shared/agent-provider";
-import {
-  toCoreMessageContext,
-  type UnifiedMessageContext,
-} from "@/ims/shared/message-context";
-import { createProcessorId, scopeChannelId } from "@/ims/shared/processor-scope";
+import type { InboundDecision } from "@/core/model/inbound-decision";
+import type { RawInboundEvent } from "@/core/model/raw-inbound-event";
 import { RuntimeCache } from "@/shared/cache/runtime-cache";
+import { SlackInboundAdapter } from "@/ims/slack/slack-inbound-adapter";
 
 type RouterDeps = {
   app: any;
@@ -29,26 +26,27 @@ type RouterDeps = {
     auth: { workspaceId?: string; workspaceName?: string; botToken?: string; [key: string]: unknown } | undefined
   ) => void;
   isThreadActive: (channelId: string, threadId: string) => boolean;
-  markThreadActive: (channelId: string, threadId: string) => void;
   postGeneralSettingsLauncher: (channelId: string, userId: string, client: any) => Promise<void>;
   describeSettingsIssues: (channelId: string) => string[];
-  getChannelAgentProvider: (channelId: string) => AgentProviderId;
-  handleStopCommand: (channelId: string, threadId: string) => Promise<boolean>;
-  handleIncomingMessage: (context: {
-    channelId: string;
-    rawChannelId?: string;
-    replyThreadId: string;
-    threadId: string;
-    userId: string;
-    messageId: string;
-    workspaceName?: string;
-    botToken?: string;
-  }, text: string) => Promise<void>;
+  handleInboundEvent: (event: RawInboundEvent) => Promise<void>;
 };
 
 type WorkspaceAuth = ReturnType<RouterDeps["resolveWorkspaceAuth"]>;
 
-const incomingMessageProcessor = new IncomingMessageProcessor();
+const slackInboundAdapter = new SlackInboundAdapter();
+
+function toIncomingFlowResult(decision: InboundDecision): IncomingFlowResult {
+  switch (decision.kind) {
+    case "ignore":
+      return { type: "ignore", reason: decision.reason };
+    case "stop":
+      return { type: "stop", text: "stop" };
+    case "command":
+      return { type: "forward", text: decision.args.join(" ").trim() };
+    case "message":
+      return { type: "forward", text: decision.text };
+  }
+}
 
 type BotIdentity = {
   botUserId: string;
@@ -155,7 +153,7 @@ async function maybeHandleLauncherCommand(params: {
   client: any;
 }): Promise<boolean> {
   const { deps, cleanText, isMention, channelId, userId, client } = params;
-  const command = incomingMessageProcessor.parseCommand(cleanText);
+  const command = parseIncomingCommand(cleanText);
   if (command !== "setting") return false;
   if (isMention) {
     log.info("Slack settings launcher command matched", {
@@ -240,8 +238,6 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
       });
 
       const currentBotUserId = identity.botUserId;
-      const processorId = createProcessorId("slack", contextBotToken ?? workspaceAuth?.botToken ?? "");
-      const scopedChannelId = scopeChannelId(processorId, channelId);
       if (!workspaceAuth && contextBotToken) {
         workspaceAuth = syncWorkspaceAuth(deps, channelId, contextBotToken);
       }
@@ -260,11 +256,14 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
         workspaceAuth,
       });
 
-      const threadActive = deps.isThreadActive(scopedChannelId, threadId);
-      const messageContext: UnifiedMessageContext = buildIncomingContext({
+      const threadActive = deps.isThreadActive(channelId, threadId);
+      const inboundEvent: RawInboundEvent = {
         platform: "slack",
-        channelId: scopedChannelId,
+        botId: contextBotToken ?? workspaceAuth?.botToken ?? "default",
+        channelId,
+        rawChannelId: channelId,
         threadId,
+        replyThreadId: threadId,
         messageId,
         userId,
         isTopLevel: threadId === messageId,
@@ -272,8 +271,9 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
         activeThread: threadActive,
         rawText: text,
         normalizedText: cleanText,
-      });
-      const flowResult = incomingMessageProcessor.evaluate(messageContext);
+        receivedAtMs: Date.now(),
+      };
+      const flowResult = toIncomingFlowResult(slackInboundAdapter.evaluate(inboundEvent));
 
       if (shouldDropForOtherMentions(text, isMention)) {
         log.info("[DROP] Mentions other user", {
@@ -301,36 +301,19 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
         return;
       }
 
-      const workspaceName = deps.getChannelWorkspaceName(channelId) || "unknown";
-      await incomingMessageProcessor.execute({
-        context: messageContext,
-        flowResult,
-        markThreadActive: deps.markThreadActive,
-        handleStopCommand: deps.handleStopCommand,
-        sendStopAck: async () => {
-          await say({ text: "Request stopped.", thread_ts: threadId });
-        },
-        onIgnore: async (reason) => {
-          if (reason === "not_mentioned_and_inactive") {
-            log.debug(incomingMessageProcessor.formatDropMessage(reason), { channelId, threadId });
-            return;
-          }
-          await say({
-            text: "Hi! How can I help you? Just ask me anything.",
-            thread_ts: threadId,
-          });
-        },
-        forwardToCore: async (forwardText) => {
-          await deps.handleIncomingMessage(
-            toCoreMessageContext(messageContext, {
-              workspaceName,
-              botToken: workspaceAuth?.botToken ?? contextBotToken,
-              rawChannelId: channelId,
-            }),
-            forwardText
-          );
-        },
-      });
+      if (flowResult.type === "ignore") {
+        if (flowResult.reason === "not_mentioned_and_inactive") {
+          log.debug(formatIncomingDropMessage(flowResult.reason), { channelId, threadId });
+          return;
+        }
+        await say({
+          text: "Hi! How can I help you? Just ask me anything.",
+          thread_ts: threadId,
+        });
+        return;
+      }
+
+      await deps.handleInboundEvent(inboundEvent);
     } catch (error) {
       log.error("Slack message router failed", {
         channelId: contextData?.channelId,

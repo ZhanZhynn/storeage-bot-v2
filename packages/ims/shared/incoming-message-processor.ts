@@ -1,4 +1,18 @@
-import type { UnifiedMessageContext } from "@/ims/shared/message-context";
+export type IMPlatform = "slack" | "discord" | "lark";
+
+export type UnifiedMessageContext = {
+  platform: IMPlatform;
+  channelId: string;
+  threadId: string;
+  replyThreadId: string;
+  messageId: string;
+  userId: string;
+  isTopLevel: boolean;
+  mentionedBot: boolean;
+  activeThread: boolean;
+  rawText: string;
+  normalizedText: string;
+};
 
 export type IncomingIgnoreReason = "not_mentioned_and_inactive" | "empty_text";
 
@@ -11,100 +25,50 @@ export type IncomingEvaluateOptions = {
   detectStop?: boolean;
 };
 
-type IncomingExecuteParams = {
-  context: Pick<UnifiedMessageContext, "channelId" | "threadId">;
-  flowResult: IncomingFlowResult;
-  markThreadActive: (channelId: string, threadId: string) => void;
-  handleStopCommand: (channelId: string, threadId: string) => Promise<boolean>;
-  sendStopAck?: () => Promise<void>;
-  forwardToCore: (text: string) => Promise<void>;
-  onIgnore?: (reason: IncomingIgnoreReason) => Promise<void> | void;
-};
+export type IncomingCommand = "setting";
 
-type IncomingMessageProcessorOptions = {
-  isStopCommand?: (text: string) => boolean;
-};
+export function evaluateIncomingFlow(
+  context: Pick<UnifiedMessageContext, "isTopLevel" | "mentionedBot" | "activeThread" | "normalizedText">,
+  options?: IncomingEvaluateOptions
+): IncomingFlowResult {
+  const shouldProcess = context.isTopLevel
+    ? context.mentionedBot
+    : (context.mentionedBot || context.activeThread);
 
-export class IncomingMessageProcessor {
-  private readonly isStopCommand: (text: string) => boolean;
-
-  constructor(options?: IncomingMessageProcessorOptions) {
-    this.isStopCommand = options?.isStopCommand ?? isStopCommand;
+  if (!shouldProcess) {
+    return { type: "ignore", reason: "not_mentioned_and_inactive" };
   }
 
-  evaluate(
-    context: Pick<UnifiedMessageContext, "isTopLevel" | "mentionedBot" | "activeThread" | "normalizedText">,
-    options?: IncomingEvaluateOptions
-  ): IncomingFlowResult {
-    const shouldProcess = context.isTopLevel
-      ? context.mentionedBot
-      : (context.mentionedBot || context.activeThread);
-
-    if (!shouldProcess) {
-      return { type: "ignore", reason: "not_mentioned_and_inactive" };
-    }
-
-    const text = context.normalizedText.trim();
-    if (!text) {
-      return { type: "ignore", reason: "empty_text" };
-    }
-
-    if (options?.detectStop !== false && this.isStopCommand(text)) {
-      return { type: "stop", text };
-    }
-
-    return { type: "forward", text };
+  const text = context.normalizedText.trim();
+  if (!text) {
+    return { type: "ignore", reason: "empty_text" };
   }
 
-  async execute(params: IncomingExecuteParams): Promise<void> {
-    const {
-      context,
-      flowResult,
-      markThreadActive,
-      handleStopCommand,
-      sendStopAck,
-      forwardToCore,
-      onIgnore,
-    } = params;
-
-    if (flowResult.type === "ignore") {
-      await onIgnore?.(flowResult.reason);
-      return;
-    }
-
-    if (flowResult.type === "stop") {
-      const stopped = await handleStopCommand(context.channelId, context.threadId);
-      if (stopped) {
-        await sendStopAck?.();
-      }
-      return;
-    }
-
-    markThreadActive(context.channelId, context.threadId);
-    await forwardToCore(flowResult.text);
+  if (options?.detectStop !== false && isStopCommand(text)) {
+    return { type: "stop", text };
   }
 
-  formatDropMessage(reason: IncomingIgnoreReason): string {
-    switch (reason) {
-      case "not_mentioned_and_inactive":
-        return "[DROP] Not mentioned and thread inactive";
-      case "empty_text":
-        return "[DROP] Empty text after normalization";
-    }
-  }
+  return { type: "forward", text };
+}
 
-  parseCommand(text: string): IncomingCommand | null {
-    const normalized = text
-      .trim()
-      .replace(/^／/, "/")
-      .replace(/^(?:<@[^>]+>|@[^\s:：,，]+)[:：,，]?\s+/g, "")
-      .toLowerCase();
-    if (/^\/?settings?\b/.test(normalized)) return "setting";
-    return null;
+export function formatIncomingDropMessage(reason: IncomingIgnoreReason): string {
+  switch (reason) {
+    case "not_mentioned_and_inactive":
+      return "[DROP] Not mentioned and thread inactive";
+    case "empty_text":
+      return "[DROP] Empty text after normalization";
   }
 }
 
-export type IncomingCommand = "setting";
+export function parseIncomingCommand(text: string): IncomingCommand | null {
+  const normalized = text
+    .trim()
+    .replace(/^／/, "/")
+    .replace(/^(?:<@[^>]+>|@[^\s:：,，]+)[:：,，]?\s+/g, "")
+    .toLowerCase();
+  if (/^\/?settings?\b/.test(normalized)) return "setting";
+  return null;
+}
 
 export function buildIncomingContext(params: {
   platform: UnifiedMessageContext["platform"];
