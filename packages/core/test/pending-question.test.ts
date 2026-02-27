@@ -6,7 +6,7 @@ import {
   setPendingQuestion,
   type PendingQuestion,
 } from "@/config/local/sessions";
-import { handlePendingQuestionReply } from "../runtime/pending-question";
+import { handlePendingQuestionReply } from "../kernel/pending-question";
 
 describe("handlePendingQuestionReply", () => {
   it("submits answers and clears pending question", async () => {
