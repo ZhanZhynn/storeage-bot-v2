@@ -1,6 +1,4 @@
 import {
-  loadSession,
-  failActiveRequest,
   isMessageProcessed,
   markMessageProcessed,
   markThreadActive,
@@ -13,6 +11,7 @@ import { recoverPendingRequests as recoverPendingRequestsInternal } from "@/core
 import { prepareRuntimeSession } from "@/core/kernel/session-bootstrap";
 import { runOpenRequest } from "@/core/kernel/request-run";
 import { maybeSyncBranchAndThread, publishFinalText } from "@/core/kernel/runtime-support";
+import { handleStopCommand } from "@/core/kernel/stop-command";
 import { buildMessageOptions } from "@/core/runtime/message-options";
 import { createRateLimitedImAdapter } from "@/core/runtime/message-updates";
 import type { OpenCodeOptions } from "@/agents";
@@ -61,7 +60,7 @@ export class KernelRuntimeFacade {
         const { event, decision } = params;
         if (decision.kind === "ignore" || decision.kind === "command") return;
         if (decision.kind === "stop") {
-          await this.handleStopCommand(event.channelId, event.threadId);
+          await handleStopCommand({ deps: this.runtimeDeps, channelId: event.channelId, threadId: event.threadId });
           return;
         }
 
@@ -109,7 +108,11 @@ export class KernelRuntimeFacade {
     if (!text) return;
 
     if (text.toLowerCase() === "stop") {
-      const stopped = await this.handleStopCommand(event.channelId, event.threadId);
+      const stopped = await handleStopCommand({
+        deps: this.runtimeDeps,
+        channelId: event.channelId,
+        threadId: event.threadId,
+      });
       if (stopped) {
         await this.runtimeDeps.im.sendMessage(event.rawChannelId ?? event.channelId, event.replyThreadId, "Request stopped.");
       }
@@ -260,37 +263,4 @@ export class KernelRuntimeFacade {
     });
   }
 
-  private async handleStopCommand(channelId: string, threadId: string): Promise<boolean> {
-    const session = loadSession(channelId, threadId);
-    if (!session) {
-      log.info("Stop command received without session", { channelId, threadId });
-      return true;
-    }
-
-    const request = session.activeRequest;
-    log.info("Stop command received", {
-      sessionId: request?.sessionId ?? session.sessionId,
-      hadActiveRequest: Boolean(request),
-      activeState: request?.state ?? null,
-    });
-
-    try {
-      const cwd = session.workingDirectory;
-      await this.deps.agent.abortSession(session.sessionId, cwd);
-    } catch {
-      // Ignore abort errors
-    }
-
-    if (!request || request.state !== "processing") {
-      return true;
-    }
-
-    request.state = "failed";
-    request.error = "Stopped by user";
-
-    await this.runtimeDeps.im.deleteMessage(request.channelId, request.statusMessageTs);
-
-    failActiveRequest(channelId, threadId, "Stopped by user");
-    return true;
-  }
 }
