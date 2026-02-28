@@ -118,25 +118,6 @@ function getSessionLastActiveAt(session: PersistedSession): number {
   return 0;
 }
 
-function normalizeLastActivityBot(session: PersistedSession): void {
-  if (session.lastActivityBotId && typeof session.lastActivityBotId === "string") {
-    return;
-  }
-  delete session.lastActivityBotId;
-}
-
-function getSessionLastActiveAtForBot(session: PersistedSession, botId?: string): number {
-  if (!botId) {
-    return getSessionLastActiveAt(session);
-  }
-
-  if (session.lastActivityBotId !== botId) {
-    return 0;
-  }
-
-  return getSessionLastActiveAt(session);
-}
-
 function isSessionExpired(session: PersistedSession, now = Date.now()): boolean {
   const lastActiveAt = getSessionLastActiveAt(session);
   return now - lastActiveAt >= SESSION_RETENTION_MS;
@@ -151,7 +132,6 @@ function sanitizeSessionForStorage(session: PersistedSession): PersistedSession 
 }
 
 function normalizeLoadedSession(session: PersistedSession): PersistedSession {
-  normalizeLastActivityBot(session);
   if (!session.activeRequest) return session;
   const active = session.activeRequest as ActiveRequest & {
     settingsChannelId?: string;
@@ -593,22 +573,19 @@ export interface ActiveThreadInfo {
   lastActiveAt: number;
 }
 
-export function markThreadActive(channelId: string, threadId: string, botId?: string): void {
+export function markThreadActive(channelId: string, threadId: string, botId: string): void {
   const session = loadSession(channelId, threadId);
   if (!session) return;
-  const now = Date.now();
-  session.lastActivityAt = now;
-  if (botId) {
-    session.lastActivityBotId = botId;
-  }
+  session.lastActivityAt = Date.now();
+  session.lastActivityBotId = botId;
   saveSession(session, { immediate: false });
 }
 
-export function isThreadActive(channelId: string, threadId: string, botId?: string): boolean {
+export function isThreadActive(channelId: string, threadId: string, botId: string): boolean {
   const session = loadSession(channelId, threadId);
   if (!session) return false;
-  const lastActiveAt = getSessionLastActiveAtForBot(session, botId);
-  return Date.now() - lastActiveAt < ACTIVE_THREAD_WINDOW_MS;
+  if (session.lastActivityBotId !== botId) return false;
+  return Date.now() - getSessionLastActiveAt(session) < ACTIVE_THREAD_WINDOW_MS;
 }
 
 export function getActiveThreads(): ActiveThreadInfo[] {
