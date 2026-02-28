@@ -678,10 +678,6 @@ function isBotMentionedInText(rawText: string, botOpenId: string): boolean {
   return pattern.test(rawText);
 }
 
-function shouldDropForOtherMentions(mentions: string[], isCurrentBotMentioned: boolean): boolean {
-  return mentions.length > 0 && !isCurrentBotMentioned;
-}
-
 type LarkIncomingEnvelope = {
   type?: string;
   challenge?: string;
@@ -1090,17 +1086,7 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
   const isMentioned = botOpenId
     ? (mentions.includes(botOpenId) || isBotMentionedInText(rawText, botOpenId))
     : false;
-  if (shouldDropForOtherMentions(mentions, isMentioned)) {
-    logLarkEvent("Lark inbound ignored: message mentions another target", {
-      channelId,
-      threadId,
-      messageId,
-      mentionCount: mentions.length,
-      isMentioned,
-      reason: "mentioned_other_target",
-    });
-    return;
-  }
+  const hasAnyMention = mentions.length > 0;
   const active = isThreadActive(channelId, threadId, processorId);
   const threadSession = loadSession(channelId, threadId);
   const text = stripLarkMentionMarkup(rawText);
@@ -1117,6 +1103,7 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
     threadOwnerMessage: threadSession?.threadOwnerUserId === senderOpenId,
     threadParticipantBotCount: getThreadParticipantBotIds(channelId, threadId).length,
     isTopLevel: topLevelMessage,
+    hasAnyMention,
     mentionedBot: isMentioned,
     activeThread: active,
     rawText,

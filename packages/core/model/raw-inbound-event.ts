@@ -13,6 +13,7 @@ export type RawInboundEvent = Readonly<{
   threadOwnerMessage: boolean;
   threadParticipantBotCount: number;
   isTopLevel: boolean;
+  hasAnyMention?: boolean;
   mentionedBot: boolean;
   activeThread: boolean;
   rawText: string;

@@ -118,15 +118,6 @@ function extractIncomingMessageData(message: any): IncomingMessageData | null {
   };
 }
 
-function shouldDropForOtherMentions(text: string, isMention: boolean): boolean {
-  return extractMentionedUserIds(text).length > 0 && !isMention;
-}
-
-function tokenLast6(token?: string): string | undefined {
-  if (!token) return undefined;
-  return token.slice(-6);
-}
-
 async function maybeRefreshWorkspaceForMention(params: {
   deps: RouterDeps;
   channelId: string;
@@ -275,6 +266,7 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
         || (Boolean(identity.botId) && (messageBotId === identity.botId || messageBotProfileId === identity.botId));
 
       const mentionedUserIds = extractMentionedUserIds(text);
+      const hasAnyMention = mentionedUserIds.length > 0;
       const isMention = currentBotUserId ? mentionedUserIds.includes(currentBotUserId) : false;
       const cleanText = stripBotMention(text, currentBotUserId);
       logSlackTrace("Slack mention parse", {
@@ -313,6 +305,7 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
         threadOwnerMessage,
         threadParticipantBotCount,
         isTopLevel,
+        hasAnyMention,
         mentionedBot: isMention,
         activeThread: threadActive,
         rawText: text,
@@ -345,20 +338,6 @@ export function registerSlackMessageRouter(deps: RouterDeps): void {
           messageBotId,
           messageBotProfileId,
         });
-      }
-
-      if (shouldDropForOtherMentions(text, isMention)) {
-        log.info("[DROP] Mentions other user", {
-          channelId,
-          threadId,
-          messageId,
-          imName: workspaceAuth?.workspaceName ?? deps.getChannelWorkspaceName(channelId) ?? "unknown",
-          botTokenLast6: tokenLast6(workspaceAuth?.botToken),
-          botUserId: currentBotUserId || "unknown",
-          mentionedUserIds,
-          isMention,
-        });
-        return;
       }
 
       if (await maybeHandleLauncherCommand({

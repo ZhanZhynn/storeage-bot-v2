@@ -10,6 +10,7 @@ export class SlackInboundAdapter implements InboundAdapter {
       threadOwnerMessage: event.threadOwnerMessage,
       threadParticipantBotCount: event.threadParticipantBotCount,
       isTopLevel: event.isTopLevel,
+      hasAnyMention: event.hasAnyMention ?? event.mentionedBot,
       mentionedBot: event.mentionedBot,
       activeThread: event.activeThread,
       normalizedText: event.normalizedText,

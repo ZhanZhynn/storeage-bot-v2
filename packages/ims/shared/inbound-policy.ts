@@ -5,6 +5,7 @@ export function defaultInboundPolicy(params: {
   threadOwnerMessage: boolean;
   threadParticipantBotCount: number;
   isTopLevel: boolean;
+  hasAnyMention: boolean;
   mentionedBot: boolean;
   activeThread: boolean;
   normalizedText: string;
@@ -12,6 +13,10 @@ export function defaultInboundPolicy(params: {
 }): InboundDecision {
   if (params.selfMessage) {
     return { kind: "ignore", reason: "self_message" };
+  }
+
+  if (!params.isTopLevel && params.hasAnyMention && !params.mentionedBot) {
+    return { kind: "ignore", reason: "not_mentioned_and_inactive" };
   }
 
   if (!params.isTopLevel && !params.mentionedBot) {
