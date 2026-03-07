@@ -87,7 +87,7 @@ export function buildCodexCommandArgs(params: {
   if (params.planMode) {
     args.push("--sandbox", "read-only");
   } else {
-    args.push("--full-auto");
+    args.push("--yolo");
   }
   if (params.model) {
     args.push("--model", params.model);
@@ -203,7 +203,6 @@ export async function sendMessage(
         cwd: workingPath,
         env: envOverrides,
         entry,
-        timeoutMs: 10 * 60 * 1000,
         onRecord: (event) => {
         if (event.type === "thread.started" && typeof event.thread_id === "string") {
           latestSessionId = event.thread_id;

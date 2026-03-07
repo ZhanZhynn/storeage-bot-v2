@@ -116,7 +116,7 @@ describe("agent cli command formatting", () => {
 
     expect(command).toContain("codex exec --json --skip-git-repo-check");
     expect(command).toContain("--json");
-    expect(command).toContain("--full-auto");
+    expect(command).toContain("--yolo");
     expect(command).toContain("--model gpt-5-codex");
     expect(command).toContain("session-3");
     expect(command).toContain("'hello from codex'");
@@ -134,7 +134,7 @@ describe("agent cli command formatting", () => {
     expect(command).toContain("codex exec --json --skip-git-repo-check");
     expect(command).toContain("--json");
     expect(command).toContain("--sandbox read-only");
-    expect(command).not.toContain("--full-auto");
+    expect(command).not.toContain("--yolo");
     expect(command).toContain("session-3");
     expect(command).toContain("'plan this change'");
   });

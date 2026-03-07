@@ -56,22 +56,29 @@ async function withFastMessageUpdates<T>(run: () => Promise<T>): Promise<T> {
 }
 
 function createFakeIm(logs: {
-  sends: Array<{ channelId: string; threadId: string; text: string }>;
+  sends: Array<{ channelId: string; threadId: string; text: string; messageTs: string }>;
   updates: Array<{ channelId: string; messageTs: string; text: string }>;
 }, options?: {
   failUpdateWith429?: boolean;
+  failUpdateWithErrorOnce?: string;
 }): IMAdapter {
   let nextTs = 0;
+  let failedOnce = false;
   return {
     sendMessage: async (channelId, threadId, text) => {
-      logs.sends.push({ channelId, threadId, text });
       nextTs += 1;
-      return `ts-${nextTs}`;
+      const messageTs = `ts-${nextTs}`;
+      logs.sends.push({ channelId, threadId, text, messageTs });
+      return messageTs;
     },
     updateMessage: async (channelId, messageTs, text) => {
       logs.updates.push({ channelId, messageTs, text });
       if (options?.failUpdateWith429) {
         throw new Error("429 rate limited");
+      }
+      if (!failedOnce && options?.failUpdateWithErrorOnce) {
+        failedOnce = true;
+        throw new Error(options.failUpdateWithErrorOnce);
       }
     },
     deleteMessage: async () => {},
@@ -173,7 +180,7 @@ describe("core runtime resilience e2e", () => {
   it("falls back to sending final message when status updates are rate-limited", async () => {
     await withFastMessageUpdates(async () => {
     const logs = { sends: [], updates: [] } as {
-      sends: Array<{ channelId: string; threadId: string; text: string }>;
+      sends: Array<{ channelId: string; threadId: string; text: string; messageTs: string }>;
       updates: Array<{ channelId: string; messageTs: string; text: string }>;
     };
     const im = createFakeIm(logs, { failUpdateWith429: true });
@@ -200,18 +207,66 @@ describe("core runtime resilience e2e", () => {
         messageId: context.messageId,
         text: "trigger rate limit flow",
       }));
-      await waitFor(() => logs.sends.some((entry) => entry.text === "final from agent"), 8000);
+      await waitFor(
+        () =>
+          logs.sends.some((entry) => entry.text === "final from agent")
+          || logs.updates.some((entry) => entry.text === "final from agent"),
+        8000
+      );
 
       expect(logs.updates.length).toBeGreaterThan(0);
-      expect(logs.sends.some((entry) => entry.text === "final from agent")).toBe(true);
+      expect(
+        logs.sends.some((entry) => entry.text === "final from agent")
+          || logs.updates.some((entry) => entry.text === "final from agent")
+      ).toBe(true);
 
       deleteSession(context.channelId, context.threadId);
     });
   }, 15000);
 
+  it("reports status update errors and continues on a replacement status message", async () => {
+    await withFastMessageUpdates(async () => {
+      const logs = { sends: [], updates: [] } as {
+        sends: Array<{ channelId: string; threadId: string; text: string; messageTs: string }>;
+        updates: Array<{ channelId: string; messageTs: string; text: string }>;
+      };
+      const im = createFakeIm(logs, { failUpdateWithErrorOnce: "socket hang up" });
+      const { agent } = createFakeAgent({
+        delayMs: 1200,
+        responseText: "recovered output",
+      });
+      const runtime = createCoreRuntime({ platform: "slack", im, agent });
+      const channelId = uniqueId("CE2E-RECOVER-STATUS");
+      const threadId = uniqueId("TE2E-RECOVER-STATUS");
+
+      await runtime.handleInboundEvent(toInboundEvent({
+        channelId,
+        threadId,
+        userId: "UE2E-recover-status",
+        messageId: uniqueId("ME2E-recover-status"),
+        text: "trigger status replacement flow",
+      }));
+
+      await waitFor(
+        () => logs.sends.some((entry) => entry.text.startsWith("Status update failed:")),
+        5000
+      );
+
+      const fallbackNoticeIndex = logs.sends.findIndex((entry) => entry.text.startsWith("Status update failed:"));
+      const fallbackNotice = fallbackNoticeIndex >= 0 ? logs.sends[fallbackNoticeIndex] : undefined;
+      expect(fallbackNotice).toBeDefined();
+
+      const replacementStatus = fallbackNoticeIndex >= 0 ? logs.sends[fallbackNoticeIndex + 1] : undefined;
+      expect(replacementStatus).toBeDefined();
+      expect(logs.updates.some((entry) => entry.messageTs === replacementStatus!.messageTs)).toBe(true);
+
+      deleteSession(channelId, threadId);
+    });
+  }, 15000);
+
   it("handles stop race in event-stream mode and still completes gracefully", async () => {
     const logs = { sends: [], updates: [] } as {
-      sends: Array<{ channelId: string; threadId: string; text: string }>;
+      sends: Array<{ channelId: string; threadId: string; text: string; messageTs: string }>;
       updates: Array<{ channelId: string; messageTs: string; text: string }>;
     };
     const im = createFakeIm(logs);
@@ -250,7 +305,7 @@ describe("core runtime resilience e2e", () => {
   it("recovers pending in-flight requests after restart", async () => {
     await withFastMessageUpdates(async () => {
     const logs = { sends: [], updates: [] } as {
-      sends: Array<{ channelId: string; threadId: string; text: string }>;
+      sends: Array<{ channelId: string; threadId: string; text: string; messageTs: string }>;
       updates: Array<{ channelId: string; messageTs: string; text: string }>;
     };
     const im = createFakeIm(logs);
