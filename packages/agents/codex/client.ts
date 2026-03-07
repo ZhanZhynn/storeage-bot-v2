@@ -87,7 +87,7 @@ export function buildCodexCommandArgs(params: {
   if (params.planMode) {
     args.push("--sandbox", "read-only");
   } else {
-    args.push("--full-auto");
+    args.push("--yolo");
   }
   if (params.model) {
     args.push("--model", params.model);
