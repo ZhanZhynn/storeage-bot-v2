@@ -45,4 +45,44 @@ describe("createRateLimitedImAdapter integration", () => {
     expect(adapter.wasRateLimited?.("C2", "100.2")).toBe(true);
     expect(adapter.getRateLimitError?.("C2", "100.2")).toContain("429");
   });
+
+  it("cancels pending updates and ignores updates after finalization", async () => {
+    const calls: Array<{ channelId: string; messageTs: string; text: string }> = [];
+    const firstUpdateControl: { release?: () => void } = {};
+    let firstUpdateStarted = false;
+    const adapter = createRateLimitedImAdapter({
+      sendMessage: async () => "m1",
+      updateMessage: async (channelId: string, messageTs: string, text: string) => {
+        calls.push({ channelId, messageTs, text });
+        if (text === "first") {
+          firstUpdateStarted = true;
+          await new Promise<void>((resolve) => {
+            firstUpdateControl.release = resolve;
+          });
+        }
+      },
+      deleteMessage: async () => {},
+      fetchThreadHistory: async () => null,
+      buildAgentContext: async () => ({}),
+    }, 0);
+
+    const firstUpdate = adapter.updateMessage("C3", "100.3", "first");
+    while (!firstUpdateStarted) {
+      await sleep(1);
+    }
+    const pendingUpdate = adapter.updateMessage("C3", "100.3", "stale");
+    adapter.cancelPendingUpdates?.("C3", "100.3");
+    if (firstUpdateControl.release) {
+      firstUpdateControl.release();
+    }
+
+    await Promise.all([firstUpdate, pendingUpdate]);
+    expect(calls).toEqual([{ channelId: "C3", messageTs: "100.3", text: "first" }]);
+
+    adapter.markMessageFinalized?.("C3", "100.3");
+    await adapter.updateMessage("C3", "100.3", "after-final");
+    await sleep(20);
+
+    expect(calls).toEqual([{ channelId: "C3", messageTs: "100.3", text: "first" }]);
+  });
 });

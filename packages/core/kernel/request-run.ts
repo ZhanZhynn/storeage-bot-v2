@@ -551,7 +551,9 @@ export async function runTrackedRequest(
     liveParsedState.delete(getStatusMessageKey(request));
 
     const errorStatus = `Error: ${message}\n_${suggestion}_`;
+    deps.im.cancelPendingUpdates?.(request.channelId, request.statusMessageTs);
     await deps.im.updateMessage(request.channelId, request.statusMessageTs, errorStatus);
+    deps.im.markMessageFinalized?.(request.channelId, request.statusMessageTs);
     onFail(message);
     return { responses: null };
   } finally {

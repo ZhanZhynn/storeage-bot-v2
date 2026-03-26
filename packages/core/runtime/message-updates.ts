@@ -13,6 +13,7 @@ export function createRateLimitedImAdapter(
   intervalMs = getMessageUpdateIntervalMs()
 ): IMAdapter {
   const rateLimitedMessages = new Set<string>();
+  const finalizedMessages = new Set<string>();
   const rateLimitErrors = new Map<string, string>();
   const updateErrors = new Map<string, string>();
 
@@ -23,17 +24,24 @@ export function createRateLimitedImAdapter(
   const queue = new CoalescedUpdateQueue<string | undefined>(
     intervalMs,
     async ({ channelId, messageId }, text) => {
+      const updateKey = key(channelId, messageId);
+      if (finalizedMessages.has(updateKey)) {
+        log.debug("Skipping queued message update after finalization", {
+          channelId,
+          messageTs: messageId,
+        });
+        return undefined;
+      }
       try {
         const maybeUpdatedTs = await im.updateMessage(channelId, messageId, text);
-        updateErrors.delete(key(channelId, messageId));
+        updateErrors.delete(updateKey);
         return typeof maybeUpdatedTs === "string" ? maybeUpdatedTs : undefined;
       } catch (error) {
         const errorText = String(error);
-        const updateErrorKey = key(channelId, messageId);
-        updateErrors.set(updateErrorKey, errorText);
+        updateErrors.set(updateKey, errorText);
         if (isRateLimitError(error)) {
-          rateLimitedMessages.add(updateErrorKey);
-          rateLimitErrors.set(updateErrorKey, errorText);
+          rateLimitedMessages.add(updateKey);
+          rateLimitErrors.set(updateKey, errorText);
           log.warn("IM message update hit rate limit (429)", {
             channelId,
             messageTs: messageId,
@@ -65,6 +73,21 @@ export function createRateLimitedImAdapter(
       }
       return rateLimitErrors.get(key(channelId, messageTs));
     },
+    cancelPendingUpdates: (channelId: string, messageTs: string): void => {
+      if (typeof im.cancelPendingUpdates === "function") {
+        im.cancelPendingUpdates(channelId, messageTs);
+      }
+      queue.cancel({ channelId, messageId: messageTs });
+    },
+    markMessageFinalized: (channelId: string, messageTs: string): void => {
+      if (typeof im.markMessageFinalized === "function") {
+        im.markMessageFinalized(channelId, messageTs);
+      }
+      const updateKey = key(channelId, messageTs);
+      finalizedMessages.add(updateKey);
+      queue.cancel({ channelId, messageId: messageTs });
+      updateErrors.delete(updateKey);
+    },
     takeUpdateError: (channelId: string, messageTs: string): string | undefined => {
       const updateErrorKey = key(channelId, messageTs);
       if (typeof im.takeUpdateError === "function") {
@@ -84,6 +107,13 @@ export function createRateLimitedImAdapter(
       messageTs: string,
       text: string
     ): Promise<string | undefined> => {
+      if (finalizedMessages.has(key(channelId, messageTs))) {
+        log.debug("Skipping message update after finalization", {
+          channelId,
+          messageTs,
+        });
+        return undefined;
+      }
       return queue.enqueue({ channelId, messageId: messageTs }, text);
     },
   };

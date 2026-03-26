@@ -5,19 +5,19 @@ type QueueKey = {
   messageId: string;
 };
 
-type PendingItem<TResult> = {
+type PendingItem<TResult, TPayload> = {
   key: QueueKey;
-  payload: string;
+  payload: TPayload;
   resolve: (value: TResult) => void;
 };
 
-export class CoalescedUpdateQueue<TResult> {
+export class CoalescedUpdateQueue<TResult, TPayload = string> {
   private readonly limiter: Bottleneck;
-  private readonly pendingByKey = new Map<string, PendingItem<TResult>>();
+  private readonly pendingByKey = new Map<string, PendingItem<TResult, TPayload>>();
 
   constructor(
     minTimeMs: number,
-    private readonly worker: (key: QueueKey, payload: string) => Promise<TResult>
+    private readonly worker: (key: QueueKey, payload: TPayload) => Promise<TResult>
   ) {
     this.limiter = new Bottleneck({
       maxConcurrent: 1,
@@ -25,13 +25,9 @@ export class CoalescedUpdateQueue<TResult> {
     });
   }
 
-  enqueue(key: QueueKey, payload: string): Promise<TResult> {
+  enqueue(key: QueueKey, payload: TPayload): Promise<TResult> {
     const dedupKey = this.buildKey(key);
-    const existing = this.pendingByKey.get(dedupKey);
-    if (existing) {
-      existing.resolve(undefined as TResult);
-      this.pendingByKey.delete(dedupKey);
-    }
+    this.resolvePending(dedupKey);
 
     return new Promise<TResult>((resolve) => {
       this.pendingByKey.set(dedupKey, {
@@ -49,6 +45,10 @@ export class CoalescedUpdateQueue<TResult> {
     });
   }
 
+  cancel(key: QueueKey): void {
+    this.resolvePending(this.buildKey(key));
+  }
+
   clear(): void {
     for (const pending of this.pendingByKey.values()) {
       pending.resolve(undefined as TResult);
@@ -59,5 +59,12 @@ export class CoalescedUpdateQueue<TResult> {
 
   private buildKey(key: QueueKey): string {
     return `${key.channelId}:${key.messageId}`;
+  }
+
+  private resolvePending(dedupKey: string): void {
+    const existing = this.pendingByKey.get(dedupKey);
+    if (!existing) return;
+    existing.resolve(undefined as TResult);
+    this.pendingByKey.delete(dedupKey);
   }
 }
