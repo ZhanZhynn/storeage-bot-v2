@@ -27,6 +27,7 @@ import {
 } from "@/ims/shared/processor-id";
 import { createProcessorManager } from "@/ims/shared/processor-manager";
 import { SlackAuthRegistry, type WorkspaceAuth } from "@/ims/slack/state/auth-registry";
+import { SlackMessageUpdateManager } from "@/ims/slack/message-update-manager";
 
 export interface MessageContext {
   channelId: string;
@@ -42,6 +43,9 @@ const appRegistry = new Map<string, App>();
 const TRACE_SLACK_ROUTER = process.env.ODE_SLACK_TRACE === "1";
 
 const slackAuthRegistry = new SlackAuthRegistry();
+const slackMessageUpdateManager = new SlackMessageUpdateManager(async ({ channelId, messageTs, text, processorId }) => {
+  await performSlackMessageUpdate(channelId, messageTs, text, processorId);
+});
 const slackProcessorManager = createProcessorManager({
   createRuntime: (processorId) => createCoreRuntime({
     platform: "slack",
@@ -59,6 +63,7 @@ export function clearSlackAuthState(): void {
 export function resetSlackState(): void {
   clearSlackAuthState();
   appRegistry.clear();
+  slackMessageUpdateManager.clear();
   slackProcessorManager.clear();
 }
 
@@ -363,7 +368,7 @@ export async function deleteMessage(
   }
 }
 
-export async function updateMessage(
+async function performSlackMessageUpdate(
   channelId: string,
   messageTs: string,
   text: string,
@@ -396,6 +401,15 @@ export async function updateMessage(
   }
 }
 
+export async function updateMessage(
+  channelId: string,
+  messageTs: string,
+  text: string,
+  processorId?: string
+): Promise<void> {
+  await slackMessageUpdateManager.updateMessage({ channelId, messageTs, text, processorId });
+}
+
 async function fetchThreadHistory(
   channelId: string,
   threadId: string,
@@ -419,6 +433,10 @@ function createSlackAdapter(processorId?: string): IMAdapter {
       sendMessage(channelId, threadId, text, processorId),
     updateMessage: (channelId: string, messageTs: string, text: string) =>
       updateMessage(channelId, messageTs, text, processorId),
+    cancelPendingUpdates: (channelId: string, messageTs: string) =>
+      slackMessageUpdateManager.cancelPendingUpdates(channelId, messageTs),
+    markMessageFinalized: (channelId: string, messageTs: string) =>
+      slackMessageUpdateManager.markMessageFinalized(channelId, messageTs),
     deleteMessage: (channelId: string, messageTs: string) =>
       deleteMessage(channelId, messageTs, processorId),
     fetchThreadHistory: (channelId: string, threadId: string, messageId: string) =>
