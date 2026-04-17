@@ -215,6 +215,32 @@ async function sendMessage(
   }
 }
 
+export async function sendChannelMessage(
+  channelId: string,
+  text: string,
+  processorId?: string
+): Promise<string | undefined> {
+  try {
+    const channel = await resolveTextChannel(channelId, processorId);
+    const chunks = splitForDiscord(text, DISCORD_MESSAGE_LIMIT);
+    let firstId: string | undefined;
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index] ?? "";
+      const sent = await channel.send(chunk);
+      firstId = firstId || sent.id;
+      statusMessageIndex.setThreadId(sent.id, channelId);
+    }
+    return firstId;
+  } catch (error) {
+    log.warn("Failed to send Discord top-level channel message", {
+      channelId,
+      textLength: text.length,
+      error: String(error),
+    });
+    throw error;
+  }
+}
+
 async function updateMessage(
   channelId: string,
   messageId: string,

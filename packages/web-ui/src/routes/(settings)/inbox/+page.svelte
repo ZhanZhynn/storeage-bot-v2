@@ -6,10 +6,14 @@
   import { locale } from "$lib/i18n";
 
   type InboxStatus = "pending" | "completed" | "failed";
+  type InboxSourceKind = "user" | "cron_job";
 
   type InboxRecordSummary = {
     id: string;
     status: InboxStatus;
+    sourceKind: InboxSourceKind;
+    cronJobId: string | null;
+    cronJobTitle: string | null;
     platform: "slack" | "discord" | "lark";
     workspaceId: string | null;
     workspaceName: string | null;
@@ -79,6 +83,21 @@
     if (status === "completed") return "success";
     if (status === "failed") return "destructive";
     return "secondary";
+  }
+
+  function getSourceBadgeLabel(record: InboxRecordSummary): string {
+    if (record.sourceKind === "cron_job") {
+      return record.cronJobTitle
+        ? `${t("Cron Job", "定时任务")}: ${record.cronJobTitle}`
+        : t("Cron Job", "定时任务");
+    }
+    return t("User Message", "用户消息");
+  }
+
+  function getPromptPanelTitle(record: InboxRecordSummary): string {
+    return record.sourceKind === "cron_job"
+      ? t("Cron Message", "定时消息")
+      : t("User Message", "用户消息");
   }
 
   function formatContext(context: Record<string, unknown> | null): string {
@@ -205,6 +224,7 @@
                           ? t("Failed", "失败")
                           : t("Pending", "处理中")}
                     </Badge>
+                    <Badge variant="outline">{getSourceBadgeLabel(record)}</Badge>
                     <Badge variant="outline">{getProviderLabel(record.providerId)}</Badge>
                     <Badge variant="outline">{record.platform}</Badge>
                   </div>
@@ -229,7 +249,7 @@
 
               <div class="grid gap-3 md:grid-cols-2">
                 <div class="rounded-md bg-[hsl(var(--muted)/0.4)] p-3">
-                  <p class="mb-1 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">{t("User Message", "用户消息")}</p>
+                  <p class="mb-1 text-xs font-medium uppercase tracking-wide text-[hsl(var(--muted-foreground))]">{getPromptPanelTitle(record)}</p>
                   <p class="text-sm leading-6">{record.promptSummary}</p>
                   <p class="mt-2 text-xs text-[hsl(var(--muted-foreground))]">{record.promptLength} chars</p>
                 </div>
@@ -291,6 +311,7 @@
             <Badge variant={getInboxStatusVariant(selectedInboxDetail.status)}>
               {selectedInboxDetail.status}
             </Badge>
+            <Badge variant="outline">{getSourceBadgeLabel(selectedInboxDetail)}</Badge>
             <Badge variant="outline">{getProviderLabel(selectedInboxDetail.providerId)}</Badge>
             <Badge variant="outline">{selectedInboxDetail.model || t("Default model", "默认模型")}</Badge>
             <Badge variant="outline">{selectedInboxDetail.channelName || selectedInboxDetail.channelId}</Badge>
@@ -298,7 +319,11 @@
 
           <div class="grid gap-4 xl:grid-cols-[1fr_1fr]">
             <div class="space-y-2">
-              <p class="text-sm font-medium">{t("Original Message", "原始消息")}</p>
+              <p class="text-sm font-medium">
+                {selectedInboxDetail.sourceKind === "cron_job"
+                  ? t("Cron Message", "定时消息")
+                  : t("Original Message", "原始消息")}
+              </p>
               <pre class="max-h-[420px] overflow-auto rounded-md bg-[hsl(var(--muted)/0.45)] p-3 text-xs leading-6 whitespace-pre-wrap">{selectedInboxDetail.promptText}</pre>
             </div>
 

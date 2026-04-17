@@ -5,10 +5,14 @@ import * as path from "path";
 import { loadOdeConfig } from "./ode-store";
 
 export type InboxRecordStatus = "pending" | "completed" | "failed";
+export type InboxRecordSourceKind = "user" | "cron_job";
 
 export type InboxRecordSummary = {
   id: string;
   status: InboxRecordStatus;
+  sourceKind: InboxRecordSourceKind;
+  cronJobId: string | null;
+  cronJobTitle: string | null;
   platform: "slack" | "discord" | "lark";
   workspaceId: string | null;
   workspaceName: string | null;
@@ -50,6 +54,9 @@ export type InboxPage = {
 export type CreateInboxRecordParams = {
   id: string;
   platform: "slack" | "discord" | "lark";
+  sourceKind?: InboxRecordSourceKind;
+  cronJobId?: string | null;
+  cronJobTitle?: string | null;
   channelId: string;
   rawChannelId?: string;
   threadId: string;
@@ -67,6 +74,9 @@ export type CreateInboxRecordParams = {
 type InboxRow = {
   id: string;
   status: InboxRecordStatus;
+  source_kind: InboxRecordSourceKind;
+  cron_job_id: string | null;
+  cron_job_title: string | null;
   platform: "slack" | "discord" | "lark";
   workspace_id: string | null;
   workspace_name: string | null;
@@ -115,6 +125,14 @@ function ensureParentDir(filePath: string): void {
   }
 }
 
+function ensureColumn(db: Database, tableName: string, columnName: string, definition: string): void {
+  const columns = db.query(`PRAGMA table_info(${tableName})`).all() as Array<{ name?: string }>;
+  if (columns.some((column) => column.name === columnName)) {
+    return;
+  }
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
+}
+
 function initializeDatabase(db: Database): void {
   db.exec("PRAGMA journal_mode = WAL;");
   db.exec("PRAGMA busy_timeout = 5000;");
@@ -122,6 +140,9 @@ function initializeDatabase(db: Database): void {
     CREATE TABLE IF NOT EXISTS inbox_records (
       id TEXT PRIMARY KEY,
       status TEXT NOT NULL,
+      source_kind TEXT NOT NULL DEFAULT 'user',
+      cron_job_id TEXT,
+      cron_job_title TEXT,
       platform TEXT NOT NULL,
       workspace_id TEXT,
       workspace_name TEXT,
@@ -147,10 +168,14 @@ function initializeDatabase(db: Database): void {
       completed_at INTEGER
     );
   `);
+  ensureColumn(db, "inbox_records", "source_kind", "TEXT NOT NULL DEFAULT 'user'");
+  ensureColumn(db, "inbox_records", "cron_job_id", "TEXT");
+  ensureColumn(db, "inbox_records", "cron_job_title", "TEXT");
   db.exec("CREATE INDEX IF NOT EXISTS idx_inbox_records_created_at ON inbox_records(created_at DESC);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_inbox_records_channel_id ON inbox_records(channel_id, created_at DESC);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_inbox_records_thread_id ON inbox_records(thread_id, created_at DESC);");
   db.exec("CREATE INDEX IF NOT EXISTS idx_inbox_records_status ON inbox_records(status, created_at DESC);");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_inbox_records_source_kind ON inbox_records(source_kind, created_at DESC);");
 }
 
 function getDatabase(): Database {
@@ -243,6 +268,9 @@ function mapSummaryRow(row: InboxRow): InboxRecordSummary {
   return {
     id: row.id,
     status: row.status,
+    sourceKind: row.source_kind,
+    cronJobId: row.cron_job_id,
+    cronJobTitle: row.cron_job_title,
     platform: row.platform,
     workspaceId: row.workspace_id,
     workspaceName: row.workspace_name,
@@ -290,11 +318,15 @@ export function recordInboxRequest(params: CreateInboxRecordParams): string {
   const now = Date.now();
   const workspace = getWorkspaceChannelSnapshot(params.rawChannelId ?? params.channelId);
   const promptSummary = createSummary(params.promptText);
+  const sourceKind = params.sourceKind ?? "user";
 
   db.query(`
     INSERT INTO inbox_records (
       id,
       status,
+      source_kind,
+      cron_job_id,
+      cron_job_title,
       platform,
       workspace_id,
       workspace_name,
@@ -314,8 +346,11 @@ export function recordInboxRequest(params: CreateInboxRecordParams): string {
       context_json,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
+      source_kind = excluded.source_kind,
+      cron_job_id = excluded.cron_job_id,
+      cron_job_title = excluded.cron_job_title,
       platform = excluded.platform,
       workspace_id = excluded.workspace_id,
       workspace_name = excluded.workspace_name,
@@ -337,6 +372,9 @@ export function recordInboxRequest(params: CreateInboxRecordParams): string {
   `).run(
     params.id,
     "pending",
+    sourceKind,
+    params.cronJobId ?? null,
+    params.cronJobTitle ?? null,
     params.platform,
     workspace.workspaceId,
     workspace.workspaceName,

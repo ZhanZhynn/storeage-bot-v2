@@ -1,6 +1,10 @@
 import { afterAll, describe, expect, it } from "bun:test";
 import type { SessionEvent } from "@/config/local/redis";
 import {
+  clearCronJobsForTests,
+  closeCronJobDatabaseForTests,
+} from "@/config/local/cron-jobs";
+import {
   clearInboxRecordsForTests,
   closeInboxDatabaseForTests,
   createInboxRecordId,
@@ -100,6 +104,23 @@ describe("web app routing", () => {
     expect(detailPayload.result?.id).toBe(inboxId);
     expect(detailPayload.result?.promptText).toBe("show me the latest build failures");
   });
+
+  it("returns cron job list payload", async () => {
+    clearCronJobsForTests();
+    const app = createWebApp();
+    const response = await app.handle(new Request("http://localhost/api/cron-jobs"));
+    expect(response.status).toBe(200);
+    const payload = await response.json() as {
+      ok: boolean;
+      result?: {
+        jobs: unknown[];
+        channels: unknown[];
+      };
+    };
+    expect(payload.ok).toBe(true);
+    expect(Array.isArray(payload.result?.jobs)).toBe(true);
+    expect(Array.isArray(payload.result?.channels)).toBe(true);
+  });
 });
 
 describe("collapseTextDeltas", () => {
@@ -146,6 +167,7 @@ describe("collapseTextDeltas", () => {
 });
 
 afterAll(() => {
+  closeCronJobDatabaseForTests();
   closeInboxDatabaseForTests();
   delete process.env.ODE_INBOX_DB_FILE;
   fs.rmSync(tempDir, { recursive: true, force: true });
