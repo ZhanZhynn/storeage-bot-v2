@@ -44,6 +44,7 @@ async function waitFor(check: () => boolean, timeoutMs = 1500): Promise<void> {
 function createFakeIm(logs: {
   sends: Array<{ channelId: string; threadId: string; text: string }>;
   updates: Array<{ channelId: string; messageTs: string; text: string }>;
+  deletes?: Array<{ channelId: string; messageTs: string }>;
 }): IMAdapter {
   let nextTs = 0;
   return {
@@ -55,7 +56,9 @@ function createFakeIm(logs: {
     updateMessage: async (channelId, messageTs, text) => {
       logs.updates.push({ channelId, messageTs, text });
     },
-    deleteMessage: async () => {},
+    deleteMessage: async (channelId, messageTs) => {
+      logs.deletes?.push({ channelId, messageTs });
+    },
     fetchThreadHistory: async () => null,
     buildAgentContext: async () => ({ slack: { channelId: "C", threadId: "T", userId: "U" } }),
   };
@@ -143,9 +146,10 @@ describe("core runtime e2e", () => {
 
   it("handles a full incoming flow and deduplicates duplicate message ids", async () => {
     clearInboxRecordsForTests();
-    const logs = { sends: [], updates: [] } as {
+    const logs = { sends: [], updates: [], deletes: [] } as {
       sends: Array<{ channelId: string; threadId: string; text: string }>;
       updates: Array<{ channelId: string; messageTs: string; text: string }>;
+      deletes: Array<{ channelId: string; messageTs: string }>;
     };
     const im = createFakeIm(logs);
     const { agent, sentPrompts } = createFakeAgent();
@@ -179,11 +183,14 @@ describe("core runtime e2e", () => {
     }));
 
     await waitFor(() => sentPrompts.length === 1);
-    await waitFor(() => logs.updates.some((entry) => entry.text.includes("Hello from fake agent")));
+    await waitFor(() => logs.sends.some((entry) => entry.text.includes("Hello from fake agent")));
 
     expect(sentPrompts).toEqual(["hello runtime"]);
     expect(logs.sends.some((entry) => entry.text.includes("is running"))).toBe(true);
-    expect(logs.updates.some((entry) => entry.text.includes("Hello from fake agent"))).toBe(true);
+    // Final result is always posted as a new message (not an update of the status message).
+    expect(logs.sends.some((entry) => entry.text.includes("Hello from fake agent"))).toBe(true);
+    // The original status message is deleted after the final result is posted.
+    expect(logs.deletes.length).toBeGreaterThan(0);
     const inboxRecord = getInboxRecordById(createInboxRecordId({
       channelId: context.channelId,
       threadId: context.threadId,

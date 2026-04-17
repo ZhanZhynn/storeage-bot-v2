@@ -49,67 +49,47 @@ export async function publishFinalText(params: {
   const { im, channelId, threadId, statusTs, text } = params;
   const statusFormat = getUserGeneralSettings().defaultStatusMessageFormat;
   const finalChunks = splitResultMessage(text);
-  const singleChunk = finalChunks[0] ?? text;
-  let finalStatusTs = statusTs;
   const statusRateLimited = im.wasRateLimited?.(channelId, statusTs) ?? false;
   const statusRateLimitError = im.getRateLimitError?.(channelId, statusTs);
 
   im.cancelPendingUpdates?.(channelId, statusTs);
 
-  if (finalChunks.length > 1) {
-    if (statusFormat !== "aggressive" && !statusRateLimited) {
-      const updatedStatusTs = await im.updateMessage(channelId, statusTs, "Final result posted below in multiple messages.");
-      if (typeof updatedStatusTs === "string" && updatedStatusTs.length > 0) {
-        finalStatusTs = updatedStatusTs;
-      }
-    } else if (statusRateLimited) {
-      log.warn("Skipping final status update due to prior 429; posting final chunks as new messages", {
-        channelId,
-        threadId,
-        statusTs,
-        ...(statusRateLimitError ? { error: statusRateLimitError } : {}),
-      });
-    }
-
-    for (const chunk of finalChunks) {
-      await im.sendMessage(channelId, threadId, chunk);
-    }
-    im.markMessageFinalized?.(channelId, finalStatusTs);
-    return;
-  }
-
-  if (statusFormat === "aggressive") {
-    await im.sendMessage(channelId, threadId, singleChunk);
-    im.markMessageFinalized?.(channelId, finalStatusTs);
-    return;
-  }
+  // Result message is always sent as a new message. When the previous logic
+  // would have overwritten the status message with the final result (or a
+  // pointer like "Final result posted below."), we instead delete the old
+  // status message after the result is posted.
+  //
+  // The status message is left intact when:
+  //  * format is "aggressive" (status is treated as a persistent record), or
+  //  * we hit a prior 429 on the status TS (editing/deleting risks further errors).
+  const shouldDeleteStatus =
+    statusFormat !== "aggressive" && !statusRateLimited;
 
   if (statusRateLimited) {
-    log.warn("Skipping final status edit due to prior 429; posting final result as new message", {
+    log.warn("Skipping final status edit/delete due to prior 429; posting final result as new message", {
       channelId,
       threadId,
       statusTs,
       ...(statusRateLimitError ? { error: statusRateLimitError } : {}),
     });
-    await im.sendMessage(channelId, threadId, singleChunk);
-    im.markMessageFinalized?.(channelId, finalStatusTs);
-    return;
   }
 
-  const maxEditableMessageChars = im.maxEditableMessageChars;
-  if (typeof maxEditableMessageChars === "number" && singleChunk.length > maxEditableMessageChars) {
-    const updatedStatusTs = await im.updateMessage(channelId, statusTs, "Final result posted below.");
-    if (typeof updatedStatusTs === "string" && updatedStatusTs.length > 0) {
-      finalStatusTs = updatedStatusTs;
+  for (const chunk of finalChunks) {
+    await im.sendMessage(channelId, threadId, chunk);
+  }
+
+  if (shouldDeleteStatus) {
+    try {
+      await im.deleteMessage(channelId, statusTs);
+    } catch (error) {
+      log.warn("Failed to delete status message after posting final result", {
+        channelId,
+        threadId,
+        statusTs,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    await im.sendMessage(channelId, threadId, singleChunk);
-    im.markMessageFinalized?.(channelId, finalStatusTs);
-    return;
   }
 
-  const updatedStatusTs = await im.updateMessage(channelId, statusTs, singleChunk);
-  if (typeof updatedStatusTs === "string" && updatedStatusTs.length > 0) {
-    finalStatusTs = updatedStatusTs;
-  }
-  im.markMessageFinalized?.(channelId, finalStatusTs);
+  im.markMessageFinalized?.(channelId, statusTs);
 }
