@@ -71,6 +71,8 @@ describe("local inbox store", () => {
     expect(page.items).toHaveLength(1);
     expect(page.items[0]?.id).toBe(id);
     expect(page.items[0]?.status).toBe("completed");
+    expect(page.items[0]?.sourceKind).toBe("user");
+    expect(page.items[0]?.cronJobId).toBeNull();
     expect(page.items[0]?.providerId).toBe("codex");
     expect(page.items[0]?.model).toBe("openai/gpt-5.4");
     expect(page.items[0]?.resultSummary?.includes("feature A shipped")).toBe(true);
@@ -80,5 +82,27 @@ describe("local inbox store", () => {
     expect(detail?.promptText).toContain("release notes");
     expect(detail?.resultText).toContain("feature C was removed");
     expect(detail?.context?.isFirstMessageInThread).toBe(true);
+  });
+
+  it("stores cron job source metadata", () => {
+    const id = "cron:job-1:123";
+
+    recordInboxRequest({
+      id,
+      platform: "slack",
+      sourceKind: "cron_job",
+      cronJobId: "job-1",
+      cronJobTitle: "Morning Sync",
+      channelId: "C-cron",
+      threadId: "cron-job:job-1",
+      replyThreadId: "cron-job:job-1",
+      promptText: "summarize overnight alerts",
+    });
+
+    const detail = getInboxRecordById(id);
+    expect(detail).not.toBeNull();
+    expect(detail?.sourceKind).toBe("cron_job");
+    expect(detail?.cronJobId).toBe("job-1");
+    expect(detail?.cronJobTitle).toBe("Morning Sync");
   });
 });

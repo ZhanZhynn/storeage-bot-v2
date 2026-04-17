@@ -7,6 +7,7 @@ import { registerAgentCheckRoutes } from "./routes/agent-check";
 import { registerSessionRoutes } from "./routes/sessions";
 import { registerActionRoutes } from "./routes/action";
 import { registerInboxRoutes } from "./routes/inbox";
+import { registerCronJobRoutes } from "./routes/cron-jobs";
 
 export function createWebApp(): Elysia {
   const app = new Elysia();
@@ -32,6 +33,7 @@ export function createWebApp(): Elysia {
   registerSessionRoutes(app);
   registerActionRoutes(app);
   registerInboxRoutes(app);
+  registerCronJobRoutes(app);
 
   app.all("*", async ({ request }: { request: Request }) => {
     return serveStaticAsset(request);

@@ -3,6 +3,7 @@ export {
   getApp,
   getApps,
   sendMessage,
+  sendChannelMessage,
   deleteMessage,
   setupMessageHandlers,
   recoverPendingRequests,

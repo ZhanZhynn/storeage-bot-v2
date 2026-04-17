@@ -31,6 +31,7 @@ import { hasWebUiBuild, startLocalWebServer, stopLocalWebServer } from "./web/se
 import { markRuntimeReady, scheduleUpgradeRestart } from "@/core/daemon/control";
 import { checkForUpdate, isInstalledBinary, performUpgrade } from "./upgrade";
 import { runOnboardingIfNeeded } from "./onboarding";
+import { startCronJobScheduler, stopCronJobScheduler } from "@/core/cron/scheduler";
 import packageJson from "../../package.json" with { type: "json" };
 
 const CONFIG_WATCH_INTERVAL_MS = 1000;
@@ -277,6 +278,7 @@ async function main(): Promise<void> {
   await startSlackRuntime("startup");
   await startDiscordRuntime("startup");
   await startLarkRuntime("startup");
+  startCronJobScheduler();
 
   if (slackApps.length > 0) {
     log.debug("Slack app created");
@@ -289,6 +291,7 @@ async function main(): Promise<void> {
     log.debug("Shutting down...", { signal });
 
     try {
+      stopCronJobScheduler();
       stopOAuthServer();
       await stopSlackRuntime("shutdown");
       await stopDiscordRuntime("shutdown");

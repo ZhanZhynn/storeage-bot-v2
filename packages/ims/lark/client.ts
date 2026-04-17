@@ -374,6 +374,22 @@ async function sendMessage(
   });
 }
 
+export async function sendChannelMessage(
+  channelId: string,
+  text: string,
+  processorId?: string
+): Promise<string | undefined> {
+  const creds = getLarkCredentialsForProcessor(processorId, channelId);
+  if (!creds) return undefined;
+  return sendLarkMessage({
+    channelId,
+    threadId: "",
+    msgType: "post",
+    content: buildLarkPostContent(text),
+    creds,
+  });
+}
+
 async function sendSettingsCard(channelId: string, threadId: string, userId = ""): Promise<string | undefined> {
   const routeThreadId = threadId || "";
   return sendLarkSettingsCard({

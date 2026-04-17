@@ -6,6 +6,7 @@ import {
   invalidateOdeConfigCache,
   getGitHubInfoForUser,
   getChannelSystemMessage,
+  getWorkspaces,
 } from "@/config";
 import { markdownToSlack, splitForSlack, truncateForSlack } from "./formatter";
 import {
@@ -338,6 +339,49 @@ export async function sendMessage(
     lastTs = result.ts;
     if (botToken && result.ts) {
       slackAuthRegistry.setThreadBotToken(rawChannelId, threadId, botToken);
+      slackAuthRegistry.setMessageBotToken(rawChannelId, result.ts, botToken);
+    }
+  }
+  return lastTs;
+}
+
+function getWorkspaceBotTokenForChannel(channelId: string): string | undefined {
+  const resolvedChannelId = channelId.trim();
+  for (const workspace of getWorkspaces()) {
+    if (workspace.type !== "slack") continue;
+    if (!workspace.channelDetails.some((channel) => channel.id === resolvedChannelId)) continue;
+    const botToken = workspace.slackBotToken?.trim();
+    if (botToken) return botToken;
+  }
+  return undefined;
+}
+
+export async function sendChannelMessage(
+  channelId: string,
+  text: string,
+  processorId?: string
+): Promise<string | undefined> {
+  const rawChannelId = channelId;
+  const slackApp = getApp();
+  const formattedText = markdownToSlack(text);
+  const chunks = splitForSlack(formattedText);
+  const botToken = getSlackBotTokenForProcessor(processorId)
+    ?? getWorkspaceBotTokenForChannel(channelId)
+    ?? getSlackBotToken(channelId);
+
+  if (!botToken) {
+    log.warn("No Slack bot token available for top-level channel message", { channelId });
+  }
+
+  let lastTs: string | undefined;
+  for (const chunk of chunks) {
+    const result = await slackApp.client.chat.postMessage({
+      channel: rawChannelId,
+      text: chunk,
+      token: botToken,
+    });
+    lastTs = result.ts;
+    if (botToken && result.ts) {
       slackAuthRegistry.setMessageBotToken(rawChannelId, result.ts, botToken);
     }
   }
