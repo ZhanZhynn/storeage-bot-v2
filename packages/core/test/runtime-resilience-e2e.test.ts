@@ -295,9 +295,9 @@ describe("core runtime resilience e2e", () => {
       messageId: context.messageId,
       text: "please stop soon",
     }));
-    await waitFor(() => logs.updates.some((entry) => entry.text === "_Done_"));
+    await waitFor(() => logs.sends.some((entry) => entry.text === "_Done_"));
 
-    expect(logs.updates.some((entry) => entry.text === "_Done_")).toBe(true);
+    expect(logs.sends.some((entry) => entry.text === "_Done_")).toBe(true);
 
     deleteSession(context.channelId, context.threadId);
   });
