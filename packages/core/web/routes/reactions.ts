@@ -1,5 +1,5 @@
 import type { Elysia } from "elysia";
-import { uploadDiscordFile, uploadLarkFile, uploadSlackFile } from "@/ims";
+import { addDiscordReaction, addLarkReaction, addSlackReaction } from "@/ims";
 import { attachDiscordBotToken, attachLarkCredentials } from "../config-validation";
 import { jsonResponse, readJsonBody, runRoute } from "../http";
 import { resolveChannelLocator } from "./channel-resolver";
@@ -14,42 +14,35 @@ function getOptionalString(payload: Record<string, unknown>, key: string): strin
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
-export function registerSendRoutes(app: Elysia): void {
+export function registerReactionsRoutes(app: Elysia): void {
   /**
-   * Unified file upload endpoint powering `ode send file`. Callers don't need
-   * to know which messaging provider is behind the channel; the server
-   * resolves the platform from the channel's configured workspace and calls
-   * the matching SDK helper directly.
+   * Add a reaction emoji to a message. Powers `ode reaction add`. Accepts
+   * the short reaction names (`thumbsup`, `eyes`, `ok_hand`) and dispatches
+   * to the platform-specific helper based on the channel's configured
+   * workspace type.
    */
-  app.post("/api/send/file", async ({ request }: { request: Request }) => {
+  app.post("/api/reactions", async ({ request }: { request: Request }) => {
     return runRoute(
       async () => {
         const body = await readJsonBody(request);
         const channelIdRaw = getString(body, "channelId");
-        if (!channelIdRaw) {
-          throw new Error("channelId is required");
-        }
-        const filePath = getString(body, "filePath");
-        if (!filePath) {
-          throw new Error("filePath is required");
-        }
+        const messageId = getString(body, "messageId");
+        const emoji = getString(body, "emoji");
+        if (!channelIdRaw) throw new Error("channelId is required");
+        if (!messageId) throw new Error("messageId is required");
+        if (!emoji) throw new Error("emoji is required");
 
-        const resolved = resolveChannelLocator(channelIdRaw);
         const threadId = getOptionalString(body, "threadId");
-        const filename = getOptionalString(body, "filename");
-        const title = getOptionalString(body, "title");
-        const initialComment = getOptionalString(body, "initialComment");
+        const resolved = resolveChannelLocator(channelIdRaw);
 
         if (resolved.platform === "slack") {
-          const result = await uploadSlackFile({
+          const result = await addSlackReaction({
             channelId: resolved.channelId,
+            messageId,
+            emoji,
             threadId,
-            filePath,
-            filename,
-            title,
-            initialComment,
           });
-          return { platform: resolved.platform, result };
+          return { platform: resolved.platform, ...result };
         }
 
         if (resolved.platform === "discord") {
@@ -59,14 +52,13 @@ export function registerSendRoutes(app: Elysia): void {
           if (!botToken) {
             throw new Error("Discord bot token not configured");
           }
-          const result = await uploadDiscordFile({
+          const result = await addDiscordReaction({
             botToken,
             channelId: resolved.channelId,
-            filePath,
-            filename,
-            initialComment,
+            messageId,
+            emoji,
           });
-          return { platform: resolved.platform, result };
+          return { platform: resolved.platform, ...result };
         }
 
         if (resolved.platform === "lark") {
@@ -80,29 +72,27 @@ export function registerSendRoutes(app: Elysia): void {
           if (!appId || !appSecret) {
             throw new Error("Lark app credentials not configured");
           }
-          const result = await uploadLarkFile({
+          const result = await addLarkReaction({
             appId,
             appSecret,
-            channelId: resolved.channelId,
-            threadId,
-            filePath,
-            filename,
-            initialComment,
+            messageId,
+            emoji,
           });
-          return { platform: resolved.platform, result };
+          return { platform: resolved.platform, ...result };
         }
 
         throw new Error(`Unsupported platform: ${resolved.platform}`);
       },
       (result) => jsonResponse(200, { ok: true, result }),
       {
-        fallbackMessage: "Failed to upload file",
+        fallbackMessage: "Failed to add reaction",
         resolveStatus: (message) => {
           if (message === "channelId is required") return 400;
-          if (message === "filePath is required") return 400;
+          if (message === "messageId is required") return 400;
+          if (message === "emoji is required") return 400;
           if (message === "Channel not found in configured workspaces") return 404;
           if (message.includes("not configured")) return 400;
-          if (message.startsWith("File not found")) return 400;
+          if (message.startsWith("emoji must be one of")) return 400;
           return 500;
         },
       },

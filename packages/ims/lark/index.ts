@@ -1,4 +1,4 @@
-export { handleLarkActionPayload, uploadLarkFile, type LarkActionRequest, type LarkApiResponse } from "./api";
+export { uploadLarkFile, getLarkThreadMessages, addLarkReaction } from "./api";
 export {
   handleLarkEventPayload,
   startLarkRuntime,

@@ -50,7 +50,19 @@ Ode is a Slack bot that bridges messages to OpenCode for AI-assisted coding.
 ## Sending Files / Images (`ode send`)
 - `ode send file <path> --channel <channelId> [--thread <threadId>] [--filename <name>] [--title <title>] [--comment <text>]` uploads any file to a chat channel.
 - The command resolves platform (Slack / Discord / Lark) from the channel's configured workspace; agents don't need to know the underlying SDK.
-- Prefer this CLI over the legacy `upload_file` action (which has been removed from `/api/action`). Visual testing workflows should save screenshots to `os.tmpdir()` and upload them directly into the current thread.
+- Visual testing workflows should save screenshots to `os.tmpdir()` and upload them directly into the current thread.
+
+## Fetching Messages (`ode messages`)
+- `ode messages get <threadId> --channel <channelId> [--limit N] [--json]` returns the replies in a thread.
+- Use it to re-read the current thread (for example, to pick up a follow-up comment posted while you were running tools) or to inspect another thread by its root id.
+
+## Reactions (`ode reaction`)
+- `ode reaction add <messageId> --channel <channelId> --emoji <thumbsup|eyes|ok_hand> [--thread <threadId>]` reacts to a message.
+- Useful acks: `eyes` = "I'm on it", `thumbsup` = "done", `ok_hand` = "acknowledged".
+
+## Platform APIs
+- Ode no longer exposes a generic `/api/action` bridge; agents must use the dedicated `ode <verb>` CLIs above instead of calling Slack/Discord/Lark APIs directly.
+- Adding a new platform-facing capability means adding (or extending) an `ode` subcommand plus a matching daemon route.
 
 ## Bun conventions
 - Use Bun instead of Node.js

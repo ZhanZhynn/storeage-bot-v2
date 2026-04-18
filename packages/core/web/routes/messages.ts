@@ -1,5 +1,5 @@
 import type { Elysia } from "elysia";
-import { uploadDiscordFile, uploadLarkFile, uploadSlackFile } from "@/ims";
+import { getDiscordThreadMessages, getLarkThreadMessages, getSlackThreadMessages } from "@/ims";
 import { attachDiscordBotToken, attachLarkCredentials } from "../config-validation";
 import { jsonResponse, readJsonBody, runRoute } from "../http";
 import { resolveChannelLocator } from "./channel-resolver";
@@ -14,14 +14,24 @@ function getOptionalString(payload: Record<string, unknown>, key: string): strin
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
-export function registerSendRoutes(app: Elysia): void {
+function getOptionalNumber(payload: Record<string, unknown>, key: string): number | undefined {
+  const value = payload[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+export function registerMessagesRoutes(app: Elysia): void {
   /**
-   * Unified file upload endpoint powering `ode send file`. Callers don't need
-   * to know which messaging provider is behind the channel; the server
-   * resolves the platform from the channel's configured workspace and calls
-   * the matching SDK helper directly.
+   * Fetch messages from a thread / channel. Powers `ode messages get`. The
+   * server resolves which messaging platform owns the channel and calls the
+   * dedicated per-platform helper — callers don't need to know whether the
+   * channel is Slack / Discord / Lark.
    */
-  app.post("/api/send/file", async ({ request }: { request: Request }) => {
+  app.post("/api/messages/thread", async ({ request }: { request: Request }) => {
     return runRoute(
       async () => {
         const body = await readJsonBody(request);
@@ -29,27 +39,21 @@ export function registerSendRoutes(app: Elysia): void {
         if (!channelIdRaw) {
           throw new Error("channelId is required");
         }
-        const filePath = getString(body, "filePath");
-        if (!filePath) {
-          throw new Error("filePath is required");
-        }
+        const threadId = getOptionalString(body, "threadId");
+        const limit = getOptionalNumber(body, "limit");
 
         const resolved = resolveChannelLocator(channelIdRaw);
-        const threadId = getOptionalString(body, "threadId");
-        const filename = getOptionalString(body, "filename");
-        const title = getOptionalString(body, "title");
-        const initialComment = getOptionalString(body, "initialComment");
 
         if (resolved.platform === "slack") {
-          const result = await uploadSlackFile({
+          if (!threadId) {
+            throw new Error("threadId is required");
+          }
+          const result = await getSlackThreadMessages({
             channelId: resolved.channelId,
             threadId,
-            filePath,
-            filename,
-            title,
-            initialComment,
+            limit,
           });
-          return { platform: resolved.platform, result };
+          return { platform: resolved.platform, ...result };
         }
 
         if (resolved.platform === "discord") {
@@ -59,17 +63,19 @@ export function registerSendRoutes(app: Elysia): void {
           if (!botToken) {
             throw new Error("Discord bot token not configured");
           }
-          const result = await uploadDiscordFile({
+          const result = await getDiscordThreadMessages({
             botToken,
             channelId: resolved.channelId,
-            filePath,
-            filename,
-            initialComment,
+            threadId,
+            limit,
           });
-          return { platform: resolved.platform, result };
+          return { platform: resolved.platform, ...result };
         }
 
         if (resolved.platform === "lark") {
+          if (!threadId) {
+            throw new Error("threadId is required");
+          }
           const larkPayload: Record<string, unknown> = {
             channelId: resolved.channelId,
             workspaceId: resolved.workspaceId,
@@ -80,29 +86,26 @@ export function registerSendRoutes(app: Elysia): void {
           if (!appId || !appSecret) {
             throw new Error("Lark app credentials not configured");
           }
-          const result = await uploadLarkFile({
+          const result = await getLarkThreadMessages({
             appId,
             appSecret,
             channelId: resolved.channelId,
             threadId,
-            filePath,
-            filename,
-            initialComment,
+            limit,
           });
-          return { platform: resolved.platform, result };
+          return { platform: resolved.platform, ...result };
         }
 
         throw new Error(`Unsupported platform: ${resolved.platform}`);
       },
       (result) => jsonResponse(200, { ok: true, result }),
       {
-        fallbackMessage: "Failed to upload file",
+        fallbackMessage: "Failed to fetch messages",
         resolveStatus: (message) => {
           if (message === "channelId is required") return 400;
-          if (message === "filePath is required") return 400;
+          if (message === "threadId is required") return 400;
           if (message === "Channel not found in configured workspaces") return 404;
           if (message.includes("not configured")) return 400;
-          if (message.startsWith("File not found")) return 400;
           return 500;
         },
       },
