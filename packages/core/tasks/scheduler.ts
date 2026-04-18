@@ -1,6 +1,7 @@
 import { createAgentAdapter } from "@/agents/adapter";
 import type { OpenCodeMessageContext } from "@/agents";
 import {
+  getChannelAgentProvider,
   getChannelBaseBranch,
   getChannelModel,
   getChannelSystemMessage,
@@ -37,6 +38,7 @@ import {
   sendChannelMessage as sendSlackChannelMessage,
   sendMessage as sendSlackThreadMessage,
 } from "@/ims/slack/client";
+import { type AgentProviderId, isAgentProviderId } from "@/shared/agent-provider";
 import { log } from "@/utils";
 
 // ---------------------------------------------------------------------------
@@ -74,6 +76,27 @@ function getTaskMessageId(task: TaskRecord): string {
 
 function resolveTaskThreadId(task: TaskRecord): string {
   return task.threadId ?? getSyntheticThreadId(task.id);
+}
+
+/**
+ * Resolve the agent provider a task should run on, following the fallback
+ * chain:
+ *   1. `task.agent` (per-task override set by CLI / Web UI),
+ *   2. the channel's configured agent (`channelDetails.agentProvider`),
+ *   3. the global default baked into `getChannelAgentProvider` (`opencode`).
+ *
+ * Unknown string values on `task.agent` (e.g. a provider that used to be
+ * supported but was removed) fall through to the channel default rather than
+ * blowing up the scheduler tick; creation/update already rejects bad values
+ * at the source.
+ *
+ * Exported for unit tests that don't want to touch the real SQLite DB.
+ */
+export function resolveTaskAgentProvider(task: TaskRecord): AgentProviderId {
+  if (task.agent && isAgentProviderId(task.agent)) {
+    return task.agent;
+  }
+  return getChannelAgentProvider(task.channelId);
 }
 
 function resolveInboxModelForTask(
@@ -132,7 +155,7 @@ async function prepareTaskSession(task: TaskRecord): Promise<{
 }> {
   const threadId = resolveTaskThreadId(task);
   const userId = getTaskUserId(task.id);
-  const agent = createAgentAdapter();
+  const agent = createAgentAdapter({ providerOverride: resolveTaskAgentProvider(task) });
 
   let cwd = resolveChannelCwd(task.channelId).cwd;
   let session = loadSession(task.channelId, threadId);
@@ -194,7 +217,7 @@ async function prepareTaskSession(task: TaskRecord): Promise<{
 }
 
 async function runTask(task: TaskRecord): Promise<void> {
-  const agent = createAgentAdapter();
+  const agent = createAgentAdapter({ providerOverride: resolveTaskAgentProvider(task) });
   const taskMessageId = getTaskMessageId(task);
   let agentResultDetailId: string | null = null;
   let threadKey: string | null = null;
