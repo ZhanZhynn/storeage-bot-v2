@@ -3,6 +3,13 @@
   import { Ban, CalendarClock, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-svelte";
   import { Badge, Button, Card, Input, Label, Select, Textarea } from "$lib/components/ui";
   import { locale } from "$lib/i18n";
+  import {
+    AGENT_PROVIDERS,
+    AGENT_PROVIDER_LABELS,
+    isAgentProviderId,
+    type AgentProviderId,
+  } from "@/shared/agent-provider";
+  import { localSettingStore } from "$lib/local-setting/store";
 
   type TaskPlatform = "slack" | "discord" | "lark";
   type TaskStatus = "pending" | "running" | "success" | "failed" | "cancelled";
@@ -58,6 +65,15 @@
   let formScheduledLocal = $state("");
   let formRunImmediately = $state(false);
   let runningTaskIds = $state<Set<string>>(new Set());
+
+  function isProviderEnabled(provider: AgentProviderId): boolean {
+    const agents = $localSettingStore.config.agents as Record<string, { enabled?: boolean }>;
+    return agents[provider]?.enabled === true;
+  }
+
+  const enabledAgentProviders = $derived(
+    AGENT_PROVIDERS.filter((provider) => isProviderEnabled(provider)),
+  );
 
   function t(en: string, zh: string): string {
     return $locale === "zh-CN" ? zh : en;
@@ -434,18 +450,23 @@
 
         <div class="space-y-2">
           <Label for="task-agent">{t("Agent (optional)", "Agent（可选）")}</Label>
-          <Input
-            id="task-agent"
-            value={formAgent}
-            placeholder={t("e.g. opencode, claudecode, codex", "例如 opencode / claudecode / codex")}
-            on:input={(event) => {
-              formAgent = (event.currentTarget as HTMLInputElement).value;
-            }}
-          />
+          <Select id="task-agent" bind:value={formAgent}>
+            <option value="">{t("Channel default", "使用频道默认")}</option>
+            {#each enabledAgentProviders as provider}
+              <option value={provider}>
+                {AGENT_PROVIDER_LABELS[provider]} ({provider})
+              </option>
+            {/each}
+            {#if formAgent && isAgentProviderId(formAgent) && !enabledAgentProviders.includes(formAgent as AgentProviderId)}
+              <option value={formAgent}>
+                {AGENT_PROVIDER_LABELS[formAgent as AgentProviderId]} ({formAgent}) — {t("not enabled", "未启用")}
+              </option>
+            {/if}
+          </Select>
           <p class="text-xs text-[hsl(var(--muted-foreground))]">
             {t(
-              "Leave empty to use the channel's default agent.",
-              "留空则使用频道默认的 agent。",
+              "Leave empty to use the channel's default agent. Only enabled CLIs are listed.",
+              "留空则使用频道默认的 agent。仅列出已启用的 CLI。",
             )}
           </p>
         </div>
@@ -524,7 +545,11 @@
                     <Badge variant={getStatusVariant(task.status)}>{getStatusLabel(task.status)}</Badge>
                     <Badge variant="outline">{task.platform}</Badge>
                     {#if task.agent}
-                      <Badge variant="outline">{task.agent}</Badge>
+                      <Badge variant="outline">
+                        {isAgentProviderId(task.agent)
+                          ? AGENT_PROVIDER_LABELS[task.agent as AgentProviderId]
+                          : task.agent}
+                      </Badge>
                     {/if}
                   </div>
                   <p class="text-sm font-medium">{task.title}</p>

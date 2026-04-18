@@ -242,4 +242,50 @@ describe("tasks storage", () => {
     const pendingOrder = list.filter((t) => t.status === "pending").map((t) => t.id);
     expect(pendingOrder).toEqual([sooner.id, later.id]);
   });
+
+  test("createTask rejects unsupported agent ids", () => {
+    expect(() =>
+      createTask({
+        title: "bad-agent",
+        scheduledAt: Date.now() + 60_000,
+        channelId: "C_TEST",
+        messageText: "hi",
+        agent: "not-a-real-agent",
+      }),
+    ).toThrow(/Unsupported agent/);
+  });
+
+  test("createTask normalizes agent casing and accepts known ids", () => {
+    const task = createTask({
+      title: "case",
+      scheduledAt: Date.now() + 60_000,
+      channelId: "C_TEST",
+      messageText: "hi",
+      agent: "Codex",
+    });
+    expect(task.agent).toBe("codex");
+  });
+
+  test("createTask treats empty agent string as null (channel default)", () => {
+    const task = createTask({
+      title: "default",
+      scheduledAt: Date.now() + 60_000,
+      channelId: "C_TEST",
+      messageText: "hi",
+      agent: "   ",
+    });
+    expect(task.agent).toBeNull();
+  });
+
+  test("updateTask rejects unsupported agent ids", () => {
+    const task = createTask({
+      title: "u-agent",
+      scheduledAt: Date.now() + 60_000,
+      channelId: "C_TEST",
+      messageText: "hi",
+      agent: "opencode",
+    });
+    expect(() => updateTask(task.id, { agent: "claude-code-beta" })).toThrow(/Unsupported agent/);
+    expect(getTaskById(task.id)?.agent).toBe("opencode");
+  });
 });

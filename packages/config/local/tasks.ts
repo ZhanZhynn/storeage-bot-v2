@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { AGENT_PROVIDERS, isAgentProviderId } from "@/shared/agent-provider";
 import { loadOdeConfig } from "./ode-store";
 
 // ---------------------------------------------------------------------------
@@ -263,8 +264,14 @@ function normalizeThreadId(value: string | null | undefined): string | null {
 
 function normalizeAgent(value: string | null | undefined): string | null {
   if (value === null || value === undefined) return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.length === 0) return null;
+  if (!isAgentProviderId(trimmed)) {
+    throw new Error(
+      `Unsupported agent "${value}". Expected one of: ${AGENT_PROVIDERS.join(", ")}`,
+    );
+  }
+  return trimmed;
 }
 
 export function listTaskChannelOptions(): TaskChannelOption[] {
