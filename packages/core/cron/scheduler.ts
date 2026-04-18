@@ -71,16 +71,58 @@ function resolveInboxModelForCron(job: CronJobRecord, options: ReturnType<typeof
   return fallbackModel && fallbackModel.length > 0 ? fallbackModel : null;
 }
 
-async function sendResultToChannel(job: CronJobRecord, text: string): Promise<void> {
+async function sendResultToChannel(
+  job: CronJobRecord,
+  text: string,
+): Promise<string | undefined> {
   if (job.platform === "slack") {
-    await sendSlackChannelMessage(job.channelId, text);
-    return;
+    return sendSlackChannelMessage(job.channelId, text);
   }
   if (job.platform === "discord") {
-    await sendDiscordChannelMessage(job.channelId, text);
+    return sendDiscordChannelMessage(job.channelId, text);
+  }
+  return sendLarkChannelMessage(job.channelId, text);
+}
+
+/**
+ * After the cron run posts its result as a top-level channel message,
+ * mirror the synthetic thread's session onto the real platform-assigned
+ * thread id so humans replying in that thread are routed to this run's
+ * agent session and can claim ownership (see
+ * `packages/ims/shared/synthetic-owner.ts`).
+ */
+function seedCronChannelThreadSession(params: {
+  platform: "slack" | "discord" | "lark";
+  channelId: string;
+  realThreadId: string;
+  sessionId: string;
+  providerId: PersistedSession["providerId"];
+  workingDirectory: string;
+  syntheticOwnerId: string;
+  branchName?: string;
+}): void {
+  const existing = loadSession(params.channelId, params.realThreadId);
+  if (existing) {
+    existing.lastActivityBotId = "cron-job";
+    saveSession(existing);
     return;
   }
-  await sendLarkChannelMessage(job.channelId, text);
+  const now = Date.now();
+  const session: PersistedSession = {
+    sessionId: params.sessionId,
+    providerId: params.providerId,
+    platform: params.platform,
+    channelId: params.channelId,
+    threadId: params.realThreadId,
+    workingDirectory: params.workingDirectory,
+    threadOwnerUserId: params.syntheticOwnerId,
+    participantBotIds: ["cron-job"],
+    createdAt: now,
+    lastActivityAt: now,
+    lastActivityBotId: "cron-job",
+    branchName: params.branchName,
+  };
+  saveSession(session);
 }
 
 function buildCronAgentContext(job: CronJobRecord, runId: string): OpenCodeMessageContext {
@@ -243,7 +285,19 @@ async function runCronJob(job: CronJobRecord, minuteStartMs: number): Promise<vo
     );
     const finalText = buildFinalResponseText(responses) ?? "_Done_";
 
-    await sendResultToChannel(job, finalText);
+    const realThreadId = await sendResultToChannel(job, finalText);
+    if (realThreadId) {
+      seedCronChannelThreadSession({
+        platform: job.platform,
+        channelId: job.channelId,
+        realThreadId,
+        sessionId,
+        providerId,
+        workingDirectory: cwd,
+        syntheticOwnerId: getCronUserId(job.id),
+        branchName: session.branchName,
+      });
+    }
     if (agentResultDetailId) {
       try {
         completeAgentResult({

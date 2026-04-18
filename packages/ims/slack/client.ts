@@ -30,6 +30,7 @@ import { createProcessorManager } from "@/ims/shared/processor-manager";
 import { SlackAuthRegistry, type WorkspaceAuth } from "@/ims/slack/state/auth-registry";
 import { SlackMessageUpdateManager } from "@/ims/slack/message-update-manager";
 import { deliveryStats, isRateLimitError } from "@/ims/shared/delivery-stats";
+import { isSyntheticOwner } from "@/ims/shared/synthetic-owner";
 
 export interface MessageContext {
   channelId: string;
@@ -679,7 +680,13 @@ export function setupMessageHandlers(): void {
       },
       isThreadOwner: (channelId, threadId, userId) => {
         const session = loadSession(channelId, threadId);
-        return session?.threadOwnerUserId === userId;
+        const owner = session?.threadOwnerUserId;
+        if (!owner) return false;
+        // Synthetic owners (task:/cron:) are placeholders for bot-started
+        // threads; treat any real user as the claimable owner so the first
+        // human replier can adopt the thread.
+        if (isSyntheticOwner(owner)) return true;
+        return owner === userId;
       },
       isThreadActive,
       postGeneralSettingsLauncher: postSlackGeneralSettingsLauncher,

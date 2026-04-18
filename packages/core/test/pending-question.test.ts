@@ -193,4 +193,58 @@ describe("handlePendingQuestionReply", () => {
 
     deleteSession(channelId, threadId);
   });
+
+  it("lets any real human claim a pending question when owner is synthetic (task:)", async () => {
+    const channelId = "CQ-PENDING-3";
+    const threadId = "TQ-PENDING-3";
+    const replies: Array<Array<Array<string>>> = [];
+    const pending: PendingQuestion = {
+      requestId: "req-3",
+      sessionId: "ses-3",
+      askedAt: Date.now(),
+      questions: [{ question: "Q1" }],
+      collectedAnswers: [],
+    };
+
+    saveSession({
+      sessionId: "ses-3",
+      channelId,
+      threadId,
+      workingDirectory: "/tmp",
+      // Synthetic owner — thread was started by a one-time Task before any
+      // human joined. The first real human replier should be allowed in.
+      threadOwnerUserId: "task:abc123",
+      createdAt: Date.now(),
+      lastActivityAt: Date.now(),
+      pendingQuestion: pending,
+    });
+    setPendingQuestion(channelId, threadId, pending);
+
+    const handled = await handlePendingQuestionReply({
+      deps: {
+        agent: {
+          replyToQuestion: async ({ answers }: { answers: Array<Array<string>> }) => {
+            replies.push(answers);
+          },
+        } as any,
+        im: {
+          sendMessage: async () => undefined,
+        } as any,
+      },
+      pendingQuestion: pending,
+      context: {
+        channelId,
+        replyThreadId: threadId,
+        threadId,
+        userId: "U-FIRST-HUMAN",
+        messageId: `m-${Date.now()}-3`,
+      },
+      text: "real answer",
+    });
+
+    expect(handled).toBe(true);
+    expect(replies).toEqual([[["real answer"]]]);
+
+    deleteSession(channelId, threadId);
+  });
 });

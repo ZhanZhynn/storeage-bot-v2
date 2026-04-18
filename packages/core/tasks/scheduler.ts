@@ -130,7 +130,10 @@ function resolveInboxModelForTask(
   return fallbackModel && fallbackModel.length > 0 ? fallbackModel : null;
 }
 
-async function sendResultToChannel(task: TaskRecord, text: string): Promise<void> {
+async function sendResultToChannel(
+  task: TaskRecord,
+  text: string,
+): Promise<{ threadedReply: boolean; newThreadId: string | undefined }> {
   if (task.platform === "slack") {
     // Slack is the only platform with a stable "reply in thread" helper; use
     // it whenever the caller anchored the task to a real thread so the reply
@@ -138,16 +141,62 @@ async function sendResultToChannel(task: TaskRecord, text: string): Promise<void
     // the top of the channel.
     if (task.threadId && task.threadId.trim().length > 0) {
       await sendSlackThreadMessage(task.channelId, task.threadId, text);
-      return;
+      return { threadedReply: true, newThreadId: undefined };
     }
-    await sendSlackChannelMessage(task.channelId, text);
-    return;
+    const newThreadId = await sendSlackChannelMessage(task.channelId, text);
+    return { threadedReply: false, newThreadId };
   }
   if (task.platform === "discord") {
-    await sendDiscordChannelMessage(task.channelId, text);
+    const newThreadId = await sendDiscordChannelMessage(task.channelId, text);
+    return { threadedReply: false, newThreadId };
+  }
+  const newThreadId = await sendLarkChannelMessage(task.channelId, text);
+  return { threadedReply: false, newThreadId };
+}
+
+/**
+ * After a Task (or similar bot-initiated flow) posts a top-level channel
+ * message that creates a fresh thread, mirror the synthetic thread's
+ * session onto the real platform-assigned thread id. This makes the thread
+ * "active" for inbound routing and marks the owner as synthetic so the
+ * first human replier can claim the thread via session-bootstrap.
+ */
+function seedChannelThreadSession(params: {
+  platform: "slack" | "discord" | "lark";
+  channelId: string;
+  realThreadId: string;
+  sessionId: string;
+  providerId: PersistedSession["providerId"];
+  workingDirectory: string;
+  syntheticOwnerId: string;
+  botParticipantId: string;
+  branchName?: string;
+}): void {
+  const existing = loadSession(params.channelId, params.realThreadId);
+  if (existing) {
+    // Respect any pre-existing session (should be rare — the thread was
+    // just created), but keep `lastActivityBotId` fresh so isThreadActive
+    // returns true for subsequent replies.
+    existing.lastActivityBotId = params.botParticipantId;
+    saveSession(existing);
     return;
   }
-  await sendLarkChannelMessage(task.channelId, text);
+  const now = Date.now();
+  const session: PersistedSession = {
+    sessionId: params.sessionId,
+    providerId: params.providerId,
+    platform: params.platform,
+    channelId: params.channelId,
+    threadId: params.realThreadId,
+    workingDirectory: params.workingDirectory,
+    threadOwnerUserId: params.syntheticOwnerId,
+    participantBotIds: [params.botParticipantId],
+    createdAt: now,
+    lastActivityAt: now,
+    lastActivityBotId: params.botParticipantId,
+    branchName: params.branchName,
+  };
+  saveSession(session);
 }
 
 function buildTaskAgentContext(task: TaskRecord): OpenCodeMessageContext {
@@ -311,7 +360,24 @@ async function runTask(task: TaskRecord): Promise<void> {
     );
     const finalText = buildFinalResponseText(responses) ?? "_Done_";
 
-    await sendResultToChannel(task, finalText);
+    await sendResultToChannel(task, finalText).then((outcome) => {
+      if (!outcome.threadedReply && outcome.newThreadId) {
+        // The task opened a brand-new channel thread. Mirror the synthetic
+        // session to the real thread id so humans replying there are
+        // routed to the same agent session and can claim ownership.
+        seedChannelThreadSession({
+          platform: task.platform,
+          channelId: task.channelId,
+          realThreadId: outcome.newThreadId,
+          sessionId,
+          providerId,
+          workingDirectory: cwd,
+          syntheticOwnerId: getTaskUserId(task.id),
+          botParticipantId: "task",
+          branchName: session.branchName,
+        });
+      }
+    });
     if (agentResultDetailId) {
       try {
         completeAgentResult({
