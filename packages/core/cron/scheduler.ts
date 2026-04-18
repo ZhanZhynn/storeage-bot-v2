@@ -9,6 +9,7 @@ import {
 } from "@/config";
 import {
   type CronJobRecord,
+  getCronJobById,
   listEnabledCronJobs,
   markCronJobCompleted,
   markCronJobFailed,
@@ -323,4 +324,59 @@ export function stopCronJobScheduler(): void {
   cronSchedulerTimer = null;
   runningJobIds.clear();
   log.debug("Cron job scheduler stopped");
+}
+
+export class CronJobAlreadyRunningError extends Error {
+  constructor(jobId: string) {
+    super(`Cron job ${jobId} is already running`);
+    this.name = "CronJobAlreadyRunningError";
+  }
+}
+
+export class CronJobNotFoundError extends Error {
+  constructor(jobId: string) {
+    super(`Cron job ${jobId} not found`);
+    this.name = "CronJobNotFoundError";
+  }
+}
+
+/**
+ * Manually trigger a cron job run outside of the scheduler's polling loop.
+ *
+ * Shares the in-process `runningJobIds` guard with the scheduler so a manual
+ * click never starts a second concurrent run of the same job. The minute-guard
+ * on the row (`markCronJobTriggered`) is intentionally bypassed — manual runs
+ * should be possible within the same minute — but the scheduler itself still
+ * uses that guard to dedupe automatic polls.
+ *
+ * Returns a promise that resolves once the run finishes. Callers that want to
+ * fire-and-forget should use `beginTriggerCronJobNow` instead, which runs the
+ * "already running" / "not found" checks synchronously and returns a detached
+ * promise for the agent turn.
+ */
+export async function triggerCronJobNow(jobId: string): Promise<void> {
+  const runPromise = beginTriggerCronJobNow(jobId);
+  await runPromise;
+}
+
+/**
+ * Synchronously validate that a job exists and isn't already running, then
+ * start the run in the background. Throws `CronJobNotFoundError` /
+ * `CronJobAlreadyRunningError` synchronously when the preconditions fail so
+ * HTTP handlers can return 404 / 409 without awaiting the full agent turn.
+ */
+export function beginTriggerCronJobNow(jobId: string): Promise<void> {
+  const job = getCronJobById(jobId);
+  if (!job) {
+    throw new CronJobNotFoundError(jobId);
+  }
+  if (runningJobIds.has(job.id)) {
+    throw new CronJobAlreadyRunningError(job.id);
+  }
+
+  runningJobIds.add(job.id);
+  const runPromise = runCronJob(job, Date.now()).finally(() => {
+    runningJobIds.delete(job.id);
+  });
+  return runPromise;
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { AlarmClock, Pencil, Plus, RefreshCw, Trash2 } from "lucide-svelte";
+  import { AlarmClock, Pencil, Play, Plus, RefreshCw, Trash2 } from "lucide-svelte";
   import { Badge, Button, Card, Input, Label, Select, Textarea } from "$lib/components/ui";
   import { locale } from "$lib/i18n";
 
@@ -54,6 +54,13 @@
   let formChannelId = $state("");
   let formMessageText = $state("");
   let formEnabled = $state(true);
+  // Only meaningful when creating (not editing). When true, the server kicks
+  // off one run immediately after saving in addition to scheduling future
+  // runs per the cron expression.
+  let formRunImmediately = $state(false);
+  // Per-job transient state so the "Run Now" button can show a spinner /
+  // disabled state while the POST /run request is in flight.
+  let runningJobIds = $state<Set<string>>(new Set());
 
   // Cron expression state is driven by a preset picker plus a few
   // auxiliary fields. `formCustomExpression` holds the raw string when the
@@ -206,6 +213,7 @@
     formChannelId = channels[0]?.value ?? "";
     formMessageText = "";
     formEnabled = true;
+    formRunImmediately = false;
     applyExpressionToForm("0 9 * * *");
   }
 
@@ -215,6 +223,7 @@
     formChannelId = findChannelFormValue(job);
     formMessageText = job.messageText;
     formEnabled = job.enabled;
+    formRunImmediately = false;
     applyExpressionToForm(job.cronExpression);
     message = "";
     if (typeof window !== "undefined") {
@@ -255,16 +264,21 @@
     isSaving = true;
     message = "";
     try {
+      const isCreate = !editingJobId;
+      const body: Record<string, unknown> = {
+        title: formTitle,
+        cronExpression: formCronExpression,
+        channelId: formChannelId,
+        messageText: formMessageText,
+        enabled: formEnabled,
+      };
+      if (isCreate && formRunImmediately) {
+        body.runImmediately = true;
+      }
       const response = await fetch(editingJobId ? `/api/cron-jobs/${encodeURIComponent(editingJobId)}` : "/api/cron-jobs", {
         method: editingJobId ? "PUT" : "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: formTitle,
-          cronExpression: formCronExpression,
-          channelId: formChannelId,
-          messageText: formMessageText,
-          enabled: formEnabled,
-        }),
+        body: JSON.stringify(body),
       });
       const payload = (await response.json()) as {
         ok?: boolean;
@@ -275,14 +289,52 @@
         throw new Error(payload.error || "Failed to save cron job");
       }
       applyPayload(payload.result);
-      message = editingJobId
-        ? t("Cron job updated.", "定时任务已更新。")
-        : t("Cron job created.", "定时任务已创建。");
+      if (isCreate) {
+        message = formRunImmediately
+          ? t("Cron job created and triggered.", "定时任务已创建并立即执行一次。")
+          : t("Cron job created.", "定时任务已创建。");
+      } else {
+        message = t("Cron job updated.", "定时任务已更新。");
+      }
       resetForm();
     } catch (error) {
       message = `Cron job save failed: ${error instanceof Error ? error.message : String(error)}`;
     } finally {
       isSaving = false;
+    }
+  }
+
+  async function runJobNow(job: CronJobRecord): Promise<void> {
+    if (runningJobIds.has(job.id)) return;
+
+    // Clone to a new Set so Svelte picks up the change.
+    runningJobIds = new Set(runningJobIds).add(job.id);
+    message = "";
+    try {
+      const response = await fetch(`/api/cron-jobs/${encodeURIComponent(job.id)}/run`, {
+        method: "POST",
+      });
+      const payload = (await response.json()) as {
+        ok?: boolean;
+        error?: string;
+        result?: CronJobPayload;
+      };
+      if (!response.ok || !payload.ok || !payload.result) {
+        if (response.status === 409) {
+          message = t("This cron job is already running.", "该定时任务正在运行中。");
+        } else {
+          throw new Error(payload.error || "Failed to run cron job");
+        }
+      } else {
+        applyPayload(payload.result);
+        message = t("Cron job triggered.", "定时任务已触发运行。");
+      }
+    } catch (error) {
+      message = `Cron job run failed: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      const next = new Set(runningJobIds);
+      next.delete(job.id);
+      runningJobIds = next;
     }
   }
 
@@ -485,8 +537,21 @@
               formEnabled = (event.currentTarget as HTMLInputElement).checked;
             }}
           />
-          <span>{t("Enable this cron job immediately", "创建后立即启用")}</span>
+          <span>{t("Enable this cron job immediately", "创建后立即生效")}</span>
         </label>
+
+        {#if !editingJobId}
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={formRunImmediately}
+              onchange={(event) => {
+                formRunImmediately = (event.currentTarget as HTMLInputElement).checked;
+              }}
+            />
+            <span>{t("Also run this job once right after creating", "创建后立即执行一次")}</span>
+          </label>
+        {/if}
 
         <div class="flex flex-wrap items-center gap-2">
           <Button
@@ -542,6 +607,17 @@
                 </div>
 
                 <div class="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    on:click={() => void runJobNow(job)}
+                    disabled={isSaving || runningJobIds.has(job.id)}
+                  >
+                    <Play class="h-3.5 w-3.5" />
+                    {runningJobIds.has(job.id)
+                      ? t("Running...", "运行中...")
+                      : t("Run Now", "立即执行")}
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
