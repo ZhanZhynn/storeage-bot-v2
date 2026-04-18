@@ -32,6 +32,7 @@ import {
   sendLauncherReplyForMessage,
 } from "@/ims/discord/settings";
 import { createProcessorManager } from "@/ims/shared/processor-manager";
+import { isSyntheticOwner } from "@/ims/shared/synthetic-owner";
 import {
   buildMeaningfulThreadName,
   cleanBotMention,
@@ -512,7 +513,8 @@ async function startDiscordRuntimeInternal(reason: string): Promise<boolean> {
               messageId: message.id,
               userId: message.author.id,
               selfMessage: false,
-              threadOwnerMessage: threadSession?.threadOwnerUserId === message.author.id,
+              threadOwnerMessage: isSyntheticOwner(threadSession?.threadOwnerUserId)
+                || threadSession?.threadOwnerUserId === message.author.id,
               isTopLevel: false,
               hasAnyMention,
               mentionedBot: mentioned,

@@ -13,6 +13,7 @@ import {
 import { buildQuestionAnswers, formatSingleQuestionPrompt } from "@/core/runtime/helpers";
 import type { AgentAdapter, IMAdapter } from "@/core/types";
 import type { RuntimeRequestContext } from "@/core/kernel/request-context";
+import { isSyntheticOwner } from "@/ims/shared/synthetic-owner";
 import { log } from "@/utils";
 
 export async function handlePendingQuestionReply(params: {
@@ -33,7 +34,13 @@ export async function handlePendingQuestionReply(params: {
 
   const session = loadSession(context.channelId, context.threadId);
   const threadOwnerUserId = session?.threadOwnerUserId;
-  if (threadOwnerUserId && threadOwnerUserId !== context.userId) {
+  // Synthetic owners (task:/cron:) are claimable by any real human, so
+  // don't gate pending-question replies on them.
+  if (
+    threadOwnerUserId
+    && !isSyntheticOwner(threadOwnerUserId)
+    && threadOwnerUserId !== context.userId
+  ) {
     return false;
   }
 

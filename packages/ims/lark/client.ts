@@ -42,6 +42,7 @@ import {
 } from "./settings";
 import { refreshSettingsProviderData } from "@/ims/shared/settings-provider-data";
 import { createProcessorManager } from "@/ims/shared/processor-manager";
+import { isSyntheticOwner } from "@/ims/shared/synthetic-owner";
 import {
   extractFormValues,
   firstNonEmptyString,
@@ -1123,7 +1124,8 @@ async function processLarkIncomingEvent(event: LarkIncomingEvent, processorAppId
     messageId,
     userId: senderOpenId,
     selfMessage: isSelfMessage,
-    threadOwnerMessage: threadSession?.threadOwnerUserId === senderOpenId,
+    threadOwnerMessage: isSyntheticOwner(threadSession?.threadOwnerUserId)
+      || threadSession?.threadOwnerUserId === senderOpenId,
     isTopLevel: topLevelMessage,
     hasAnyMention,
     mentionedBot: isMentioned,

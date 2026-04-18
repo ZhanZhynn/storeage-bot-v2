@@ -4,6 +4,7 @@ import { buildSessionEnvironment, prepareSessionWorkspace } from "@/core/session
 import { categorizeRuntimeError } from "@/core/runtime/helpers";
 import type { AgentAdapter, IMAdapter } from "@/core/types";
 import type { RuntimeRequestContext } from "@/core/kernel/request-context";
+import { isSyntheticOwner } from "@/ims/shared/synthetic-owner";
 import { log } from "@/utils";
 import { createHash } from "crypto";
 
@@ -58,7 +59,12 @@ export async function prepareRuntimeSession(params: {
   if (session?.workingDirectory) {
     cwd = session.workingDirectory;
   }
-  const threadOwnerUserId = session?.threadOwnerUserId ?? context.userId;
+  // A synthetic owner (task:/cron:) is a placeholder stored for a thread
+  // Ode started on its own; the first real human to reply claims the
+  // thread. Treat synthetic owners as "unset" so the current user wins.
+  const existingOwner = session?.threadOwnerUserId;
+  const hasRealOwner = !!existingOwner && !isSyntheticOwner(existingOwner);
+  const threadOwnerUserId = hasRealOwner ? existingOwner : context.userId;
   const { env: sessionEnv, gitIdentity } = buildSessionEnvironment({
     threadOwnerUserId,
   });
@@ -141,7 +147,7 @@ export async function prepareRuntimeSession(params: {
     session.workingDirectory = cwd;
   }
 
-  if (!session.threadOwnerUserId) {
+  if (!session.threadOwnerUserId || isSyntheticOwner(session.threadOwnerUserId)) {
     session.threadOwnerUserId = threadOwnerUserId;
   }
   const participantBotIds = session.participantBotIds ?? [];
