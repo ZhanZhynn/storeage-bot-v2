@@ -8,6 +8,7 @@ import {
 } from "./server";
 import {
   setThreadSessionId,
+  updateActiveRequest,
 } from "@/config/local/sessions";
 import { getChannelModel, isLocalMode } from "@/config";
 import { log } from "@/utils";
@@ -117,6 +118,14 @@ export async function sendMessage(
       newSessionId: validSessionId,
     });
     setThreadSessionId(channelId, context.slack.threadId, validSessionId);
+    // Also rebind the in-flight activeRequest so the kernel event watcher
+    // (which filters events by request.sessionId) keeps receiving events
+    // after the server-side session was rotated. Without this the run
+    // would appear stuck: events carry the new id and get dropped,
+    // step-finish/stop is never observed, progress UI never updates.
+    updateActiveRequest(channelId, context.slack.threadId, {
+      sessionId: validSessionId,
+    });
   }
 
   const activeSessionId = validSessionId;
