@@ -199,7 +199,7 @@
           className="w-full justify-start"
           on:click={() => goto("/agents")}
         >
-          {t("Coding Agents", "Coding工具")}
+          {t("Agents", "Agents")}
         </Button>
         <Button
           variant={activeSection === "inbox" ? "default" : "secondary"}
