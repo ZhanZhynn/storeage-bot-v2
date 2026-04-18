@@ -13,7 +13,7 @@ export {
   type MessageContext,
 } from "./client";
 
-export { handleSlackActionPayload, type SlackActionRequest, type SlackApiResponse } from "./api";
+export { handleSlackActionPayload, uploadSlackFile, type SlackActionRequest, type SlackApiResponse } from "./api";
 
 export { setupInteractiveHandlers } from "./commands";
 

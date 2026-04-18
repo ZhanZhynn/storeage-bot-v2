@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 import { rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleLarkActionPayload } from "./api";
+import { handleLarkActionPayload, uploadLarkFile } from "./api";
 
 const ORIGINAL_FETCH = globalThis.fetch;
 
@@ -210,7 +210,7 @@ describe("handleLarkActionPayload", () => {
     });
   });
 
-  it("uploads a file via Lark API", async () => {
+  it("uploads a file via uploadLarkFile helper", async () => {
     const tempFilePath = join(tmpdir(), `ode-lark-upload-${Date.now()}.txt`);
     await Bun.write(tempFilePath, "hello lark file");
 
@@ -244,8 +244,7 @@ describe("handleLarkActionPayload", () => {
       });
       globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-      const result = await handleLarkActionPayload({
-        action: "upload_file",
+      const result = await uploadLarkFile({
         appId: "cli_app",
         appSecret: "secret",
         channelId: "oc_123",
@@ -255,8 +254,7 @@ describe("handleLarkActionPayload", () => {
         initialComment: "uploading file",
       });
 
-      expect(result.ok).toBe(true);
-      expect(result.result).toEqual({
+      expect(result).toEqual({
         status: "file_uploaded",
         messageId: "om_file",
         channelId: "oc_123",

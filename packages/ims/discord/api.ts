@@ -9,8 +9,7 @@ export type DiscordActionName =
   | "get_thread_messages"
   | "ask_user"
   | "add_reaction"
-  | "get_user_info"
-  | "upload_file";
+  | "get_user_info";
 
 export type DiscordActionRequest = {
   action: DiscordActionName;
@@ -25,10 +24,6 @@ export type DiscordActionRequest = {
   question?: string;
   options?: unknown[];
   userId?: string;
-  filePath?: string;
-  filename?: string;
-  title?: string;
-  initialComment?: string;
   limit?: number;
   autoArchiveDuration?: 60 | 1440 | 4320 | 10080;
 };
@@ -314,42 +309,6 @@ async function handleDiscordAction(payload: DiscordActionRequest): Promise<unkno
       return user;
     }
 
-    case "upload_file": {
-      const channelId = requireString(payload.channelId, "channelId");
-      const filePath = requireString(payload.filePath, "filePath");
-      const filename = payload.filename?.trim() || basename(filePath);
-      const initialComment = payload.initialComment?.trim();
-
-      const file = Bun.file(filePath);
-      if (!(await file.exists())) {
-        throw new Error(`File not found: ${filePath}`);
-      }
-
-      const formData = new FormData();
-      formData.append("files[0]", file, filename);
-      formData.append("payload_json", JSON.stringify({
-        content: initialComment && initialComment.length > 0 ? initialComment : undefined,
-      }));
-
-      const message = await discordMultipartCall<{
-        id: string;
-        channel_id: string;
-        attachments?: Array<{ id: string; filename: string; url: string }>;
-      }>(
-        token,
-        "POST",
-        `/channels/${channelId}/messages`,
-        formData
-      );
-
-      return {
-        status: "file_uploaded",
-        messageId: message.id,
-        channelId: message.channel_id,
-        attachments: message.attachments ?? [],
-      };
-    }
-
     default:
       throw new Error(`Unknown Discord action: ${payload.action}`);
   }
@@ -367,4 +326,61 @@ export async function handleDiscordActionPayload(payload: unknown): Promise<Disc
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
   }
+}
+
+/**
+ * Upload a file to a Discord channel via the standard multipart message
+ * endpoint. Extracted from the legacy `upload_file` action so the
+ * `ode send file` CLI can share the same implementation without routing
+ * through the generic action API.
+ */
+export async function uploadDiscordFile(args: {
+  botToken: string;
+  channelId: string;
+  filePath: string;
+  filename?: string;
+  initialComment?: string;
+}): Promise<{
+  status: "file_uploaded";
+  messageId: string;
+  channelId: string;
+  attachments: Array<{ id: string; filename: string; url: string }>;
+}> {
+  const token = args.botToken.trim();
+  if (!token) {
+    throw new Error("Discord bot token missing");
+  }
+  const channelId = requireString(args.channelId, "channelId");
+  const filePath = requireString(args.filePath, "filePath");
+  const filename = args.filename?.trim() || basename(filePath);
+  const initialComment = args.initialComment?.trim();
+
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+
+  const formData = new FormData();
+  formData.append("files[0]", file, filename);
+  formData.append("payload_json", JSON.stringify({
+    content: initialComment && initialComment.length > 0 ? initialComment : undefined,
+  }));
+
+  const message = await discordMultipartCall<{
+    id: string;
+    channel_id: string;
+    attachments?: Array<{ id: string; filename: string; url: string }>;
+  }>(
+    token,
+    "POST",
+    `/channels/${channelId}/messages`,
+    formData
+  );
+
+  return {
+    status: "file_uploaded",
+    messageId: message.id,
+    channelId: message.channel_id,
+    attachments: message.attachments ?? [],
+  };
 }

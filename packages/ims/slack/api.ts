@@ -7,8 +7,7 @@ export type SlackActionName =
   | "ask_user"
   | "add_reaction"
   | "get_user_info"
-  | "post_message"
-  | "upload_file";
+  | "post_message";
 
 export type SlackActionRequest = {
   action: SlackActionName;
@@ -20,10 +19,6 @@ export type SlackActionRequest = {
   question?: string;
   options?: string[];
   limit?: number;
-  filePath?: string;
-  filename?: string;
-  title?: string;
-  initialComment?: string;
   userId?: string;
 };
 
@@ -290,20 +285,6 @@ async function handleSlackAction(payload: SlackActionRequest): Promise<unknown> 
       return { ts: result.ts, text };
     }
 
-    case "upload_file": {
-      const filePath = requireString(payload.filePath, "filePath");
-      const filename = payload.filename || basename(filePath);
-      await slackFileUpload({
-        channelId,
-        threadId: payload.threadId,
-        filename,
-        title: payload.title,
-        initialComment: payload.initialComment,
-        token,
-      }, filePath);
-      return { status: "file_uploaded" };
-    }
-
     default:
       throw new Error(`Unknown action: ${payload.action}`);
   }
@@ -321,4 +302,37 @@ export async function handleSlackActionPayload(payload: unknown): Promise<SlackA
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
   }
+}
+
+/**
+ * Upload a file to a Slack channel / thread using the same
+ * `files.getUploadURLExternal` + `files.completeUploadExternal` flow that the
+ * legacy `upload_file` action used. Exposed as a standalone helper so the
+ * `ode send file` CLI — which no longer relies on the generic action API —
+ * can share the exact same upload implementation.
+ */
+export async function uploadSlackFile(args: {
+  channelId: string;
+  threadId?: string;
+  filePath: string;
+  filename?: string;
+  title?: string;
+  initialComment?: string;
+}): Promise<unknown> {
+  const channelId = requireString(args.channelId, "channelId");
+  const filePath = requireString(args.filePath, "filePath");
+  const token = getSlackBotToken(channelId, typeof args.threadId === "string" ? args.threadId : undefined);
+  if (!token) {
+    throw new Error("No Slack bot token available for channel");
+  }
+  const filename = args.filename || basename(filePath);
+  await slackFileUpload({
+    channelId,
+    threadId: args.threadId,
+    filename,
+    title: args.title,
+    initialComment: args.initialComment,
+    token,
+  }, filePath);
+  return { status: "file_uploaded", channelId, filename };
 }

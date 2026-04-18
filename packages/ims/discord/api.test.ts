@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, mock } from "bun:test";
 import { rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { handleDiscordActionPayload } from "./api";
+import { handleDiscordActionPayload, uploadDiscordFile } from "./api";
 
 const ORIGINAL_FETCH = globalThis.fetch;
 
@@ -95,7 +95,7 @@ describe("handleDiscordActionPayload", () => {
     expect(result.result).toEqual({ id: "bot1", username: "ode-bot", bot: true });
   });
 
-  it("uploads a file via Discord API", async () => {
+  it("uploads a file via uploadDiscordFile helper", async () => {
     const tempFilePath = join(tmpdir(), `ode-discord-upload-${Date.now()}.txt`);
     await Bun.write(tempFilePath, "hello file");
 
@@ -111,8 +111,7 @@ describe("handleDiscordActionPayload", () => {
         );
       }) as unknown as typeof fetch;
 
-      const result = await handleDiscordActionPayload({
-        action: "upload_file",
+      const result = await uploadDiscordFile({
         botToken: "token",
         channelId: "c1",
         filePath: tempFilePath,
@@ -120,8 +119,7 @@ describe("handleDiscordActionPayload", () => {
         initialComment: "file uploaded",
       });
 
-      expect(result.ok).toBe(true);
-      expect(result.result).toEqual({
+      expect(result).toEqual({
         status: "file_uploaded",
         messageId: "m-upload",
         channelId: "c1",

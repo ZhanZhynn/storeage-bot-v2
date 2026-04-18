@@ -9,6 +9,8 @@ import { getDaemonLogPath } from "@/core/daemon/paths";
 import { isProcessAlive, readDaemonState, type DaemonState } from "@/core/daemon/state";
 import { runOnboarding } from "@/core/onboarding";
 import { handleTaskCommand } from "@/core/cli-handlers/task";
+import { handleCronCommand } from "@/core/cli-handlers/cron";
+import { handleSendCommand } from "@/core/cli-handlers/send";
 import { isInstalledBinary, performUpgrade } from "@/core/upgrade";
 
 const rawArgs = process.argv.slice(2);
@@ -47,6 +49,8 @@ function printHelp(): void {
       "  ode onboarding",
       "  ode config",
       "  ode task <subcommand>    # manage one-time scheduled tasks",
+      "  ode cron <subcommand>    # manage recurring cron jobs",
+      "  ode send <subcommand>    # upload files/images to a chat channel",
       "  ode upgrade",
       "  ode --version",
       "",
@@ -60,6 +64,9 @@ function printHelp(): void {
       "  ode onboard",
       "  ode task create --time 2026-04-19T09:00:00+08:00 --channel C123 --message \"check deploy\"",
       "  ode task list",
+      "  ode cron create --schedule \"*/30 * * * *\" --channel C123 --message \"heartbeat\"",
+      "  ode cron list",
+      "  ode send file ./screenshot.png --channel C123 --thread 1700000000.000001 --comment \"layout diff\"",
       "  ode --foreground",
       "  ODE_WEB_HOST=0.0.0.0 ode #run ode process and expose setting UI",
     ].join("\n"),
@@ -494,6 +501,16 @@ if (command === "start") {
 
 if (command === "task") {
   const code = await handleTaskCommand(args.slice(1));
+  process.exit(code);
+}
+
+if (command === "cron") {
+  const code = await handleCronCommand(args.slice(1));
+  process.exit(code);
+}
+
+if (command === "send") {
+  const code = await handleSendCommand(args.slice(1));
   process.exit(code);
 }
 

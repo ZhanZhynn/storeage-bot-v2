@@ -5,8 +5,7 @@ export type LarkActionName =
   | "get_thread_messages"
   | "ask_user"
   | "get_user_info"
-  | "add_reaction"
-  | "upload_file";
+  | "add_reaction";
 
 export type LarkActionRequest = {
   action: LarkActionName;
@@ -21,9 +20,6 @@ export type LarkActionRequest = {
   userId?: string;
   limit?: number;
   emoji?: string;
-  filePath?: string;
-  filename?: string;
-  initialComment?: string;
 };
 
 export type LarkApiResponse = {
@@ -393,87 +389,6 @@ async function handleLarkAction(payload: LarkActionRequest): Promise<unknown> {
       };
     }
 
-    case "upload_file": {
-      const channelId = requireString(payload.channelId, "channelId");
-      const filePath = requireString(payload.filePath, "filePath");
-      const file = Bun.file(filePath);
-      if (!(await file.exists())) {
-        throw new Error(`File not found: ${filePath}`);
-      }
-
-      const filename = payload.filename?.trim() || file.name || "upload.bin";
-      const formData = new FormData();
-      formData.append("file_name", filename);
-      formData.append("file_type", "stream");
-      formData.append("file", file, filename);
-
-      const uploadResponse = await fetch("https://open.feishu.cn/open-apis/im/v1/files", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error(`Lark file upload API ${uploadResponse.status} ${uploadResponse.statusText}`);
-      }
-
-      const uploadPayload = await uploadResponse.json() as {
-        code?: number;
-        msg?: string;
-        data?: {
-          file_key?: string;
-        };
-      };
-      if ((uploadPayload.code ?? -1) !== 0 || !uploadPayload.data?.file_key) {
-        throw new Error(uploadPayload.msg || "Failed to upload file to Lark");
-      }
-
-      const threadId = payload.threadId?.trim();
-      if (payload.initialComment?.trim()) {
-        const comment = await postTextMessage({
-          token,
-          channelId,
-          text: payload.initialComment.trim(),
-          threadId,
-        });
-        if (threadId && comment.messageId) {
-          rememberThreadMessage(threadId, comment.messageId);
-        }
-      }
-
-      const message = await larkRequest<{ message_id?: string }>(
-        "POST",
-        threadId
-          ? `/open-apis/im/v1/messages/${encodeURIComponent(threadId)}/reply`
-          : "/open-apis/im/v1/messages?receive_id_type=chat_id",
-        token,
-        threadId
-          ? {
-            msg_type: "file",
-            content: JSON.stringify({ file_key: uploadPayload.data.file_key }),
-            reply_in_thread: true,
-          }
-          : {
-            receive_id: channelId,
-            msg_type: "file",
-            content: JSON.stringify({ file_key: uploadPayload.data.file_key }),
-          }
-      );
-
-      if (threadId && message.message_id) {
-        rememberThreadMessage(threadId, message.message_id);
-      }
-
-      return {
-        status: "file_uploaded",
-        messageId: message.message_id ?? "",
-        channelId,
-        fileKey: uploadPayload.data.file_key,
-      };
-    }
-
     default:
       throw new Error(`Unknown Lark action: ${payload.action}`);
   }
@@ -491,4 +406,105 @@ export async function handleLarkActionPayload(payload: unknown): Promise<LarkApi
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
   }
+}
+
+/**
+ * Upload a file to a Lark chat. Internally fetches a tenant access token from
+ * the provided app credentials, pushes the bytes through `/open-apis/im/v1/files`,
+ * and then posts a `file` message into the channel (or thread reply). Shared by
+ * the `ode send file` CLI, which replaced the deprecated `upload_file` action.
+ */
+export async function uploadLarkFile(args: {
+  appId: string;
+  appSecret: string;
+  channelId: string;
+  threadId?: string;
+  filePath: string;
+  filename?: string;
+  initialComment?: string;
+}): Promise<{
+  status: "file_uploaded";
+  messageId: string;
+  channelId: string;
+  fileKey: string;
+}> {
+  const appId = args.appId.trim();
+  const appSecret = args.appSecret.trim();
+  if (!appId || !appSecret) {
+    throw new Error("Lark app credentials missing");
+  }
+  const channelId = requireString(args.channelId, "channelId");
+  const filePath = requireString(args.filePath, "filePath");
+
+  const file = Bun.file(filePath);
+  if (!(await file.exists())) {
+    throw new Error(`File not found: ${filePath}`);
+  }
+
+  const token = await getTenantAccessToken(appId, appSecret);
+  const filename = args.filename?.trim() || file.name || "upload.bin";
+  const formData = new FormData();
+  formData.append("file_name", filename);
+  formData.append("file_type", "stream");
+  formData.append("file", file, filename);
+
+  const uploadResponse = await fetch("https://open.feishu.cn/open-apis/im/v1/files", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  if (!uploadResponse.ok) {
+    throw new Error(`Lark file upload API ${uploadResponse.status} ${uploadResponse.statusText}`);
+  }
+  const uploadPayload = await uploadResponse.json() as {
+    code?: number;
+    msg?: string;
+    data?: { file_key?: string };
+  };
+  if ((uploadPayload.code ?? -1) !== 0 || !uploadPayload.data?.file_key) {
+    throw new Error(uploadPayload.msg || "Failed to upload file to Lark");
+  }
+
+  const threadId = args.threadId?.trim();
+  if (args.initialComment?.trim()) {
+    const comment = await postTextMessage({
+      token,
+      channelId,
+      text: args.initialComment.trim(),
+      threadId,
+    });
+    if (threadId && comment.messageId) {
+      rememberThreadMessage(threadId, comment.messageId);
+    }
+  }
+
+  const message = await larkRequest<{ message_id?: string }>(
+    "POST",
+    threadId
+      ? `/open-apis/im/v1/messages/${encodeURIComponent(threadId)}/reply`
+      : "/open-apis/im/v1/messages?receive_id_type=chat_id",
+    token,
+    threadId
+      ? {
+        msg_type: "file",
+        content: JSON.stringify({ file_key: uploadPayload.data.file_key }),
+        reply_in_thread: true,
+      }
+      : {
+        receive_id: channelId,
+        msg_type: "file",
+        content: JSON.stringify({ file_key: uploadPayload.data.file_key }),
+      }
+  );
+
+  if (threadId && message.message_id) {
+    rememberThreadMessage(threadId, message.message_id);
+  }
+
+  return {
+    status: "file_uploaded",
+    messageId: message.message_id ?? "",
+    channelId,
+    fileKey: uploadPayload.data.file_key,
+  };
 }

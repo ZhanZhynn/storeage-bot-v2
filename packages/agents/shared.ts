@@ -52,15 +52,15 @@ export function buildSystemPrompt(slack?: SlackContext): string {
           : "- Payload: {\"action\":\"post_message\",\"channelId\":\"...\",\"threadId\":\"...\",\"messageId\":\"...\",\"text\":\"...\"}"
     );
     if (platform === "discord") {
-      lines.push("- Supported actions: get_guilds, get_channels, post_message, update_message, create_thread_from_message, get_thread_messages, ask_user, add_reaction, get_user_info, upload_file.");
-      lines.push("- Required fields: channelId for message/reaction/question/upload actions; threadId for get_thread_messages; messageId + emoji for reactions; userId (or \"@me\") for get_user_info; filePath for upload_file.");
+      lines.push("- Supported actions: get_guilds, get_channels, post_message, update_message, create_thread_from_message, get_thread_messages, ask_user, add_reaction, get_user_info.");
+      lines.push("- Required fields: channelId for message/reaction/question actions; threadId for get_thread_messages; messageId + emoji for reactions; userId (or \"@me\") for get_user_info.");
       lines.push("- add_reaction schema: { platform: \"discord\", action: \"add_reaction\", channelId: string, messageId: string, emoji: \"thumbsup\" | \"eyes\" | \"ok_hand\" }");
     } else if (platform === "lark") {
-      lines.push("- Supported actions: get_channels, post_message, update_message, get_thread_messages, ask_user, add_reaction, get_user_info, upload_file.");
-      lines.push("- Required fields: channelId for post_message/ask_user/upload_file; messageId + text for update_message; threadId for get_thread_messages; messageId + emoji for add_reaction; userId for get_user_info; filePath for upload_file.");
+      lines.push("- Supported actions: get_channels, post_message, update_message, get_thread_messages, ask_user, add_reaction, get_user_info.");
+      lines.push("- Required fields: channelId for post_message/ask_user; messageId + text for update_message; threadId for get_thread_messages; messageId + emoji for add_reaction; userId for get_user_info.");
       lines.push("- post_message schema: { platform: \"lark\", action: \"post_message\", channelId: string, threadId?: string, text: string }");
     } else {
-      lines.push("- Supported actions: post_message, add_reaction, get_thread_messages, ask_user, get_user_info, upload_file.");
+      lines.push("- Supported actions: post_message, add_reaction, get_thread_messages, ask_user, get_user_info.");
       lines.push("- Required fields: channelId; threadId for thread actions; messageId + emoji for reactions; userId for get_user_info.");
       lines.push("- add_reaction schema: { action: \"add_reaction\", channelId: string, messageId: string, emoji: \"thumbsup\" | \"eyes\" | \"ok_hand\" }");
     }
@@ -92,6 +92,23 @@ export function buildSystemPrompt(slack?: SlackContext): string {
     lines.push("- `--time` accepts ISO 8601 (e.g. `2026-04-19T09:00:00+08:00`). `--thread` is optional; when set, the task reuses this thread's session to keep context; when omitted, the task posts as a new channel message.");
     lines.push("- When scheduling a follow-up for the current conversation, pass the current channel and thread so the agent wakes up with the same session history.");
     lines.push("- Manage tasks with `ode task list`, `ode task show <id>`, `ode task cancel <id>`, `ode task delete <id>`. Tasks persist across restarts.");
+    lines.push("");
+    lines.push("RECURRING CRON JOBS:");
+    lines.push("- For prompts that need to run on a schedule (heartbeats, daily digests, periodic checks), create a cron job.");
+    lines.push("- CLI: `ode cron create --schedule \"<5-field cron>\" --channel <channelId> --message \"<prompt>\" [--title <title>] [--disabled] [--run-now]`.");
+    lines.push("- `--schedule` uses standard 5-field cron syntax: `minute hour day month weekday` (e.g. `*/30 * * * *` for every 30 minutes).");
+    lines.push("- Each run creates a fresh session/worktree — the agent starts clean and posts results back to the channel.");
+    lines.push("- Manage with `ode cron list`, `ode cron show <id>`, `ode cron update <id>`, `ode cron enable|disable <id>`, `ode cron run <id>`, `ode cron delete <id>`.");
+    lines.push("");
+    lines.push("FILE UPLOADS (screenshots, logs, artifacts):");
+    lines.push("- To send a file/image back to the chat, use `ode send file <path> --channel <channelId> [--thread <threadId>] [--comment \"...\"] [--filename <name>]`.");
+    lines.push("- Save files to the OS temp directory first, then upload. Ode auto-detects the platform (Slack / Discord / Lark) from the channel.");
+    lines.push(`- Example: \`ode send file /tmp/screenshot.png --channel ${slack.channelId} --thread ${slack.threadId} --comment \"layout after fix\"\`.`);
+    lines.push("");
+    lines.push("VISUAL TESTING:");
+    lines.push("- Whenever you work on UI / layout / design tasks, capture the result and upload it to the current thread so the user can see it immediately.");
+    lines.push("- Prefer real screenshots over describing the UI in text. A single screenshot is usually worth paragraphs of description.");
+    lines.push("- For before/after comparisons, upload both screenshots with a short `--comment` explaining what changed.");
 
     const channelSystemMessage = slack.channelSystemMessage?.trim();
     if (channelSystemMessage) {
