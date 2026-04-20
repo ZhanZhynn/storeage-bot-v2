@@ -627,4 +627,134 @@ describe("session inspector", () => {
       { content: "Keep final waiting state", status: "completed" },
     ]);
   });
+
+  it("ignores TextPart events that belong to a user message", () => {
+    const now = Date.now();
+    const userPrompt = "You can use accounts in infra/readme, can connect to staging db";
+
+    const state = buildSessionMessageState([
+      // OpenCode announces the user message first; this records role="user"
+      // for messageID "msg_user_1".
+      {
+        timestamp: now,
+        type: "message.updated",
+        data: {
+          payload: {
+            type: "message.updated",
+            properties: {
+              info: {
+                id: "msg_user_1",
+                sessionID: "ses_1",
+                role: "user",
+              },
+            },
+          },
+        },
+      },
+      // A TextPart for the user message arrives. This MUST NOT populate
+      // state.currentText - previously this caused the bot to echo the
+      // user's prompt back as the final response.
+      {
+        timestamp: now + 1,
+        type: "message.part.updated",
+        data: {
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: "prt_user_text_1",
+                sessionID: "ses_1",
+                messageID: "msg_user_1",
+                type: "text",
+                text: userPrompt,
+              },
+            },
+          },
+        },
+      },
+      // The assistant message is created; role="assistant" now tracked
+      // under messageID "msg_asst_1". The turn runs a tool and stops
+      // without emitting any assistant text.
+      {
+        timestamp: now + 2,
+        type: "message.updated",
+        data: {
+          payload: {
+            type: "message.updated",
+            properties: {
+              info: {
+                id: "msg_asst_1",
+                sessionID: "ses_1",
+                role: "assistant",
+              },
+            },
+          },
+        },
+      },
+      {
+        timestamp: now + 3,
+        type: "message.part.updated",
+        data: {
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: "tool_1",
+                sessionID: "ses_1",
+                messageID: "msg_asst_1",
+                type: "tool",
+                tool: "Read",
+                state: { status: "completed" },
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(state.currentText).toBe("");
+    expect(state.tools.length).toBe(1);
+  });
+
+  it("still captures assistant TextPart as currentText", () => {
+    const now = Date.now();
+    const state = buildSessionMessageState([
+      {
+        timestamp: now,
+        type: "message.updated",
+        data: {
+          payload: {
+            type: "message.updated",
+            properties: {
+              info: {
+                id: "msg_asst_1",
+                sessionID: "ses_1",
+                role: "assistant",
+              },
+            },
+          },
+        },
+      },
+      {
+        timestamp: now + 1,
+        type: "message.part.updated",
+        data: {
+          payload: {
+            type: "message.part.updated",
+            properties: {
+              part: {
+                id: "prt_asst_text_1",
+                sessionID: "ses_1",
+                messageID: "msg_asst_1",
+                type: "text",
+                text: "Here is the summary of changes",
+              },
+            },
+          },
+        },
+      },
+    ]);
+
+    expect(state.currentText).toBe("Here is the summary of changes");
+  });
 });

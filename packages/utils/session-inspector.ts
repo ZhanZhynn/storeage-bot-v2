@@ -300,9 +300,21 @@ function extractMessageInfo(eventProps: Record<string, unknown>): Record<string,
   return message;
 }
 
-function applyMessageUpdatedEvent(state: SessionMessageState, eventProps: Record<string, unknown>): void {
+function applyMessageUpdatedEvent(
+  state: SessionMessageState,
+  eventProps: Record<string, unknown>,
+  messageRoles?: Map<string, string>
+): void {
   const info = extractMessageInfo(eventProps);
   if (!info) return;
+
+  if (messageRoles) {
+    const messageId = typeof info.id === "string" ? info.id : undefined;
+    const role = typeof info.role === "string" ? info.role : undefined;
+    if (messageId && role) {
+      messageRoles.set(messageId, role);
+    }
+  }
 
   applyMetadataFromRecord(state, info);
 }
@@ -360,11 +372,21 @@ function normalizeReasoningStatus(text: string): string {
 function applyMessagePartUpdatedEvent(
   state: SessionMessageState,
   eventProps: Record<string, unknown>,
-  provider?: AgentProviderId
+  provider?: AgentProviderId,
+  messageRoles?: Map<string, string>
 ): void {
   const part = (eventProps as { part?: Record<string, unknown> }).part;
   if (!part) return;
   const isSessionScopedPart = typeof part.sessionID === "string";
+
+  // Skip parts that belong to a user message (user prompt TextParts in
+  // OpenCode must not be treated as assistant output). If we don't yet
+  // know the role for this messageID we fall through; tool parts and
+  // assistant messages will still be applied, and any later
+  // message.updated event will correct the mapping for subsequent parts.
+  const messageId = typeof part.messageID === "string" ? part.messageID : undefined;
+  const role = messageId && messageRoles ? messageRoles.get(messageId) : undefined;
+  const isUserMessagePart = role === "user";
 
   if (part.type === "tool") {
     const toolState = (part.state || {}) as Record<string, unknown>;
@@ -403,6 +425,9 @@ function applyMessagePartUpdatedEvent(
   }
 
   if (part.type === "text" && typeof part.text === "string") {
+    if (isUserMessagePart) {
+      return;
+    }
     state.currentText = part.text;
     if (isSessionScopedPart) {
       updatePhaseStatus(state, "Drafting response", provider);
@@ -411,6 +436,9 @@ function applyMessagePartUpdatedEvent(
   }
 
   if (part.type === "reasoning" && typeof part.text === "string") {
+    if (isUserMessagePart) {
+      return;
+    }
     state.thinkingText = part.text;
     if (isSessionScopedPart) {
       updatePhaseStatus(state, normalizeReasoningStatus(part.text), provider);
@@ -419,6 +447,9 @@ function applyMessagePartUpdatedEvent(
   }
 
   if (part.type === "thinking" && typeof part.text === "string") {
+    if (isUserMessagePart) {
+      return;
+    }
     state.thinkingText = part.text;
     if (isSessionScopedPart) {
       updatePhaseStatus(state, normalizeReasoningStatus(part.text), provider);
@@ -531,6 +562,11 @@ export function buildSessionMessageState(
   const kiloToolById = new Map<string, SessionTool>();
   const geminiToolById = new Map<string, SessionTool>();
   const kiroTodoById = new Map<string, SessionTodo>();
+  // Map of messageID -> role ("user" | "assistant" | ...) built from
+  // `message.updated` events. Used to avoid treating user prompt TextParts
+  // as assistant output (OpenCode emits TextPart for both roles and
+  // TextPart itself does not carry a role field).
+  const messageRoles = new Map<string, string>();
   const kiloStreamState: StreamStateMaps<StreamToolState> = {
     textByIndex: sharedStreamState.textByIndex,
     thinkingByIndex: sharedStreamState.thinkingByIndex,
@@ -632,7 +668,7 @@ export function buildSessionMessageState(
     }
 
     if (type === "message.updated") {
-      applyMessageUpdatedEvent(state, eventProps);
+      applyMessageUpdatedEvent(state, eventProps, messageRoles);
     }
 
     if (type === "session.status") {
@@ -640,7 +676,7 @@ export function buildSessionMessageState(
     }
 
     if (type === "message.part.updated") {
-      applyMessagePartUpdatedEvent(state, eventProps, provider);
+      applyMessagePartUpdatedEvent(state, eventProps, provider, messageRoles);
     }
 
     if (type === "todo.updated") {
