@@ -36,6 +36,22 @@ import {
   log,
 } from "@/utils";
 
+/**
+ * Guard against publishing the user's own prompt as the bot's final reply.
+ *
+ * OpenCode streams a TextPart for user messages too, and `request.currentText`
+ * may end up holding that user prompt if the turn produced no assistant text
+ * (e.g. tool-only turn or an empty `result.responses`). Previously this
+ * caused the bot to echo the user back into Slack verbatim.
+ */
+function isPromptEcho(candidate: string | undefined, prompt: string | undefined): boolean {
+  if (!candidate || !prompt) return false;
+  const c = candidate.trim();
+  const p = prompt.trim();
+  if (!c || !p) return false;
+  return c === p;
+}
+
 type RunnerDeps = {
   im: IMAdapter;
   agent: AgentAdapter;
@@ -784,7 +800,8 @@ export async function runTrackedRequest(
 
     if (result.type === "stop") {
       const fallbackText = request.currentText?.trim();
-      const finalText = fallbackText || "_Done_";
+      const safeFallback = isPromptEcho(fallbackText, request.prompt) ? undefined : fallbackText;
+      const finalText = safeFallback || "_Done_";
       await publishFinalText(finalText);
       tryCompleteAgentResult({
         detailId: agentResultDetailId,
@@ -800,7 +817,7 @@ export async function runTrackedRequest(
         log.debug("OpenCode prompt rejected after stop", { error: String(err) });
       });
 
-      return { responses: [], stopFallbackText: fallbackText };
+      return { responses: [], stopFallbackText: safeFallback };
     }
 
     if (result.responses.length === 0) {
@@ -812,7 +829,10 @@ export async function runTrackedRequest(
       });
     }
 
-    const finalText = buildFinalResponseText(result.responses) ?? (request.currentText?.trim() || "_Done_");
+    const builtText = buildFinalResponseText(result.responses);
+    const rawFallback = request.currentText?.trim();
+    const safeFallback = isPromptEcho(rawFallback, request.prompt) ? undefined : rawFallback;
+    const finalText = builtText ?? (safeFallback || "_Done_");
     await publishFinalText(finalText);
     tryCompleteAgentResult({
       detailId: agentResultDetailId,

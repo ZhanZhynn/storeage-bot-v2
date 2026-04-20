@@ -146,4 +146,42 @@ describe("runTrackedRequest", () => {
     expect(result.responses).toEqual([]);
     expect(published).toEqual(["_Done_"]);
   });
+
+  it("does not echo the user prompt when currentText is the prompt itself", async () => {
+    const request = buildRequest();
+    request.prompt = "You can use accounts in infra/readme, can connect to staging db";
+    // Simulate the bug where OpenCode's user TextPart leaked into
+    // currentText. Without the fix this value would be published back.
+    request.currentText = request.prompt;
+    const published: string[] = [];
+
+    const result = await runTrackedRequest({
+      deps: {
+        agent: {
+          supportsEventStream: false,
+        } as any,
+        im: {
+          updateMessage: async () => {},
+        } as any,
+      },
+      request,
+      workingPath: "/tmp/project",
+      liveEventHistory: new Map(),
+      liveParsedState: new Map(),
+      // Tool-only turn: no assistant text responses.
+      sendPrompt: async () => [],
+      onProgressTick: async () => {},
+      onComplete: () => {},
+      onFail: () => {},
+      publishFinalText: async (text) => {
+        published.push(text);
+      },
+      failureLogLabel: "runner failed",
+      ...buildRunParams(),
+    });
+
+    expect(result.responses).toEqual([]);
+    expect(published).toEqual(["_Done_"]);
+    expect(published[0]).not.toBe(request.prompt);
+  });
 });
