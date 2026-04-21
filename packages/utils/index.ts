@@ -19,6 +19,12 @@ export {
 export { extractEventSessionId } from "./session-id";
 export { ensureSessionWorktree, resolveRepoRoot } from "./worktree";
 export {
+  parseGitHubRemote,
+  readRemoteUrl,
+  getGitHubRepoFromCwd,
+  type GitHubRepo,
+} from "./git-remote";
+export {
   truncateEventPayload,
   truncateString,
   type TruncateEventOptions,
