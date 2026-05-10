@@ -309,7 +309,7 @@ export async function sendMessage(
       const isNewSession = newSessions.has(sessionId);
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
-      const systemPrompt = buildSystemPrompt(context?.slack);
+      const systemPrompt = buildSystemPrompt(context?.slack, context?.marketplace);
       const kiloPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
 
       const args = buildKiloCommandArgs({

@@ -25,9 +25,20 @@ export interface PlatformContext {
 // Backward-compatible alias: OpenCode transport still expects `slack` key.
 export type SlackContext = PlatformContext;
 
+export interface MarketplacePlatform {
+  name: string;
+  hint: string;
+  credentialsConfigured: boolean;
+}
+
+export interface MarketplaceContext {
+  platforms: MarketplacePlatform[];
+}
+
 export interface OpenCodeMessageContext {
   threadHistory?: string;
   slack?: PlatformContext;
+  marketplace?: MarketplaceContext;
 }
 
 export interface OpenCodeSessionInfo {

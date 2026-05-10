@@ -175,7 +175,7 @@ export async function sendMessage(
       const planMode = agent?.trim().toLowerCase() === "plan";
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
-      const systemPrompt = buildSystemPrompt(context?.slack);
+      const systemPrompt = buildSystemPrompt(context?.slack, context?.marketplace);
       const codexPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
       const model = getCodexModel(options);
 

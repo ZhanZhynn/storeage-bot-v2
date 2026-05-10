@@ -494,7 +494,7 @@ export async function sendMessage(
 
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const initialPrompt = buildPromptText(parts);
-      const systemPrompt = buildSystemPrompt(context?.slack);
+      const systemPrompt = buildSystemPrompt(context?.slack, context?.marketplace);
 
       let isNewSession = newSessions.has(sessionId);
       // Id used for Claude CLI --session-id / --resume + per-id environment

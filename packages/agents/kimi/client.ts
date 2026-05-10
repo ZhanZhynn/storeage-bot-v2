@@ -158,7 +158,7 @@ export async function sendMessage(
       const agent = options?.agent;
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
-      const systemPrompt = buildKimiSystemPrompt(buildSystemPrompt(context?.slack), agent);
+      const systemPrompt = buildKimiSystemPrompt(buildSystemPrompt(context?.slack, context?.marketplace), agent);
       const kimiPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
 
       const args = buildKimiCommandArgs({

@@ -247,7 +247,7 @@ async function main(): Promise<void> {
 
       try {
         const parts = buildPromptParts(channelId, prompt, model ? { model } : undefined, context);
-        const system = buildSystemPrompt(context.slack);
+        const system = buildSystemPrompt(context.slack, context.marketplace);
         const response = await client.session.prompt({
           sessionID: sessionId,
           directory: cwd,

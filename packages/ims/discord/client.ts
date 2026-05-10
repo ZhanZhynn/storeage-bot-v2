@@ -161,7 +161,8 @@ async function buildDiscordContext(
   channelId: string,
   threadId: string,
   userId: string,
-  threadHistory?: string | null
+  threadHistory?: string | null,
+  _text?: string
 ): Promise<OpenCodeMessageContext> {
   return {
     threadHistory: threadHistory ?? undefined,
@@ -345,8 +346,8 @@ function createDiscordAdapter(processorId?: string): IMAdapter {
       fetchThreadHistory(channelId, threadId, messageId, processorId),
     renameThread: (channelId: string, threadId: string, name: string) =>
       renameDiscordThread(channelId, threadId, name, processorId),
-    buildAgentContext: async ({ channelId, threadId, userId, threadHistory }) =>
-      buildDiscordContext(channelId, threadId, userId, threadHistory),
+    buildAgentContext: async ({ channelId, threadId, userId, threadHistory, text }) =>
+      buildDiscordContext(channelId, threadId, userId, threadHistory, text),
   };
 }
 

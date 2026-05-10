@@ -173,7 +173,7 @@ export async function sendMessage(
       const approvalMode = agent?.trim().toLowerCase() === "plan" ? "plan" : undefined;
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
-      const systemPrompt = buildSystemPrompt(context?.slack);
+      const systemPrompt = buildSystemPrompt(context?.slack, context?.marketplace);
       const qwenPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
       const isNewSession = newSessions.has(sessionId);
 

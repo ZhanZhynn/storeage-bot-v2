@@ -15,6 +15,7 @@ export type AgentContextBuilderParams = {
   threadId: string;
   userId: string;
   threadHistory?: string | null;
+  text?: string;
 };
 
 export type NormalizedQuestion = {
