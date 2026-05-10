@@ -263,7 +263,7 @@ export async function sendMessage(
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
 
       // Build system prompt with Slack context
-      const system = buildSystemPrompt(context?.slack);
+      const system = buildSystemPrompt(context?.slack, context?.marketplace);
       const payload = { directory: workingPath, parts, agent, model, system };
       // const payload = { directory: workingPath, parts, agent, model };
       const serverUrl = getSessionServerUrl(activeSessionId);

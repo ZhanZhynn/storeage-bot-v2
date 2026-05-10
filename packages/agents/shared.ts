@@ -1,6 +1,6 @@
-import type { OpenCodeMessageContext, OpenCodeOptions, PromptPart, SlackContext } from "./types";
+import type { OpenCodeMessageContext, OpenCodeOptions, PromptPart, SlackContext, MarketplaceContext } from "./types";
 
-export function buildSystemPrompt(slack?: SlackContext): string {
+export function buildSystemPrompt(slack?: SlackContext, marketplace?: MarketplaceContext): string {
   const platform = slack?.platform === "discord"
     ? "discord"
     : slack?.platform === "lark"
@@ -102,6 +102,31 @@ export function buildSystemPrompt(slack?: SlackContext): string {
       lines.push("");
       lines.push(channelSystemMessage);
     }
+  }
+
+  if (marketplace?.platforms && marketplace.platforms.length > 0) {
+    lines.push("");
+    lines.push("MARKETPLACE CLI HELPERS:");
+    lines.push("Available platforms:");
+    for (const p of marketplace.platforms) {
+      lines.push(`- ${p.name}: ${p.hint}`);
+    }
+    lines.push("");
+    lines.push("When the user asks about orders, products, finance, returns, or reviews for Lazada or Shopee:");
+    lines.push("1. Run the appropriate CLI command");
+    lines.push("2. Capture the JSON output");
+    lines.push("3. Summarize it in 1-2 sentences");
+    lines.push("4. Post the summary followed by a collapsible JSON code block");
+    lines.push("");
+    lines.push("Output format:");
+    lines.push("*Platform Name — Summary line*");
+    lines.push("_AI summary: N items | key stats_");
+    lines.push("");
+    lines.push("```json");
+    lines.push("[full CLI JSON output here]");
+    lines.push("```");
+    lines.push("");
+    lines.push("The JSON block will be shown collapsed in Slack by default.");
   }
 
   return lines.join("\n");

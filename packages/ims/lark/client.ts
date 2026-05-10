@@ -342,7 +342,8 @@ async function buildLarkContext(
   channelId: string,
   threadId: string,
   userId: string,
-  threadHistory?: string | null
+  threadHistory?: string | null,
+  _text?: string
 ): Promise<OpenCodeMessageContext> {
   return {
     threadHistory: threadHistory ?? undefined,
@@ -606,8 +607,8 @@ function createLarkAdapter(processorId?: string): IMAdapter {
       deleteMessage(channelId, messageId, processorId),
     fetchThreadHistory: (channelId: string, threadId: string, messageId: string) =>
       fetchThreadHistory(channelId, threadId, messageId, processorId),
-    buildAgentContext: async ({ channelId, threadId, userId, threadHistory }) =>
-      buildLarkContext(channelId, threadId, userId, threadHistory),
+    buildAgentContext: async ({ channelId, threadId, userId, threadHistory, text }) =>
+      buildLarkContext(channelId, threadId, userId, threadHistory, text),
   };
 }
 

@@ -344,7 +344,7 @@ export async function sendMessage(
     return await runtime.withSessionLock(sessionKey, async () => {
       const parts = buildPromptParts(channelId, message, options, context);
       const prompt = buildPromptText(parts);
-      const systemPrompt = buildSystemPrompt(context?.slack);
+      const systemPrompt = buildSystemPrompt(context?.slack, context?.marketplace);
       const kiroPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
 
       const envOverrides = runtime.getSessionEnvironment(sessionId);

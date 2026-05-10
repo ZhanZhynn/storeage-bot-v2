@@ -182,7 +182,7 @@ export async function sendMessage(
       const approvalMode = resolveGeminiApprovalMode(agent);
       const parts = buildPromptParts(channelId, message, { ...options, agent }, context);
       const prompt = buildPromptText(parts);
-      const systemPrompt = buildSystemPrompt(context?.slack);
+      const systemPrompt = buildSystemPrompt(context?.slack, context?.marketplace);
       const geminiPrompt = buildSystemWrappedPrompt(systemPrompt, prompt);
       const isNewSession = newSessions.has(sessionId);
       const envOverrides = runtime.getSessionEnvironment(sessionId);

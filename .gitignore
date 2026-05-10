@@ -17,3 +17,4 @@ data/
 .ode.pid
 .ode.pgid
 .env.dev
+.venv

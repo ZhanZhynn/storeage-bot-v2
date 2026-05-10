@@ -269,6 +269,7 @@ export class KernelRuntimeFacade {
       threadId,
       userId: threadOwnerUserId,
       threadHistory,
+      text,
     });
 
     const providerId = this.deps.agent.getProviderForSession(sessionId);
