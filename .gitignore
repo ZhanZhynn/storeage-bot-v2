@@ -18,3 +18,5 @@ data/
 .ode.pgid
 .env.dev
 .venv
+**/__pycache__/
+*.pyc
