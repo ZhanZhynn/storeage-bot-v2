@@ -35,6 +35,15 @@ from .products import (add_model, add_product, delete_model, delete_product,
                        unlist_product, update_model, update_product,
                        update_product_price, update_product_stock,
                        update_tier_variation)
+from .payment import (
+    compute_order_payout_breakdown,
+    get_billing_transaction_info,
+    get_escrow_detail,
+    get_escrow_detail_batch,
+    get_escrow_list,
+    get_payout_detail,
+    get_payout_info,
+)
 
 __all__ = [
     "ShopeeClient",
@@ -85,4 +94,11 @@ __all__ = [
     "get_comments",
     "reply_comments",
     "get_return_list",
+    "get_escrow_list",
+    "get_escrow_detail",
+    "get_escrow_detail_batch",
+    "get_payout_info",
+    "get_payout_detail",
+    "get_billing_transaction_info",
+    "compute_order_payout_breakdown",
 ]

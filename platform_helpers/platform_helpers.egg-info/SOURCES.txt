@@ -20,5 +20,6 @@ shopee/client.py
 shopee/logistics.py
 shopee/models.py
 shopee/orders.py
+shopee/payment.py
 shopee/products.py
 shopee/safe_run.py

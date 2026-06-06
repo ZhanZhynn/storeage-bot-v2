@@ -161,3 +161,47 @@ class CommentsResponse(ShopeeBaseResponse):
 class ReplyCommentsResponse(ShopeeBaseResponse):
     result_list: list[dict[str, Any]]
     warning: list[str] | None
+
+
+class EscrowListResponse(ShopeeBaseResponse):
+    total_fetched: int
+    pages_fetched: int
+    has_more: bool
+    next_cursor: str | None
+    escrow_list: list[dict[str, Any]]
+
+
+class EscrowDetailResponse(ShopeeBaseResponse):
+    order_sn: str
+    escrow_detail: dict[str, Any]
+
+
+class EscrowDetailBatchResponse(ShopeeBaseResponse):
+    total_fetched: int
+    order_sn_list: list[str]
+    escrow_details: list[dict[str, Any]]
+
+
+class PayoutInfoResponse(ShopeeBaseResponse):
+    total_fetched: int
+    pages_fetched: int
+    has_more: bool
+    next_cursor: str | None
+    payout_list: list[dict[str, Any]]
+
+
+class PayoutDetailResponse(ShopeeBaseResponse):
+    total_fetched: int
+    pages_fetched: int
+    has_more: bool
+    next_cursor: str | None
+    payout_list: list[dict[str, Any]]
+
+
+class BillingTransactionInfoResponse(ShopeeBaseResponse):
+    total_fetched: int
+    pages_fetched: int
+    has_more: bool
+    next_cursor: str | None
+    billing_transaction_info_type: int
+    transactions: list[dict[str, Any]]

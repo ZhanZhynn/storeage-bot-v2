@@ -1,5 +1,6 @@
 #!/bin/bash
 # Ode startup script
+# bun run build:web
 # Usage: ./start.sh
 
 set -e

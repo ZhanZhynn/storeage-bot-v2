@@ -16,6 +16,15 @@ from .logistics import (
     ship_order,
     update_shipping_order,
 )
+from .payment import (
+    compute_order_payout_breakdown,
+    get_billing_transaction_info,
+    get_escrow_detail,
+    get_escrow_detail_batch,
+    get_escrow_list,
+    get_payout_detail,
+    get_payout_info,
+)
 from .orders import (
     build_default_order_window,
     cancel_order,
@@ -370,6 +379,72 @@ def _build_parser() -> argparse.ArgumentParser:
     logistics_doc_data.add_argument(
         "--recipient-address-info", dest="recipient_address_info", default=None
     )
+
+    payment = subparsers.add_parser("payment", help="Payment / escrow / payout operations")
+    payment_subparsers = payment.add_subparsers(dest="action", required=True)
+
+    payment_escrow_list = payment_subparsers.add_parser(
+        "escrow-list", help="List released escrows via /api/v2/payment/get_escrow_list"
+    )
+    payment_escrow_list.add_argument("--release-time-from", dest="release_time_from", type=int, required=True)
+    payment_escrow_list.add_argument("--release-time-to", dest="release_time_to", type=int, required=True)
+    payment_escrow_list.add_argument("--page-size", dest="page_size", type=int, default=40)
+    payment_escrow_list.add_argument("--page-no", dest="page_no", type=int, default=1)
+    payment_escrow_list.add_argument("--max-pages", dest="max_pages", type=int, default=10)
+
+    payment_escrow_detail = payment_subparsers.add_parser(
+        "escrow-detail", help="Fetch full accounting detail via /api/v2/payment/get_escrow_detail"
+    )
+    payment_escrow_detail.add_argument("--order-sn", dest="order_sn", required=True)
+    payment_escrow_detail.add_argument(
+        "--breakdown", dest="breakdown", action="store_true",
+        help="Also return a structured per-order + per-item payout breakdown",
+    )
+
+    payment_escrow_batch = payment_subparsers.add_parser(
+        "escrow-batch", help="Batch-fetch full accounting detail via /api/v2/payment/get_escrow_detail_batch"
+    )
+    payment_escrow_batch.add_argument(
+        "--order-sn-list", dest="order_sn_list", required=True,
+        help="Comma-separated order_sn list (1-50 ids)",
+    )
+    payment_escrow_batch.add_argument(
+        "--breakdown", dest="breakdown", action="store_true",
+        help="Also return a structured per-order + per-item payout breakdown for each result",
+    )
+
+    payment_payout_info = payment_subparsers.add_parser(
+        "payout-info", help="List payout events via /api/v2/payment/get_payout_info (CB only)"
+    )
+    payment_payout_info.add_argument("--payout-time-from", dest="payout_time_from", type=int, required=True)
+    payment_payout_info.add_argument("--payout-time-to", dest="payout_time_to", type=int, required=True)
+    payment_payout_info.add_argument("--page-size", dest="page_size", type=int, default=40)
+    payment_payout_info.add_argument("--cursor", dest="cursor", default="")
+    payment_payout_info.add_argument("--max-pages", dest="max_pages", type=int, default=10)
+
+    payment_payout_detail = payment_subparsers.add_parser(
+        "payout-detail", help="List payout events with inline escrow+adjustment list via /api/v2/payment/get_payout_detail (CB only)"
+    )
+    payment_payout_detail.add_argument("--payout-time-from", dest="payout_time_from", type=int, required=True)
+    payment_payout_detail.add_argument("--payout-time-to", dest="payout_time_to", type=int, required=True)
+    payment_payout_detail.add_argument("--page-size", dest="page_size", type=int, default=40)
+    payment_payout_detail.add_argument("--page-no", dest="page_no", type=int, default=1)
+    payment_payout_detail.add_argument("--max-pages", dest="max_pages", type=int, default=10)
+
+    payment_billing_info = payment_subparsers.add_parser(
+        "billing-info", help="Drill into billing transactions via /api/v2/payment/get_billing_transaction_info (CB only)"
+    )
+    payment_billing_info.add_argument(
+        "--type", dest="billing_transaction_info_type", type=int, required=True,
+        help="1 = TO_RELEASE, 2 = RELEASED",
+    )
+    payment_billing_info.add_argument(
+        "--encrypted-payout-ids", dest="encrypted_payout_ids", default=None,
+        help="Comma-separated encrypted_payout_ids from get_payout_info (optional; max 100)",
+    )
+    payment_billing_info.add_argument("--page-size", dest="page_size", type=int, default=40)
+    payment_billing_info.add_argument("--cursor", dest="cursor", default="")
+    payment_billing_info.add_argument("--max-pages", dest="max_pages", type=int, default=10)
 
     auth = subparsers.add_parser("auth", help="Authorization helpers")
     auth_subparsers = auth.add_subparsers(dest="action", required=True)
@@ -1190,6 +1265,141 @@ def _handle_logistics_doc_data(args: argparse.Namespace) -> int:
     )
 
 
+def _handle_payment_escrow_list(args: argparse.Namespace) -> int:
+    result = get_escrow_list(
+        _with_client(),
+        release_time_from=args.release_time_from,
+        release_time_to=args.release_time_to,
+        page_size=args.page_size,
+        page_no=args.page_no,
+        max_pages=args.max_pages,
+    )
+    return _emit(
+        {
+            "domain": "payment",
+            "action": "escrow-list",
+            "filters": {
+                "release_time_from": args.release_time_from,
+                "release_time_to": args.release_time_to,
+                "page_size": args.page_size,
+                "page_no": args.page_no,
+                "max_pages": args.max_pages,
+            },
+            **result.model_dump(),
+        },
+        ok=True,
+    )
+
+
+def _handle_payment_escrow_detail(args: argparse.Namespace) -> int:
+    result = get_escrow_detail(_with_client(), order_sn=args.order_sn)
+    payload: dict[str, Any] = {
+        "domain": "payment",
+        "action": "escrow-detail",
+        **result.model_dump(),
+    }
+    if args.breakdown:
+        payload["payout_breakdown"] = compute_order_payout_breakdown(result.escrow_detail)
+    return _emit(payload, ok=True)
+
+
+def _handle_payment_escrow_batch(args: argparse.Namespace) -> int:
+    order_sn_list = [sn.strip() for sn in args.order_sn_list.split(",") if sn.strip()]
+    result = get_escrow_detail_batch(_with_client(), order_sn_list=order_sn_list)
+    payload: dict[str, Any] = {
+        "domain": "payment",
+        "action": "escrow-batch",
+        **result.model_dump(),
+    }
+    if args.breakdown:
+        payload["payout_breakdowns"] = [
+            compute_order_payout_breakdown(detail.get("escrow_detail", detail))
+            for detail in result.escrow_details
+        ]
+    return _emit(payload, ok=True)
+
+
+def _handle_payment_payout_info(args: argparse.Namespace) -> int:
+    result = get_payout_info(
+        _with_client(),
+        payout_time_from=args.payout_time_from,
+        payout_time_to=args.payout_time_to,
+        page_size=args.page_size,
+        cursor=args.cursor,
+        max_pages=args.max_pages,
+    )
+    return _emit(
+        {
+            "domain": "payment",
+            "action": "payout-info",
+            "filters": {
+                "payout_time_from": args.payout_time_from,
+                "payout_time_to": args.payout_time_to,
+                "page_size": args.page_size,
+                "cursor": args.cursor,
+                "max_pages": args.max_pages,
+            },
+            **result.model_dump(),
+        },
+        ok=True,
+    )
+
+
+def _handle_payment_payout_detail(args: argparse.Namespace) -> int:
+    result = get_payout_detail(
+        _with_client(),
+        payout_time_from=args.payout_time_from,
+        payout_time_to=args.payout_time_to,
+        page_size=args.page_size,
+        page_no=args.page_no,
+        max_pages=args.max_pages,
+    )
+    return _emit(
+        {
+            "domain": "payment",
+            "action": "payout-detail",
+            "filters": {
+                "payout_time_from": args.payout_time_from,
+                "payout_time_to": args.payout_time_to,
+                "page_size": args.page_size,
+                "page_no": args.page_no,
+                "max_pages": args.max_pages,
+            },
+            **result.model_dump(),
+        },
+        ok=True,
+    )
+
+
+def _handle_payment_billing_info(args: argparse.Namespace) -> int:
+    payout_ids: list[str] | None = None
+    if args.encrypted_payout_ids:
+        payout_ids = [pid.strip() for pid in args.encrypted_payout_ids.split(",") if pid.strip()]
+    result = get_billing_transaction_info(
+        _with_client(),
+        billing_transaction_info_type=args.billing_transaction_info_type,
+        encrypted_payout_ids=payout_ids,
+        cursor=args.cursor,
+        page_size=args.page_size,
+        max_pages=args.max_pages,
+    )
+    return _emit(
+        {
+            "domain": "payment",
+            "action": "billing-info",
+            "filters": {
+                "billing_transaction_info_type": args.billing_transaction_info_type,
+                "encrypted_payout_ids": payout_ids,
+                "page_size": args.page_size,
+                "cursor": args.cursor,
+                "max_pages": args.max_pages,
+            },
+            **result.model_dump(),
+        },
+        ok=True,
+    )
+
+
 def _handle_returns_list(args: argparse.Namespace) -> int:
     result = get_return_list(
         _with_client(),
@@ -1334,6 +1544,18 @@ def main(argv: list[str] | None = None) -> int:
             return _handle_logistics_doc_download(args)
         if args.domain == "logistics" and args.action == "doc-data":
             return _handle_logistics_doc_data(args)
+        if args.domain == "payment" and args.action == "escrow-list":
+            return _handle_payment_escrow_list(args)
+        if args.domain == "payment" and args.action == "escrow-detail":
+            return _handle_payment_escrow_detail(args)
+        if args.domain == "payment" and args.action == "escrow-batch":
+            return _handle_payment_escrow_batch(args)
+        if args.domain == "payment" and args.action == "payout-info":
+            return _handle_payment_payout_info(args)
+        if args.domain == "payment" and args.action == "payout-detail":
+            return _handle_payment_payout_detail(args)
+        if args.domain == "payment" and args.action == "billing-info":
+            return _handle_payment_billing_info(args)
         if args.domain == "returns-refunds" and args.action == "list":
             return _handle_returns_list(args)
         if args.domain == "auth" and args.action == "url":
