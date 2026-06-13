@@ -44,12 +44,14 @@
   const duplicateSlackBotTokens = $derived(getDuplicateSlackBotTokens($localSettingStore.config.workspaces));
   const duplicateDiscordBotTokens = $derived(getDuplicateDiscordBotTokens($localSettingStore.config.workspaces));
   const duplicateLarkAppKeys = $derived(getDuplicateLarkAppKeys($localSettingStore.config.workspaces));
+  const duplicateTelegramBotTokens = $derived(getDuplicateTelegramBotTokens($localSettingStore.config.workspaces));
   const selectedWorkspaceErrors = $derived(getWorkspaceErrors(
     selectedWorkspace,
     duplicateWorkspaceIds,
     duplicateSlackBotTokens,
     duplicateDiscordBotTokens,
-    duplicateLarkAppKeys
+    duplicateLarkAppKeys,
+    duplicateTelegramBotTokens
   ));
   const enabledProviders = $derived(agentProviders.filter((provider) => isProviderEnabled(provider)));
 
@@ -121,7 +123,7 @@
 
   function onWorkspaceFieldInput(
     workspaceId: string,
-    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppKey" | "larkAppId" | "larkAppSecret",
+    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppKey" | "larkAppId" | "larkAppSecret" | "telegramBotToken",
     value: string
   ): void {
     localSettingStore.updateWorkspace(workspaceId, (workspace) => ({
@@ -133,7 +135,7 @@
 
   function onWorkspaceTextInput(
     workspaceId: string,
-    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppKey" | "larkAppId" | "larkAppSecret",
+    field: "name" | "domain" | "slackAppToken" | "slackBotToken" | "discordBotToken" | "larkAppKey" | "larkAppId" | "larkAppSecret" | "telegramBotToken",
     event: Event
   ): void {
     onWorkspaceFieldInput(workspaceId, field, (event.currentTarget as HTMLInputElement).value);
@@ -229,7 +231,8 @@
     duplicateIds: Set<string>,
     duplicateBotTokens: Set<string>,
     duplicateDiscordTokens: Set<string>,
-    duplicateLarkIds: Set<string>
+    duplicateLarkIds: Set<string>,
+    duplicateTelegramTokens: Set<string>
   ): string[] {
     if (!workspace) return [];
     const errors: string[] = [];
@@ -255,6 +258,14 @@
       }
       if (!(workspace.larkAppSecret?.trim() ?? "")) {
         errors.push("Lark App Secret is required.");
+      }
+      return errors;
+    }
+    if (workspace.type === "telegram") {
+      if (!(workspace.telegramBotToken?.trim() ?? "")) {
+        errors.push("Telegram Bot Token is required.");
+      } else if (duplicateTelegramTokens.has((workspace.telegramBotToken ?? "").trim())) {
+        errors.push("Telegram Bot Token must be unique across workspaces.");
       }
       return errors;
     }
@@ -302,6 +313,17 @@
     return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([appId]) => appId));
   }
 
+  function getDuplicateTelegramBotTokens(workspaces: DashboardConfig["workspaces"]): Set<string> {
+    const counts = new Map<string, number>();
+    for (const workspace of workspaces) {
+      if (workspace.type !== "telegram") continue;
+      const botToken = workspace.telegramBotToken?.trim() ?? "";
+      if (!botToken) continue;
+      counts.set(botToken, (counts.get(botToken) ?? 0) + 1);
+    }
+    return new Set(Array.from(counts.entries()).filter(([, count]) => count > 1).map(([token]) => token));
+  }
+
   function toggleChannel(channelId: string): void {
     openChannelId = openChannelId === channelId ? "" : channelId;
   }
@@ -327,6 +349,15 @@
         <Button
           variant="outline"
           on:click={() => void localSettingStore.syncDiscordWorkspace(selectedWorkspace.id)}
+          disabled={$localSettingStore.isSyncingSlack || $localSettingStore.isAddingWorkspace || $localSettingStore.isLoading || $localSettingStore.isSaving}
+        >
+          <RefreshCw class="h-4 w-4" />
+          {$localSettingStore.isSyncingSlack ? t("Syncing...", "同步中...") : t("Sync", "同步")}
+        </Button>
+      {:else if selectedWorkspace.type === "telegram"}
+        <Button
+          variant="outline"
+          on:click={() => void localSettingStore.syncTelegramWorkspace(selectedWorkspace.id)}
           disabled={$localSettingStore.isSyncingSlack || $localSettingStore.isAddingWorkspace || $localSettingStore.isLoading || $localSettingStore.isSaving}
         >
           <RefreshCw class="h-4 w-4" />
@@ -397,6 +428,17 @@
             type="password"
             value={selectedWorkspace.discordBotToken ?? ""}
             on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "discordBotToken", event)}
+            autocomplete="new-password"
+          />
+        </div>
+      {:else if selectedWorkspace.type === "telegram"}
+        <div class="grid gap-2 md:col-span-2">
+          <Label for="workspace-telegram-bot-token">Telegram Bot Token</Label>
+          <Input
+            id="workspace-telegram-bot-token"
+            type="password"
+            value={selectedWorkspace.telegramBotToken ?? ""}
+            on:input={(event) => onWorkspaceTextInput(selectedWorkspace.id, "telegramBotToken", event)}
             autocomplete="new-password"
           />
         </div>

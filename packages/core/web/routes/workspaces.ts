@@ -3,9 +3,11 @@ import {
   discoverDiscordWorkspace,
   discoverLarkWorkspace,
   discoverSlackWorkspace,
+  discoverTelegramWorkspace,
   syncDiscordWorkspace,
   syncLarkWorkspace,
   syncSlackWorkspace,
+  syncTelegramWorkspace,
 } from "../local-settings";
 import { jsonResponse, readJsonBody, runRoute } from "../http";
 
@@ -84,6 +86,18 @@ const WORKSPACE_ROUTES: WorkspaceRouteSpec[] = [
       const larkAppKey = getString(payload, "larkAppKey") || getString(payload, "larkAppId");
       return discoverLarkWorkspace(larkAppKey, getString(payload, "larkAppSecret"));
     },
+  },
+  {
+    path: "/api/telegram-sync",
+    fallbackMessage: "Telegram sync failed",
+    resolveStatus: (message) => (message === "Missing workspaceId" ? 400 : 500),
+    run: async (payload) => syncTelegramWorkspace(getWorkspaceId(payload)),
+  },
+  {
+    path: "/api/telegram-discover",
+    fallbackMessage: "Telegram workspace discovery failed",
+    resolveStatus: (message) => (message.startsWith("Missing Telegram") ? 400 : 500),
+    run: async (payload) => discoverTelegramWorkspace(getString(payload, "telegramBotToken")),
   },
 ];
 

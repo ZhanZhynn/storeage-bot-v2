@@ -57,6 +57,7 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
   const slackBotTokenCounts = new Map<string, number>();
   const discordBotTokenCounts = new Map<string, number>();
   const larkAppKeyCounts = new Map<string, number>();
+  const telegramBotTokenCounts = new Map<string, number>();
   for (const workspace of config.workspaces) {
     const workspaceId = workspace.id.trim();
     if (!workspaceId) {
@@ -73,6 +74,11 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
       const appKey = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
       if (appKey) {
         larkAppKeyCounts.set(appKey, (larkAppKeyCounts.get(appKey) ?? 0) + 1);
+      }
+    } else if (workspace.type === "telegram") {
+      const botToken = workspace.telegramBotToken?.trim() ?? "";
+      if (botToken) {
+        telegramBotTokenCounts.set(botToken, (telegramBotTokenCounts.get(botToken) ?? 0) + 1);
       }
     } else {
       const botToken = workspace.slackBotToken?.trim() ?? "";
@@ -110,6 +116,13 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
     return `Duplicate Lark app keys found across workspaces.`;
   }
 
+  const duplicatedTelegramBotTokens = Array.from(telegramBotTokenCounts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([token]) => token);
+  if (duplicatedTelegramBotTokens.length > 0) {
+    return `Duplicate Telegram bot tokens found across workspaces.`;
+  }
+
   const missingTokenWorkspaces = config.workspaces.filter((workspace: DashboardConfig["workspaces"][number]) => {
     if (workspace.type === "discord") {
       return !(workspace.discordBotToken?.trim() ?? "");
@@ -118,6 +131,9 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
       const appId = workspace.larkAppKey?.trim() || workspace.larkAppId?.trim() || "";
       const appSecret = workspace.larkAppSecret?.trim() ?? "";
       return !appId || !appSecret;
+    }
+    if (workspace.type === "telegram") {
+      return !(workspace.telegramBotToken?.trim() ?? "");
     }
     const appToken = workspace.slackAppToken?.trim() ?? "";
     const botToken = workspace.slackBotToken?.trim() ?? "";
@@ -471,6 +487,111 @@ async function syncLarkWorkspace(workspaceId: string): Promise<void> {
   }
 }
 
+async function syncTelegramWorkspace(workspaceId: string): Promise<void> {
+  store.update((state) => ({ ...state, isSyncingSlack: true, message: "" }));
+  try {
+    const response = await fetch("/api/telegram-sync", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workspaceId }),
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      workspace?: DashboardConfig["workspaces"][number];
+    };
+    if (!response.ok || !payload.ok || !payload.workspace) {
+      throw new Error(payload.error || "Telegram sync failed");
+    }
+    store.update((state) => ({
+      ...state,
+      isSyncingSlack: false,
+      config: {
+        ...state.config,
+        workspaces: state.config.workspaces.map((workspace: DashboardConfig["workspaces"][number]) =>
+          workspace.id === payload.workspace!.id ? payload.workspace! : workspace
+        ),
+      },
+      message: "Telegram workspace synced.",
+    }));
+  } catch (error) {
+    store.update((state) => ({
+      ...state,
+      isSyncingSlack: false,
+      message: `Telegram sync failed: ${error instanceof Error ? error.message : String(error)}`,
+    }));
+  }
+}
+
+async function discoverTelegramWorkspace(
+  telegramBotToken: string
+): Promise<DashboardConfig["workspaces"][number] | null> {
+  const botToken = telegramBotToken.trim();
+  if (!botToken) {
+    store.update((state) => ({
+      ...state,
+      message: "Validation failed: Telegram bot token is required.",
+    }));
+    return null;
+  }
+
+  store.update((state) => ({ ...state, isAddingWorkspace: true, message: "" }));
+  try {
+    const response = await fetch("/api/telegram-discover", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ telegramBotToken: botToken }),
+    });
+    const payload = (await response.json()) as {
+      ok?: boolean;
+      error?: string;
+      workspace?: DashboardConfig["workspaces"][number];
+    };
+    if (!response.ok || !payload.ok || !payload.workspace) {
+      throw new Error(payload.error || "Failed to discover Telegram workspace");
+    }
+
+    let addedWorkspace: DashboardConfig["workspaces"][number] | null = null;
+    let duplicateId = "";
+    store.update((state) => {
+      if (state.config.workspaces.some((workspace: DashboardConfig["workspaces"][number]) => workspace.id === payload.workspace!.id)) {
+        duplicateId = payload.workspace!.id;
+        return {
+          ...state,
+          isAddingWorkspace: false,
+        };
+      }
+      addedWorkspace = payload.workspace!;
+      return {
+        ...state,
+        isAddingWorkspace: false,
+        config: {
+          ...state.config,
+          workspaces: [...state.config.workspaces, payload.workspace!],
+        },
+        message: `Added Telegram workspace: ${payload.workspace!.name || payload.workspace!.id}`,
+      };
+    });
+
+    if (duplicateId) {
+      store.update((state) => ({
+        ...state,
+        message: `Workspace already exists: ${duplicateId}`,
+      }));
+      return null;
+    }
+
+    return addedWorkspace;
+  } catch (error) {
+    store.update((state) => ({
+      ...state,
+      isAddingWorkspace: false,
+      message: `Add workspace failed: ${error instanceof Error ? error.message : String(error)}`,
+    }));
+    return null;
+  }
+}
+
 async function discoverSlackWorkspace(
   slackAppToken: string,
   slackBotToken: string
@@ -690,9 +811,11 @@ export const localSettingStore = {
   syncSlackWorkspace,
   syncDiscordWorkspace,
   syncLarkWorkspace,
+  syncTelegramWorkspace,
   discoverSlackWorkspace,
   discoverDiscordWorkspace,
   discoverLarkWorkspace,
+  discoverTelegramWorkspace,
   updateConfig,
   updateWorkspace,
   removeWorkspace,

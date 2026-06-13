@@ -20,3 +20,4 @@ export const updateLocalSettings = async (
 export { discoverSlackWorkspace, syncSlackWorkspace } from "./local-settings/slack";
 export { discoverDiscordWorkspace, syncDiscordWorkspace } from "./local-settings/discord";
 export { discoverLarkWorkspace, syncLarkWorkspace } from "./local-settings/lark";
+export { discoverTelegramWorkspace, syncTelegramWorkspace } from "./local-settings/telegram";

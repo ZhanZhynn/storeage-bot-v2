@@ -240,7 +240,8 @@ const sanitizeWorkspace = (
   const discordBotToken = asString(workspace.discordBotToken, "");
   const larkAppKey = asString(workspace.larkAppKey, "") || asString(workspace.larkAppId, "");
   const larkAppSecret = asString(workspace.larkAppSecret, "");
-  const type = workspace.type === "discord" ? "discord" : workspace.type === "lark" ? "lark" : "slack";
+  const telegramBotToken = asString(workspace.telegramBotToken, "");
+  const type = workspace.type === "discord" ? "discord" : workspace.type === "lark" ? "lark" : workspace.type === "telegram" ? "telegram" : "slack";
 
   return {
     id: asString(workspace.id) || fallbackId,
@@ -257,6 +258,7 @@ const sanitizeWorkspace = (
     larkAppKey: larkAppKey || undefined,
     larkAppId: larkAppKey || undefined,
     larkAppSecret: larkAppSecret || undefined,
+    telegramBotToken: telegramBotToken || undefined,
     channelDetails,
   };
 };
