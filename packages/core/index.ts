@@ -39,6 +39,7 @@ import {
   stopPrTrackerScheduler,
 } from "@/core/pr-tracker/scheduler";
 import { initSentry, shutdownSentry } from "@/core/observability/sentry";
+import { applyMarketplaceEnvVarsFromConfig } from "@/core/web/marketplace-env";
 import packageJson from "../../package.json" with { type: "json" };
 
 const CONFIG_WATCH_INTERVAL_MS = 1000;
@@ -273,6 +274,7 @@ async function main(): Promise<void> {
   log.debug("Config loaded", { defaultCwd, mode: "local" });
 
   loadOdeConfig();
+  applyMarketplaceEnvVarsFromConfig();
   await runOnboardingIfNeeded();
 
   if (isLocalMode()) {

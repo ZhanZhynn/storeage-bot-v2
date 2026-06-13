@@ -245,3 +245,24 @@ export function attachLarkCredentials(payload: unknown): void {
     }
   }
 }
+
+export function validateMarketplaceConfig(marketplace: {
+  shopee: {
+    partnerId: string;
+    partnerKey: string;
+    shopId: string;
+    accessToken: string;
+    refreshToken: string;
+    region: string;
+    environment: string;
+  };
+  lazada: {
+    appKey: string;
+    appSecret: string;
+    accessToken: string;
+    refreshToken: string;
+    region: string;
+  };
+}): string | null {
+  return null;
+}

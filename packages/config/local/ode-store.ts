@@ -50,6 +50,10 @@ const EMPTY_TEMPLATE: OdeConfig = {
   },
   completeOnboarding: false,
   workspaces: [],
+  marketplace: {
+    shopee: { partnerId: "", partnerKey: "", shopId: "", accessToken: "", refreshToken: "", region: "MY", environment: "production" },
+    lazada: { appKey: "", appSecret: "", accessToken: "", refreshToken: "", region: "MY" },
+  },
   updates: {
     autoUpgrade: true,
     checkIntervalMs: DEFAULT_UPDATE_INTERVAL_MS,

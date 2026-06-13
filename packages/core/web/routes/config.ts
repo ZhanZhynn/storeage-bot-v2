@@ -3,6 +3,7 @@ import { defaultDashboardConfig, sanitizeDashboardConfig } from "@/config";
 import { readLocalSettings, writeLocalSettings } from "../local-settings";
 import { jsonResponse, runRoute } from "../http";
 import { validateWorkspaceConfig } from "../config-validation";
+import { applyMarketplaceEnvVars } from "../marketplace-env";
 import { APP_VERSION } from "../version";
 
 export function registerConfigRoutes(app: Elysia): void {
@@ -25,6 +26,7 @@ export function registerConfigRoutes(app: Elysia): void {
           throw new Error(validationError);
         }
         await writeLocalSettings(sanitized);
+        applyMarketplaceEnvVars(sanitized.marketplace);
         return sanitized;
       },
       (sanitized) => jsonResponse(200, {

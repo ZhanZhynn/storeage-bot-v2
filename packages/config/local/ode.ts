@@ -76,6 +76,10 @@ function toDashboardConfig(config: OdeConfig): DashboardConfig {
     },
     agents: structuredClone(config.agents),
     workspaces: structuredClone(config.workspaces),
+    marketplace: structuredClone(config.marketplace ?? {
+      shopee: { partnerId: "", partnerKey: "", shopId: "", accessToken: "", refreshToken: "", region: "MY", environment: "production" },
+      lazada: { appKey: "", appSecret: "", accessToken: "", refreshToken: "", region: "MY" },
+    }),
   };
 }
 
@@ -114,6 +118,24 @@ function mergeDashboardConfig(config: OdeConfig, dashboardConfig: DashboardConfi
     },
     agents: structuredClone(dashboardConfig.agents),
     workspaces,
+    marketplace: {
+      shopee: {
+        partnerId: dashboardConfig.marketplace?.shopee?.partnerId ?? "",
+        partnerKey: dashboardConfig.marketplace?.shopee?.partnerKey ?? "",
+        shopId: dashboardConfig.marketplace?.shopee?.shopId ?? "",
+        accessToken: dashboardConfig.marketplace?.shopee?.accessToken ?? "",
+        refreshToken: dashboardConfig.marketplace?.shopee?.refreshToken ?? "",
+        region: dashboardConfig.marketplace?.shopee?.region ?? "MY",
+        environment: dashboardConfig.marketplace?.shopee?.environment ?? "production",
+      },
+      lazada: {
+        appKey: dashboardConfig.marketplace?.lazada?.appKey ?? "",
+        appSecret: dashboardConfig.marketplace?.lazada?.appSecret ?? "",
+        accessToken: dashboardConfig.marketplace?.lazada?.accessToken ?? "",
+        refreshToken: dashboardConfig.marketplace?.lazada?.refreshToken ?? "",
+        region: dashboardConfig.marketplace?.lazada?.region ?? "MY",
+      },
+    },
   };
 }
 

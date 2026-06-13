@@ -16,6 +16,29 @@ import {
   type AgentProviderId,
 } from "@/shared/agent-provider";
 
+export type MarketplaceShopeeConfig = {
+  partnerId: string;
+  partnerKey: string;
+  shopId: string;
+  accessToken: string;
+  refreshToken: string;
+  region: string;
+  environment: string;
+};
+
+export type MarketplaceLazadaConfig = {
+  appKey: string;
+  appSecret: string;
+  accessToken: string;
+  refreshToken: string;
+  region: string;
+};
+
+export type MarketplaceConfig = {
+  shopee: MarketplaceShopeeConfig;
+  lazada: MarketplaceLazadaConfig;
+};
+
 export type DashboardConfig = {
   completeOnboarding: boolean;
   user: {
@@ -27,6 +50,7 @@ export type DashboardConfig = {
     defaultStatusMessageFormat: StatusMessageFormat;
     statusMessageFrequencyMs?: StatusMessageFrequencyMs;
   };
+  marketplace: MarketplaceConfig;
   updates: {
     autoUpgrade: boolean;
   };
@@ -90,6 +114,29 @@ export type DashboardConfig = {
   }[];
 };
 
+const defaultMarketplaceShopee: MarketplaceShopeeConfig = {
+  partnerId: "",
+  partnerKey: "",
+  shopId: "",
+  accessToken: "",
+  refreshToken: "",
+  region: "MY",
+  environment: "production",
+};
+
+const defaultMarketplaceLazada: MarketplaceLazadaConfig = {
+  appKey: "",
+  appSecret: "",
+  accessToken: "",
+  refreshToken: "",
+  region: "MY",
+};
+
+const defaultMarketplace: MarketplaceConfig = {
+  shopee: defaultMarketplaceShopee,
+  lazada: defaultMarketplaceLazada,
+};
+
 const defaultWorkspace: DashboardConfig["workspaces"][number] = {
   id: "workspace-1",
   type: "slack",
@@ -111,6 +158,7 @@ export const defaultDashboardConfig: DashboardConfig = {
     defaultStatusMessageFormat: "medium",
     statusMessageFrequencyMs: DEFAULT_STATUS_MESSAGE_FREQUENCY_MS,
   },
+  marketplace: defaultMarketplace,
   updates: {
     autoUpgrade: true,
   },
@@ -198,6 +246,41 @@ function sanitizeAgents(input: unknown): DashboardConfig["agents"] {
       ] as const;
     })
   ) as unknown as DashboardConfig["agents"];
+}
+
+function sanitizeMarketplaceShopee(input: unknown): MarketplaceShopeeConfig {
+  if (!input || typeof input !== "object") return { ...defaultMarketplaceShopee };
+  const record = input as Record<string, unknown>;
+  return {
+    partnerId: asString(record.partnerId),
+    partnerKey: asString(record.partnerKey),
+    shopId: asString(record.shopId),
+    accessToken: asString(record.accessToken),
+    refreshToken: asString(record.refreshToken),
+    region: asString(record.region) || "MY",
+    environment: asString(record.environment) || "production",
+  };
+}
+
+function sanitizeMarketplaceLazada(input: unknown): MarketplaceLazadaConfig {
+  if (!input || typeof input !== "object") return { ...defaultMarketplaceLazada };
+  const record = input as Record<string, unknown>;
+  return {
+    appKey: asString(record.appKey),
+    appSecret: asString(record.appSecret),
+    accessToken: asString(record.accessToken),
+    refreshToken: asString(record.refreshToken),
+    region: asString(record.region) || "MY",
+  };
+}
+
+function sanitizeMarketplace(input: unknown): MarketplaceConfig {
+  if (!input || typeof input !== "object") return { ...defaultMarketplace };
+  const record = input as Record<string, unknown>;
+  return {
+    shopee: sanitizeMarketplaceShopee(record.shopee),
+    lazada: sanitizeMarketplaceLazada(record.lazada),
+  };
 }
 
 const sanitizeChannelDetail = (
@@ -294,6 +377,7 @@ export const sanitizeDashboardConfig = (config: unknown): DashboardConfig => {
       defaultStatusMessageFormat: asFrequency(user.defaultStatusMessageFormat),
       statusMessageFrequencyMs: asStatusMessageFrequencyMs(user.statusMessageFrequencyMs),
     },
+    marketplace: sanitizeMarketplace(record.marketplace),
     updates: {
       autoUpgrade: record.updates && typeof record.updates === "object"
         ? (record.updates as Record<string, unknown>).autoUpgrade !== false

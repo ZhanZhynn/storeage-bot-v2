@@ -13,7 +13,7 @@
 
   const pathname = $derived($page.url.pathname);
   const normalizedPathname = $derived(pathname.endsWith("/") && pathname.length > 1 ? pathname.slice(0, -1) : pathname);
-  const activeSection = $derived.by<"general" | "agents" | "inbox" | "cronJobs" | "tasks" | "prTracker" | "workspace">(() =>
+  const activeSection = $derived.by<"general" | "agents" | "inbox" | "cronJobs" | "tasks" | "prTracker" | "marketplace" | "workspace">(() =>
     normalizedPathname === "/agents"
       ? "agents"
       : normalizedPathname === "/inbox"
@@ -24,9 +24,11 @@
         ? "tasks"
       : normalizedPathname === "/pr-tracker"
         ? "prTracker"
-        : normalizedPathname.startsWith("/workspace")
-          ? "workspace"
-          : "general"
+        : normalizedPathname === "/marketplace"
+          ? "marketplace"
+          : normalizedPathname.startsWith("/workspace")
+            ? "workspace"
+            : "general"
   );
   let pendingWorkspaceType = $state<"slack" | "discord" | "lark" | "telegram">("slack");
   let pendingSlackAppToken = $state("");
@@ -243,6 +245,13 @@
         >
           {t("PR Tracker", "PR 追踪")}
         </Button>
+        <Button
+          variant={activeSection === "marketplace" ? "default" : "secondary"}
+          className="w-full justify-start"
+          on:click={() => goto("/marketplace")}
+        >
+          {t("Marketplace", "Marketplace")}
+        </Button>
       </div>
     </Card>
 
@@ -293,7 +302,7 @@
     <section class="space-y-4">
       {@render children()}
 
-    {#if activeSection === "workspace"}
+    {#if activeSection === "workspace" || activeSection === "marketplace"}
       <Card className="border-0 bg-transparent p-0 shadow-none backdrop-blur-none">
         <div class="flex flex-wrap items-center justify-end gap-2">
           {#if selectedWorkspace}

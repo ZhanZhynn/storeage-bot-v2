@@ -97,6 +97,33 @@ const workspaceSchema = z.object({
   channelDetails: z.array(channelDetailSchema).optional().default([]),
 });
 
+const marketplaceShopeeSchema = z.object({
+  partnerId: z.string().optional().default(""),
+  partnerKey: z.string().optional().default(""),
+  shopId: z.string().optional().default(""),
+  accessToken: z.string().optional().default(""),
+  refreshToken: z.string().optional().default(""),
+  region: z.string().optional().default("MY"),
+  environment: z.string().optional().default("production"),
+});
+
+const marketplaceLazadaSchema = z.object({
+  appKey: z.string().optional().default(""),
+  appSecret: z.string().optional().default(""),
+  accessToken: z.string().optional().default(""),
+  refreshToken: z.string().optional().default(""),
+  region: z.string().optional().default("MY"),
+});
+
+const marketplaceSchema = z.object({
+  shopee: marketplaceShopeeSchema.optional().default({
+    partnerId: "", partnerKey: "", shopId: "", accessToken: "", refreshToken: "", region: "MY", environment: "production",
+  }),
+  lazada: marketplaceLazadaSchema.optional().default({
+    appKey: "", appSecret: "", accessToken: "", refreshToken: "", region: "MY",
+  }),
+});
+
 export const odeConfigSchema = z.object({
   user: userSchema,
   githubInfos: z
@@ -113,6 +140,10 @@ export const odeConfigSchema = z.object({
   agents: agentsSchema,
   completeOnboarding: z.boolean().optional().default(false),
   workspaces: z.array(workspaceSchema),
+  marketplace: marketplaceSchema.optional().default({
+    shopee: { partnerId: "", partnerKey: "", shopId: "", accessToken: "", refreshToken: "", region: "MY", environment: "production" },
+    lazada: { appKey: "", appSecret: "", accessToken: "", refreshToken: "", region: "MY" },
+  }),
   updates: updateSchema.optional().default({
     autoUpgrade: true,
     checkIntervalMs: DEFAULT_UPDATE_INTERVAL_MS,

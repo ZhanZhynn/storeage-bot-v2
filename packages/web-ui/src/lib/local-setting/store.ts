@@ -152,6 +152,24 @@ function validateWorkspaceConfig(config: DashboardConfig): string | null {
 function normalizeConfig(input: DashboardConfig): DashboardConfig {
   return {
     ...input,
+    marketplace: input.marketplace ?? {
+      shopee: {
+        partnerId: "",
+        partnerKey: "",
+        shopId: "",
+        accessToken: "",
+        refreshToken: "",
+        region: "MY",
+        environment: "production",
+      },
+      lazada: {
+        appKey: "",
+        appSecret: "",
+        accessToken: "",
+        refreshToken: "",
+        region: "MY",
+      },
+    },
     user: {
       ...input.user,
       gitStrategy: input.user.gitStrategy ?? "worktree",
