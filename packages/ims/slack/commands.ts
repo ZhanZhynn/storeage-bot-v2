@@ -56,6 +56,7 @@ import {
   buildCronJobDetailBlocks,
   getCronJobForChannel,
 } from "./cron";
+import { registerShopeeShipActions } from "./shopee-actions";
 import {
   CronJobAlreadyRunningError,
   CronJobNotFoundError,
@@ -514,6 +515,7 @@ function buildGeneralSettingsModal(params: {
 
 export function setupInteractiveHandlers(): void {
   for (const slackApp of getApps()) {
+    registerShopeeShipActions(slackApp);
     slackApp.action(SETTINGS_LAUNCH_ACTION, async ({ ack, body, client }) => {
     await ack();
 
