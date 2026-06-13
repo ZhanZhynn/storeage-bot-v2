@@ -12,8 +12,8 @@ from .client import (LazadaAPIError, LazadaClient, LazadaConfig,
 from .finance import (get_payout_status, get_transaction_details,
                       query_account_transactions, query_logistics_fee_detail)
 from .orders import (build_default_order_window, fetch_orders,
-                     get_multiple_order_items, get_order_items_by_order_id,
-                     validate_order_cancel)
+                     get_multiple_order_items, get_near_sla_orders,
+                     get_order_items_by_order_id, validate_order_cancel)
 from .products import get_product_item, get_products
 from .returns_refunds import (get_reverse_orders_for_seller,
                               list_return_detail, list_return_history,
@@ -141,6 +141,12 @@ def _build_parser() -> argparse.ArgumentParser:
     orders_cancel_validate = orders_subparsers.add_parser("cancel-validate", help="Validate order cancel via /order/reverse/cancel/validate")
     orders_cancel_validate.add_argument("--order-id", dest="order_id", required=True)
     orders_cancel_validate.add_argument("--order-item-id-list", dest="order_item_id_list", default=None, help="JSON array of order item IDs")
+
+    orders_sla = orders_subparsers.add_parser("sla-check", help="Find orders near SLA deadline via sla_time_stamp on order items")
+    orders_sla.add_argument("--hours", type=int, default=12, help="SLA threshold in hours")
+    orders_sla.add_argument("--max-pages", dest="max_pages", type=int, default=5, help="Max pages of orders to scan")
+    orders_sla.add_argument("--statuses", default=None, help="JSON array of order statuses to check (default: pending,toship,topack)")
+    orders_sla.add_argument("--lookback-days", dest="lookback_days", type=int, default=30, help="Days to look back for orders")
 
     orders_summary = orders_subparsers.add_parser(
         "summary", help="Get order summary with status breakdown in one call"
@@ -532,6 +538,44 @@ def _handle_orders_cancel_validate(args: argparse.Namespace) -> int:
             "action": "cancel-validate",
             "order_id": args.order_id,
             "order_item_id_list": order_item_id_list,
+            **result.model_dump(),
+        },
+        ok=True,
+    )
+
+
+def _handle_orders_sla_check(args: argparse.Namespace) -> int:
+    statuses = None
+    if args.statuses:
+        try:
+            statuses = json.loads(args.statuses)
+        except json.JSONDecodeError as err:
+            return _emit({"error": f"Invalid JSON for --statuses: {err}"}, ok=False, status="runtime_error")
+
+        if not isinstance(statuses, list):
+            return _emit({"error": "--statuses must be a JSON array"}, ok=False, status="runtime_error")
+
+    try:
+        result = get_near_sla_orders(
+            _with_client(),
+            hours_threshold=args.hours,
+            max_pages=args.max_pages,
+            statuses=statuses,
+            lookback_days=args.lookback_days,
+        )
+    except Exception as err:
+        return _emit({"error": str(err)}, ok=False, status="runtime_error")
+
+    return _emit(
+        {
+            "domain": "orders",
+            "action": "sla-check",
+            "filters": {
+                "hours": args.hours,
+                "max_pages": args.max_pages,
+                "statuses": statuses,
+                "lookback_days": args.lookback_days,
+            },
             **result.model_dump(),
         },
         ok=True,
@@ -1324,6 +1368,8 @@ def main(argv: list[str] | None = None) -> int:
             return _handle_orders_items_multiple(args)
         if args.domain == "orders" and args.action == "cancel-validate":
             return _handle_orders_cancel_validate(args)
+        if args.domain == "orders" and args.action == "sla-check":
+            return _handle_orders_sla_check(args)
         if args.domain == "orders" and args.action == "summary":
             return _handle_orders_summary(args)
 

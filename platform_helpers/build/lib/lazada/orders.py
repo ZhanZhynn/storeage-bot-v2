@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .client import LazadaClient
-from .models import (CancelValidationResponse, OrderItemsResponse,
+from .models import (CancelValidationResponse, LazadaNearSlaOrderItem,
+                     LazadaNearSlaOrdersResponse, OrderItemsResponse,
                      OrderResponse, OrdersResponse)
 
 
@@ -201,4 +202,130 @@ def fetch_orders(
         has_more=has_more,
         request_ids=request_ids,
         orders=collected_orders,  # type: ignore[arg-type]
+    )
+
+
+def _parse_sla_time_stamp(value: Any) -> datetime | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        text = text.replace("T", " ")
+        dt = datetime.strptime(text, "%Y-%m-%d %H:%M:%S%z")
+        return dt
+    except ValueError:
+        pass
+    try:
+        dt = datetime.fromisoformat(text)
+        return dt
+    except ValueError:
+        pass
+    try:
+        if text.isdigit():
+            ts = int(text)
+            if len(text) > 10:
+                return datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+            return datetime.fromtimestamp(ts, tz=timezone.utc)
+    except (ValueError, OSError):
+        pass
+    return None
+
+
+def get_near_sla_orders(
+    client: LazadaClient,
+    *,
+    hours_threshold: int = 12,
+    max_pages: int = 5,
+    statuses: list[str] | None = None,
+    lookback_days: int = 30,
+) -> LazadaNearSlaOrdersResponse:
+    if statuses is None:
+        statuses = ["pending", "toship", "topack"]
+    now = datetime.now(timezone.utc)
+    created_after, created_before = build_default_order_window(lookback_days)
+
+    orders_response = fetch_orders(
+        client,
+        created_after=created_after,
+        created_before=created_before,
+        limit=100,
+        max_pages=max_pages,
+    )
+
+    all_order_ids: list[str] = []
+    order_map: dict[str, dict[str, Any]] = {}
+    for order in orders_response.orders:
+        o = order if isinstance(order, dict) else order.model_dump() if hasattr(order, "model_dump") else {}
+        oid = str(o.get("order_id", ""))
+        if oid:
+            all_order_ids.append(oid)
+            order_map[oid] = o
+
+    near_sla: list[LazadaNearSlaOrderItem] = []
+    no_sla: list[LazadaNearSlaOrderItem] = []
+    total_checked = 0
+
+    for i in range(0, len(all_order_ids), 50):
+        batch = all_order_ids[i:i + 50]
+        try:
+            items_response = get_multiple_order_items(client, order_ids=batch)
+        except Exception:
+            for oid in batch:
+                no_sla.append(LazadaNearSlaOrderItem(
+                    order_id=oid,
+                    order_item_id="",
+                    sla_time_stamp=None,
+                    hours_to_sla=None,
+                    status="error",
+                ))
+            continue
+
+        for order_group in items_response.order_items:
+            og = order_group if isinstance(order_group, dict) else order_group.model_dump() if hasattr(order_group, "model_dump") else {}
+            oid = str(og.get("order_id", ""))
+            order_items = og.get("order_items", []) or []
+            if not isinstance(order_items, list):
+                order_items = []
+
+            for item in order_items:
+                if not isinstance(item, dict):
+                    continue
+                total_checked += 1
+                order_item_id = str(item.get("order_item_id", ""))
+                sla_raw = item.get("sla_time_stamp")
+                sla_dt = _parse_sla_time_stamp(sla_raw)
+                status = str(item.get("status", "")) or None
+
+                sla_item = LazadaNearSlaOrderItem(
+                    order_id=oid,
+                    order_item_id=order_item_id,
+                    sla_time_stamp=str(sla_dt) if sla_dt else None,
+                    hours_to_sla=(sla_dt - now).total_seconds() / 3600 if sla_dt else None,
+                    status=status,
+                    sku=str(item.get("sku", "")) or None,
+                    shop_sku=str(item.get("shop_sku", "")) or None,
+                    name=str(item.get("name", "")) or None,
+                    order_flag=str(item.get("order_flag", "")) or None,
+                    warehouse_code=str(item.get("warehouse_code", "")) or None,
+                    shipping_type=str(item.get("shipping_type", "")) or None,
+                )
+
+                if sla_dt is not None and sla_item.hours_to_sla is not None and sla_item.hours_to_sla <= hours_threshold:
+                    near_sla.append(sla_item)
+                else:
+                    no_sla.append(sla_item)
+
+    near_sla.sort(key=lambda x: (x.hours_to_sla if x.hours_to_sla is not None else float("inf")))
+
+    orders_with_sla_ids = set(item.order_id for item in near_sla)
+
+    return LazadaNearSlaOrdersResponse(
+        sla_threshold_hours=hours_threshold,
+        total_checked=total_checked,
+        near_sla_count=len(near_sla),
+        orders_with_sla=len(orders_with_sla_ids),
+        has_sla=near_sla,
+        no_sla=no_sla,
     )

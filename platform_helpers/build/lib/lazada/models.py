@@ -477,3 +477,34 @@ class ErrorResponse(BaseModel):
     request_id: str | None = None
 
     model_config = ConfigDict(extra="allow")
+
+
+class LazadaNearSlaOrderItem(BaseModel):
+    """A Lazada order item approaching its SLA deadline."""
+
+    order_id: str
+    order_item_id: str
+    sla_time_stamp: str | None = None
+    hours_to_sla: float | None = None
+    status: str | None = None
+    sku: str | None = None
+    shop_sku: str | None = None
+    name: str | None = None
+    order_flag: str | None = None
+    warehouse_code: str | None = None
+    shipping_type: str | None = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class LazadaNearSlaOrdersResponse(BaseModel):
+    """Response from checking Lazada orders near SLA."""
+
+    sla_threshold_hours: int
+    total_checked: int = 0
+    near_sla_count: int = 0
+    orders_with_sla: int = 0
+    has_sla: list[LazadaNearSlaOrderItem] = []
+    no_sla: list[LazadaNearSlaOrderItem] = []
+
+    model_config = ConfigDict(extra="allow")
