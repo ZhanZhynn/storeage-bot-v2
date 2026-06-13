@@ -92,6 +92,7 @@ function mergeDashboardConfig(config: OdeConfig, dashboardConfig: DashboardConfi
     larkAppKey: workspace.larkAppKey ?? workspace.larkAppId ?? "",
     larkAppId: workspace.larkAppId ?? workspace.larkAppKey ?? "",
     larkAppSecret: workspace.larkAppSecret ?? "",
+    telegramBotToken: workspace.telegramBotToken ?? "",
     channelDetails: workspace.channelDetails.map((channel) => ({
       ...channel,
       agentProvider: channel.agentProvider ?? "opencode",

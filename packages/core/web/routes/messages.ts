@@ -1,6 +1,6 @@
 import type { Elysia } from "elysia";
-import { getDiscordThreadMessages, getLarkThreadMessages, getSlackThreadMessages } from "@/ims";
-import { attachDiscordBotToken, attachLarkCredentials } from "../config-validation";
+import { getDiscordThreadMessages, getLarkThreadMessages, getSlackThreadMessages, getTelegramThreadMessages } from "@/ims";
+import { attachDiscordBotToken, attachLarkCredentials, attachTelegramBotToken } from "../config-validation";
 import { jsonResponse, readJsonBody, runRoute } from "../http";
 import { resolveChannelLocator } from "./channel-resolver";
 
@@ -67,6 +67,21 @@ export function registerMessagesRoutes(app: Elysia): void {
             botToken,
             channelId: resolved.channelId,
             threadId,
+            limit,
+          });
+          return { platform: resolved.platform, ...result };
+        }
+
+        if (resolved.platform === "telegram") {
+          const tgPayload: Record<string, unknown> = { channelId: resolved.channelId };
+          attachTelegramBotToken(tgPayload);
+          const botToken = typeof tgPayload.botToken === "string" ? tgPayload.botToken : "";
+          if (!botToken) {
+            throw new Error("Telegram bot token not configured");
+          }
+          const result = await getTelegramThreadMessages({
+            botToken,
+            chatId: resolved.channelId,
             limit,
           });
           return { platform: resolved.platform, ...result };

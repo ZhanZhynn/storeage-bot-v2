@@ -9,6 +9,7 @@ import {
   resolveChannelCwd,
 } from "@/config";
 import {
+  type TaskPlatform,
   type TaskRecord,
   getTaskById,
   listDueTasks,
@@ -39,6 +40,7 @@ import {
   sendChannelMessage as sendSlackChannelMessage,
   sendMessage as sendSlackThreadMessage,
 } from "@/ims/slack/client";
+import { sendChannelMessage as sendTelegramChannelMessage } from "@/ims/telegram/client";
 import { type AgentProviderId, isAgentProviderId } from "@/shared/agent-provider";
 import { log } from "@/utils";
 
@@ -209,6 +211,10 @@ async function sendResultToChannel(
     const newThreadId = await sendDiscordChannelMessage(task.channelId, text);
     return { threadedReply: false, newThreadId };
   }
+  if (task.platform === "telegram") {
+    const newThreadId = await sendTelegramChannelMessage(task.channelId, text);
+    return { threadedReply: false, newThreadId };
+  }
   const newThreadId = await sendLarkChannelMessage(task.channelId, text);
   return { threadedReply: false, newThreadId };
 }
@@ -221,7 +227,7 @@ async function sendResultToChannel(
  * first human replier can claim the thread via session-bootstrap.
  */
 function seedChannelThreadSession(params: {
-  platform: "slack" | "discord" | "lark";
+  platform: TaskPlatform;
   channelId: string;
   realThreadId: string;
   sessionId: string;

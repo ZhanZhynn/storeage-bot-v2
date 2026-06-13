@@ -1,6 +1,6 @@
 import type { Elysia } from "elysia";
-import { addDiscordReaction, addLarkReaction, addSlackReaction } from "@/ims";
-import { attachDiscordBotToken, attachLarkCredentials } from "../config-validation";
+import { addDiscordReaction, addLarkReaction, addSlackReaction, addTelegramReaction } from "@/ims";
+import { attachDiscordBotToken, attachLarkCredentials, attachTelegramBotToken } from "../config-validation";
 import { jsonResponse, readJsonBody, runRoute } from "../http";
 import { resolveChannelLocator } from "./channel-resolver";
 
@@ -55,6 +55,22 @@ export function registerReactionsRoutes(app: Elysia): void {
           const result = await addDiscordReaction({
             botToken,
             channelId: resolved.channelId,
+            messageId,
+            emoji,
+          });
+          return { platform: resolved.platform, ...result };
+        }
+
+        if (resolved.platform === "telegram") {
+          const tgPayload: Record<string, unknown> = { channelId: resolved.channelId };
+          attachTelegramBotToken(tgPayload);
+          const botToken = typeof tgPayload.botToken === "string" ? tgPayload.botToken : "";
+          if (!botToken) {
+            throw new Error("Telegram bot token not configured");
+          }
+          const result = await addTelegramReaction({
+            botToken,
+            chatId: resolved.channelId,
             messageId,
             emoji,
           });

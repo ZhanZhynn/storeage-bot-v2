@@ -6,6 +6,7 @@ import time as time_module
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
 
+from . import auth
 from .client import (LazadaAPIError, LazadaClient, LazadaConfig,
                      LazadaConfigError)
 from .finance import (get_payout_status, get_transaction_details,
@@ -338,6 +339,21 @@ def _build_parser() -> argparse.ArgumentParser:
         default=10,
         help="Max API calls to list_seller_reviews_history (rate limit guard)",
     )
+
+    auth_cmd = subparsers.add_parser("auth", help="Auth domain operations")
+    auth_subparsers = auth_cmd.add_subparsers(dest="action", required=True)
+
+    auth_refresh_cmd = auth_subparsers.add_parser(
+        "refresh", help="Refresh access token via /auth/token/refresh"
+    )
+    auth_refresh_cmd.add_argument("--refresh-token", dest="refresh_token", default=None,
+                                  help="The refresh token (falls back to BOLTY_LAZADA_REFRESH_TOKEN env)")
+
+    auth_authorize_cmd = auth_subparsers.add_parser(
+        "authorize", help="Exchange auth code for tokens via /auth/token/create"
+    )
+    auth_authorize_cmd.add_argument("--code", required=True,
+                                    help="The authorization code from the OAuth redirect")
 
     return parser
 
@@ -1258,6 +1274,42 @@ def _handle_reviews_get_recent_orders(args: argparse.Namespace) -> int:
     )
 
 
+def _handle_auth_refresh(args: argparse.Namespace) -> int:
+    try:
+        result = auth.refresh_access_token(
+            refresh_token=args.refresh_token,
+        )
+    except Exception as err:
+        return _emit({"error": str(err)}, ok=False, status="runtime_error")
+
+    return _emit(
+        {
+            "domain": "auth",
+            "action": "refresh",
+            **result,
+        },
+        ok=True,
+    )
+
+
+def _handle_auth_authorize(args: argparse.Namespace) -> int:
+    try:
+        result = auth.authorize_access_token(
+            code=args.code,
+        )
+    except Exception as err:
+        return _emit({"error": str(err)}, ok=False, status="runtime_error")
+
+    return _emit(
+        {
+            "domain": "auth",
+            "action": "authorize",
+            **result,
+        },
+        ok=True,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -1308,6 +1360,11 @@ def main(argv: list[str] | None = None) -> int:
             return _handle_reviews_get_item_reviews(args)
         if args.domain == "reviews" and args.action == "get-recent-orders":
             return _handle_reviews_get_recent_orders(args)
+
+        if args.domain == "auth" and args.action == "refresh":
+            return _handle_auth_refresh(args)
+        if args.domain == "auth" and args.action == "authorize":
+            return _handle_auth_authorize(args)
 
         return _emit({"error": "Unsupported command"}, ok=False, status="invalid_command")
     except LazadaConfigError as err:

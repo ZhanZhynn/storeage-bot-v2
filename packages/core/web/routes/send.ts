@@ -1,6 +1,6 @@
 import type { Elysia } from "elysia";
-import { uploadDiscordFile, uploadLarkFile, uploadSlackFile } from "@/ims";
-import { attachDiscordBotToken, attachLarkCredentials } from "../config-validation";
+import { uploadDiscordFile, uploadLarkFile, uploadSlackFile, uploadTelegramFile } from "@/ims";
+import { attachDiscordBotToken, attachLarkCredentials, attachTelegramBotToken } from "../config-validation";
 import { jsonResponse, readJsonBody, runRoute } from "../http";
 import { resolveChannelLocator } from "./channel-resolver";
 
@@ -65,6 +65,23 @@ export function registerSendRoutes(app: Elysia): void {
             filePath,
             filename,
             initialComment,
+          });
+          return { platform: resolved.platform, result };
+        }
+
+        if (resolved.platform === "telegram") {
+          const tgPayload: Record<string, unknown> = { channelId: resolved.channelId };
+          attachTelegramBotToken(tgPayload);
+          const botToken = typeof tgPayload.botToken === "string" ? tgPayload.botToken : "";
+          if (!botToken) {
+            throw new Error("Telegram bot token not configured");
+          }
+          const result = await uploadTelegramFile({
+            botToken,
+            chatId: resolved.channelId,
+            filePath,
+            filename,
+            caption: initialComment,
           });
           return { platform: resolved.platform, result };
         }

@@ -80,7 +80,7 @@ export interface PersistedSession {
   channelId: string;
   threadId: string;
   providerId?: "opencode" | "claudecode" | "codex" | "kimi" | "kiro" | "kilo" | "qwen" | "goose" | "gemini";
-  platform?: "slack" | "discord" | "lark";
+  platform?: "slack" | "discord" | "lark" | "telegram";
   workingDirectory: string;
   threadOwnerUserId?: string;
   participantBotIds?: string[];

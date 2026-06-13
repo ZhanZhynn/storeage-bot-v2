@@ -8,6 +8,7 @@ import {
   resolveChannelCwd,
 } from "@/config";
 import {
+  type CronJobPlatform,
   type CronJobRecord,
   getCronJobById,
   listEnabledCronJobs,
@@ -37,6 +38,7 @@ import { buildSessionEnvironment, prepareSessionWorkspace } from "@/core/session
 import { sendChannelMessage as sendDiscordChannelMessage } from "@/ims/discord/client";
 import { sendChannelMessage as sendLarkChannelMessage } from "@/ims/lark/client";
 import { sendChannelMessage as sendSlackChannelMessage } from "@/ims/slack/client";
+import { sendChannelMessage as sendTelegramChannelMessage } from "@/ims/telegram/client";
 import { log } from "@/utils";
 
 const CRON_POLL_INTERVAL_MS = 15_000;
@@ -138,6 +140,9 @@ async function sendResultToChannel(
   if (job.platform === "discord") {
     return sendDiscordChannelMessage(job.channelId, text);
   }
+  if (job.platform === "telegram") {
+    return sendTelegramChannelMessage(job.channelId, text);
+  }
   return sendLarkChannelMessage(job.channelId, text);
 }
 
@@ -149,7 +154,7 @@ async function sendResultToChannel(
  * `packages/ims/shared/synthetic-owner.ts`).
  */
 function seedCronChannelThreadSession(params: {
-  platform: "slack" | "discord" | "lark";
+  platform: CronJobPlatform;
   channelId: string;
   realThreadId: string;
   sessionId: string;
@@ -348,26 +353,33 @@ async function runCronJob(job: CronJobRecord, minuteStartMs: number): Promise<vo
       CRON_AGENT_TIMEOUT_MS,
       "Cron agent turn"
     );
-    const finalText = buildFinalResponseText(responses) ?? "_Done_";
+    const rawResponse = buildFinalResponseText(responses) ?? "_Done_";
+    const suppressPosting = job.messageText.includes("suppress-post");
 
-    const realThreadId = await sendResultToChannel(job, finalText);
-    if (realThreadId) {
-      seedCronChannelThreadSession({
-        platform: job.platform,
-        channelId: job.channelId,
-        realThreadId,
-        sessionId,
-        providerId,
-        workingDirectory: cwd,
-        syntheticOwnerId: getCronUserId(job.id),
-        branchName: session.branchName,
+    if (suppressPosting) {
+      log.debug("Cron job result suppressed (--suppress-post flag)", {
+        cronJobId: job.id,
       });
+    } else {
+      const realThreadId = await sendResultToChannel(job, rawResponse);
+      if (realThreadId) {
+        seedCronChannelThreadSession({
+          platform: job.platform,
+          channelId: job.channelId,
+          realThreadId,
+          sessionId,
+          providerId,
+          workingDirectory: cwd,
+          syntheticOwnerId: getCronUserId(job.id),
+          branchName: session.branchName,
+        });
+      }
     }
     if (agentResultDetailId) {
       try {
         completeAgentResult({
           detailId: agentResultDetailId,
-          resultText: finalText,
+          resultText: rawResponse,
           providerId,
           model,
           workingDirectory: cwd,

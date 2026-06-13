@@ -80,7 +80,7 @@ const updateSchema = z.object({
 
 const workspaceSchema = z.object({
   id: z.string(),
-  type: z.enum(["slack", "discord", "lark"]).optional().default("slack"),
+  type: z.enum(["slack", "discord", "lark", "telegram"]).optional().default("slack"),
   name: z.string().optional().default(""),
   domain: z.string().optional().default(""),
   status: z.enum(["active", "paused"]).optional().default("active"),
@@ -93,6 +93,7 @@ const workspaceSchema = z.object({
   larkAppKey: z.string().optional().default(""),
   larkAppId: z.string().optional().default(""),
   larkAppSecret: z.string().optional().default(""),
+  telegramBotToken: z.string().optional().default(""),
   channelDetails: z.array(channelDetailSchema).optional().default([]),
 });
 

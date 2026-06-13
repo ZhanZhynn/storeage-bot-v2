@@ -1,4 +1,5 @@
 import { getWorkspaces } from "@/config";
+import { sendTelegramMessage } from "./api";
 import { createHash } from "node:crypto";
 
 export function buildTelegramBotId(credential: string): string {
@@ -30,6 +31,22 @@ export function getTelegramBotTokens(): Array<{ workspaceId: string; token: stri
     result.push({ workspaceId: workspace.id, token });
   }
   return result;
+}
+
+export async function sendChannelMessage(
+  channelId: string,
+  text: string,
+): Promise<string | undefined> {
+  const token = getTelegramBotToken(channelId);
+  if (!token) {
+    throw new Error(`No Telegram bot token configured for channel ${channelId}`);
+  }
+  const result = await sendTelegramMessage({
+    botToken: token,
+    chatId: channelId,
+    text,
+  });
+  return result?.messageId?.toString();
 }
 
 export async function recoverPendingRequests(): Promise<void> {

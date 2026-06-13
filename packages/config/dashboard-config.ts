@@ -64,7 +64,7 @@ export type DashboardConfig = {
   };
   workspaces: {
     id: string;
-    type: "slack" | "discord" | "lark";
+    type: "slack" | "discord" | "lark" | "telegram";
     name: string;
     domain: string;
     status: "active" | "paused";
@@ -77,6 +77,7 @@ export type DashboardConfig = {
     larkAppKey?: string;
     larkAppId?: string;
     larkAppSecret?: string;
+    telegramBotToken?: string;
     channelDetails: {
       id: string;
       name: string;

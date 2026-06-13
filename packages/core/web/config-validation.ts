@@ -3,7 +3,7 @@ import { getWorkspaces } from "@/config";
 export function validateWorkspaceConfig(config: {
   workspaces: Array<{
     id: string;
-    type: "slack" | "discord" | "lark";
+    type: "slack" | "discord" | "lark" | "telegram";
     name: string;
     slackAppToken?: string;
     slackBotToken?: string;
@@ -11,6 +11,7 @@ export function validateWorkspaceConfig(config: {
     larkAppKey?: string;
     larkAppId?: string;
     larkAppSecret?: string;
+    telegramBotToken?: string;
   }>;
 }): string | null {
   const idCounts = new Map<string, number>();
@@ -23,6 +24,15 @@ export function validateWorkspaceConfig(config: {
       return "Workspace id is required for every workspace";
     }
     idCounts.set(workspaceId, (idCounts.get(workspaceId) ?? 0) + 1);
+    if (workspace.type === "telegram") {
+      const botToken = workspace.telegramBotToken?.trim() ?? "";
+      if (!botToken) {
+        const label = workspace.name.trim() || workspace.id;
+        return `Missing Telegram bot token for workspace: ${label}`;
+      }
+      continue;
+    }
+
     if (workspace.type === "discord") {
       const botToken = workspace.discordBotToken?.trim() ?? "";
       if (!botToken) {
@@ -161,6 +171,44 @@ function getLarkWorkspaceCredentialsByWorkspace(workspaceId: string): { appId: s
     }
   }
   return undefined;
+}
+
+function getTelegramWorkspaceTokenByChannel(channelId: string): string | undefined {
+  if (!channelId) return undefined;
+  for (const workspace of getWorkspaces()) {
+    if (workspace.type !== "telegram") continue;
+    const token = workspace.telegramBotToken?.trim();
+    if (!token) continue;
+    if (workspace.channelDetails?.some((channel) => channel.id === channelId)) {
+      return token;
+    }
+  }
+  return undefined;
+}
+
+function resolveTelegramBotTokenFromConfig(payload: Record<string, unknown>): string | undefined {
+  const channelId = typeof payload.channelId === "string" ? payload.channelId.trim() : "";
+  if (channelId) {
+    const channelToken = getTelegramWorkspaceTokenByChannel(channelId);
+    if (channelToken) return channelToken;
+  }
+
+  for (const workspace of getWorkspaces()) {
+    if (workspace.type !== "telegram") continue;
+    const token = workspace.telegramBotToken?.trim();
+    if (token) return token;
+  }
+
+  return undefined;
+}
+
+export function attachTelegramBotToken(payload: unknown): void {
+  if (!payload || typeof payload !== "object") return;
+  const record = payload as Record<string, unknown>;
+  const resolved = resolveTelegramBotTokenFromConfig(record);
+  if (resolved) {
+    record.botToken = resolved;
+  }
 }
 
 export function attachLarkCredentials(payload: unknown): void {

@@ -110,7 +110,7 @@ def format_morning_message(status_breakdown: dict, error: str | None) -> str:
         lines.extend(["", ":wave: All caught up! No pending orders."])
     else:
         lines.extend(["", f":muscle: *Total needing attention: {total} orders*"])
-    lines.extend(["", f":link: <{LAZADA_SELLER_CENTER_URL}|Open Seller Center>"])
+    # lines.extend(["", f":link: <{LAZADA_SELLER_CENTER_URL}|Open Seller Center>"])
     return "\n".join(lines)
 
 

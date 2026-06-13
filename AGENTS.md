@@ -46,6 +46,7 @@ Ode is a Slack bot that bridges messages to OpenCode for AI-assisted coding.
 - Every run creates a fresh session + worktree (see `packages/core/cron/scheduler.ts`) so jobs start clean.
 - Persistence: same `~/.config/ode/inbox.db` (table `cron_jobs`); scheduler polls every 15s and claims runs at the SQL level.
 - HTTP API mirrors the CLI under `/api/cron-jobs*`; the Web UI lives at Settings → Cron.
+- **Suppressing channel results**: If the cron job's `messageText` contains `suppress-post`, the scheduler skips posting the agent's final response to the channel. Use this when the job handles its own posting (e.g., a wrapper script that calls `ode send` or posts via a platform API directly). Wrap the flag as `[suppress-post]` on its own line at the start of the message so the agent sees it as a system directive.
 
 ## Sending Files / Images (`ode send`)
 - `ode send file <path> --channel <channelId> [--thread <threadId>] [--filename <name>] [--title <title>] [--comment <text>]` uploads any file to a chat channel.

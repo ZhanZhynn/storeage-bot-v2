@@ -313,6 +313,7 @@ async function setupWorkspaces(rl: Interface, config: OdeConfig): Promise<OdeCon
         larkAppKey: discoveredWorkspace.larkAppKey ?? discoveredWorkspace.larkAppId ?? "",
         larkAppId: discoveredWorkspace.larkAppKey ?? discoveredWorkspace.larkAppId ?? "",
         larkAppSecret: discoveredWorkspace.larkAppSecret ?? "",
+        telegramBotToken: ((discoveredWorkspace as unknown) as Record<string, string | undefined>).telegramBotToken ?? "",
         channelDetails: discoveredWorkspace.channelDetails.map((channel) => ({
           ...channel,
           agentProvider: channel.agentProvider ?? "opencode",
