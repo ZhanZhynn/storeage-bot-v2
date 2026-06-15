@@ -7,8 +7,11 @@ from typing import Any
 import requests
 from pydantic import BaseModel, ConfigDict
 
+from platform_helpers.ode_store import read_ode_config, write_ode_config
+
 
 DEFAULT_TIMEOUT_SECONDS = 30
+DEFAULT_REFRESH_WINDOW_SECONDS = 86400
 DEFAULT_PARTNER_ID = "lazop-sdk-go-20230910"
 
 REGION_BASE_MAP = {
@@ -38,6 +41,9 @@ class LazadaConfig(BaseModel):
     app_key: str = ""
     app_secret: str = ""
     access_token: str = ""
+    refresh_token: str = ""
+    access_token_expires_at: int | None = None
+    refresh_expires_at: int | None = None
     region: str = "MY"
     api_base: str = "https://api.lazada.com.my/rest"
     partner_id: str = ""
@@ -47,14 +53,39 @@ class LazadaConfig(BaseModel):
         validate_default=True,
     )
 
+    def save(self) -> None:
+        config = read_ode_config()
+        marketplace = config.setdefault("marketplace", {})
+        lazada = marketplace.setdefault("lazada", {})
+        lazada["accessToken"] = self.access_token
+        lazada["refreshToken"] = self.refresh_token
+        lazada["accessTokenExpiresAt"] = self.access_token_expires_at
+        lazada["refreshExpiresAt"] = self.refresh_expires_at
+        write_ode_config(config)
+
     @classmethod
     def from_env(cls) -> "LazadaConfig":
         app_key = os.environ.get("BOLTY_LAZADA_APP_KEY", "").strip()
         app_secret = os.environ.get("BOLTY_LAZADA_APP_SECRET", "").strip()
         access_token = os.environ.get("BOLTY_LAZADA_ACCESS_TOKEN", "").strip()
+        refresh_token = os.environ.get("BOLTY_LAZADA_REFRESH_TOKEN", "").strip()
         region = (os.environ.get("BOLTY_LAZADA_REGION", "MY").strip() or "MY").upper()
         api_base = os.environ.get("BOLTY_LAZADA_API_BASE", "").strip() or REGION_BASE_MAP.get(region, "")
         partner_id = os.environ.get("BOLTY_LAZADA_PARTNER_ID", DEFAULT_PARTNER_ID).strip() or DEFAULT_PARTNER_ID
+
+        ode_cfg = read_ode_config()
+        lazada_cfg = ode_cfg.get("marketplace", {}).get("lazada", {})
+        if lazada_cfg.get("accessToken"):
+            access_token = lazada_cfg["accessToken"]
+        if lazada_cfg.get("refreshToken"):
+            refresh_token = lazada_cfg["refreshToken"]
+
+        access_token_expires_at = None
+        refresh_expires_at = None
+        if "accessTokenExpiresAt" in lazada_cfg:
+            access_token_expires_at = lazada_cfg["accessTokenExpiresAt"]
+        if "refreshExpiresAt" in lazada_cfg:
+            refresh_expires_at = lazada_cfg["refreshExpiresAt"]
 
         missing = []
         if not app_key:
@@ -73,6 +104,9 @@ class LazadaConfig(BaseModel):
             app_key=app_key,
             app_secret=app_secret,
             access_token=access_token,
+            refresh_token=refresh_token,
+            access_token_expires_at=access_token_expires_at,
+            refresh_expires_at=refresh_expires_at,
             region=region,
             api_base=api_base,
             partner_id=partner_id,
@@ -90,6 +124,47 @@ class LazadaClient:
         self.config = config
         self.timeout_seconds = timeout_seconds
         self.session = requests.Session()
+        self._access_token_expires_at = config.access_token_expires_at
+        self._refresh_expires_at = config.refresh_expires_at
+
+    def _timestamp(self) -> int:
+        return int(time.time())
+
+    def _set_token_state(self, access_token: str | None, refresh_token: str | None, expire_in: int | None, refresh_expire_in: int | None = None) -> None:
+        if access_token:
+            self.config.access_token = access_token
+        if refresh_token:
+            self.config.refresh_token = refresh_token
+        if expire_in is not None:
+            self._access_token_expires_at = self._timestamp() + int(expire_in)
+        if refresh_expire_in is not None:
+            self._refresh_expires_at = self._timestamp() + int(refresh_expire_in)
+        self.config.save()
+
+    def _should_refresh(self) -> bool:
+        if not self.config.refresh_token:
+            return False
+        if not self.config.access_token:
+            return True
+        if self._access_token_expires_at is None:
+            return True
+        return (self._access_token_expires_at - self._timestamp()) <= DEFAULT_REFRESH_WINDOW_SECONDS
+
+    def _ensure_token(self) -> None:
+        if not self._should_refresh():
+            return
+        from platform_helpers.lazada.auth import refresh_access_token as _refresh
+        result = _refresh(
+            app_key=self.config.app_key,
+            app_secret=self.config.app_secret,
+            refresh_token=self.config.refresh_token or None,
+        )
+        self._set_token_state(
+            result.get("access_token"),
+            result.get("refresh_token"),
+            result.get("expires_in"),
+            result.get("refresh_expires_in"),
+        )
 
     def _timestamp_ms(self) -> str:
         return str(int(round(time.time()))) + "000"
@@ -117,6 +192,7 @@ class LazadaClient:
         return digest.upper()
 
     def _execute(self, api_path: str, api_params: dict[str, Any], *, method: str) -> dict[str, Any]:
+        self._ensure_token()
         params: dict[str, Any] = self._base_params()
         params.update(api_params)
         params["sign"] = self._sign(api_path, params)

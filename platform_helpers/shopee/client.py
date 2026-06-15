@@ -7,6 +7,8 @@ from typing import Any
 import requests
 from pydantic import BaseModel, ConfigDict
 
+from platform_helpers.ode_store import read_ode_config, write_ode_config
+
 
 DEFAULT_TIMEOUT_SECONDS = 30
 DEFAULT_REFRESH_WINDOW_SECONDS = 600
@@ -50,6 +52,15 @@ class ShopeeConfig(BaseModel):
         validate_default=True,
     )
 
+    def save(self) -> None:
+        config = read_ode_config()
+        marketplace = config.setdefault("marketplace", {})
+        shopee = marketplace.setdefault("shopee", {})
+        shopee["accessToken"] = self.access_token
+        shopee["refreshToken"] = self.refresh_token
+        shopee["accessTokenExpiresAt"] = self.access_token_expires_at
+        write_ode_config(config)
+
     @classmethod
     def from_env(cls) -> "ShopeeConfig":
         prefix = "BOLTY_SHOPEE_"
@@ -62,6 +73,17 @@ class ShopeeConfig(BaseModel):
         environment = (os.environ.get(f"{prefix}ENVIRONMENT", "production").strip() or "production").lower()
         region = (os.environ.get(f"{prefix}REGION", "global").strip() or "global").lower()
         api_base = os.environ.get(f"{prefix}API_BASE", "").strip()
+
+        ode_cfg = read_ode_config()
+        shopee_cfg = ode_cfg.get("marketplace", {}).get("shopee", {})
+        if shopee_cfg.get("accessToken"):
+            access_token = shopee_cfg["accessToken"]
+        if shopee_cfg.get("refreshToken"):
+            refresh_token = shopee_cfg["refreshToken"]
+
+        access_token_expires_at = None
+        if "accessTokenExpiresAt" in shopee_cfg:
+            access_token_expires_at = shopee_cfg["accessTokenExpiresAt"]
 
         if not api_base:
             api_base = REGION_BASE_MAP.get((environment, region), "")
@@ -96,6 +118,7 @@ class ShopeeConfig(BaseModel):
             merchant_id=merchant_id,
             access_token=access_token,
             refresh_token=refresh_token,
+            access_token_expires_at=access_token_expires_at,
             environment=environment,
             region=region,
             api_base=api_base,
@@ -141,6 +164,7 @@ class ShopeeClient:
             self.config.refresh_token = refresh_token
         if expire_in is not None:
             self._access_token_expires_at = self._timestamp() + int(expire_in)
+        self.config.save()
 
     def _should_refresh(self) -> bool:
         if not self.config.refresh_token:

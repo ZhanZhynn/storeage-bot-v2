@@ -9,6 +9,7 @@ from typing import Any
 from . import auth
 from .client import (LazadaAPIError, LazadaClient, LazadaConfig,
                      LazadaConfigError)
+from platform_helpers.ode_store import read_ode_config, write_ode_config
 from .finance import (get_payout_status, get_transaction_details,
                       query_account_transactions, query_logistics_fee_detail)
 from .orders import (build_default_order_window, fetch_orders,
@@ -1318,6 +1319,26 @@ def _handle_reviews_get_recent_orders(args: argparse.Namespace) -> int:
     )
 
 
+def _persist_lazada_tokens(result: dict[str, Any]) -> None:
+    access_token = result.get("access_token", "")
+    refresh_token = result.get("refresh_token", "")
+    expires_in = result.get("expires_in")
+    refresh_expires_in = result.get("refresh_expires_in")
+    if not access_token:
+        return
+    config = read_ode_config()
+    lazada = config.setdefault("marketplace", {}).setdefault("lazada", {})
+    lazada["accessToken"] = access_token
+    if refresh_token:
+        lazada["refreshToken"] = refresh_token
+    now = int(time_module.time())
+    if expires_in is not None:
+        lazada["accessTokenExpiresAt"] = now + int(expires_in)
+    if refresh_expires_in is not None:
+        lazada["refreshExpiresAt"] = now + int(refresh_expires_in)
+    write_ode_config(config)
+
+
 def _handle_auth_refresh(args: argparse.Namespace) -> int:
     try:
         result = auth.refresh_access_token(
@@ -1325,6 +1346,8 @@ def _handle_auth_refresh(args: argparse.Namespace) -> int:
         )
     except Exception as err:
         return _emit({"error": str(err)}, ok=False, status="runtime_error")
+
+    _persist_lazada_tokens(result)
 
     return _emit(
         {
@@ -1343,6 +1366,8 @@ def _handle_auth_authorize(args: argparse.Namespace) -> int:
         )
     except Exception as err:
         return _emit({"error": str(err)}, ok=False, status="runtime_error")
+
+    _persist_lazada_tokens(result)
 
     return _emit(
         {
