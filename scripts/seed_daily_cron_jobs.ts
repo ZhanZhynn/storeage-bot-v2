@@ -23,8 +23,10 @@ const DB_PATH = join(homedir(), ".config", "ode", "inbox.db");
 const SEED_TITLES = [
   "Shopee morning",
   "Shopee evening",
+  "Shopee low stock",
   "Lazada morning",
   "Lazada evening",
+  "Lazada low stock",
 ];
 
 const MY_TZ_OFFSET_HOURS = 8; // Malaysia Time
@@ -43,6 +45,7 @@ type Job = {
   channelId: string;
   scheduleHour: number;
   scheduleMinute: number;
+  cronExpression?: string; // optional override (e.g. "0 10,14,18,22 * * *")
   platform: "slack" | "discord" | "lark";
   messageText: string;
 };
@@ -96,6 +99,34 @@ const JOBS: Job[] = [
       "  python3 scripts/lazada_daily_summary.py --mode evening --channel C0AUMS4UTJB | bun run scripts/post_daily_update.ts\n" +
       "Return the resulting ts from post_daily_update.ts.",
   },
+  {
+    title: "Shopee low stock",
+    channelId: "C0B2QN88GSH",
+    scheduleHour: 10,
+    scheduleMinute: 0,
+    cronExpression: "0 10,14,18,22 * * *",
+    platform: "slack",
+    messageText:
+      "Run the Shopee low stock + high sales alert and post to both Slack and Telegram.\n" +
+      "Pipeline from repo root (run both, one per channel):\n" +
+      "  python3 scripts/shopee_low_stock_alert.py --channel C0B2QN88GSH | bun run scripts/post_daily_update.ts\n" +
+      "  python3 scripts/shopee_low_stock_alert.py --channel -1004450247696 | bun run scripts/post_daily_update.ts\n" +
+      "Return the result.",
+  },
+  {
+    title: "Lazada low stock",
+    channelId: "C0AUMS4UTJB",
+    scheduleHour: 10,
+    scheduleMinute: 0,
+    cronExpression: "0 10,14,18,22 * * *",
+    platform: "slack",
+    messageText:
+      "Run the Lazada low stock + high sales alert and post to both Slack and Telegram.\n" +
+      "Pipeline from repo root (run both, one per channel):\n" +
+      "  python3 scripts/lazada_low_stock_alert.py --channel C0AUMS4UTJB | bun run scripts/post_daily_update.ts\n" +
+      "  python3 scripts/lazada_low_stock_alert.py --channel -1004450247696 | bun run scripts/post_daily_update.ts\n" +
+      "Return the result.",
+  },
 ];
 
 function ensureDb(): Database {
@@ -113,7 +144,7 @@ function deleteExistingByTitle(db: Database, title: string): number {
 function insertJob(db: Database, job: Job): string {
   const id = crypto.randomUUID();
   const now = nowMs();
-  const cronExpression = toIsoForCron(new Date(), job.scheduleHour, job.scheduleMinute);
+  const cronExpression = job.cronExpression ?? toIsoForCron(new Date(), job.scheduleHour, job.scheduleMinute);
   db.query(`
     INSERT INTO cron_jobs (
       id, title, cron_expression, platform,
@@ -135,9 +166,10 @@ function main(): number {
     totalDeleted += removed;
     const id = insertJob(db, job);
     totalInserted += 1;
+    const cronExpr = job.cronExpression ?? toIsoForCron(new Date(), job.scheduleHour, job.scheduleMinute);
     console.log(
       `+ ${job.title.padEnd(18)} ${job.platform} ${job.channelId} ` +
-        `cron="${toIsoForCron(new Date(), job.scheduleHour, job.scheduleMinute)}" ` +
+        `cron="${cronExpr}" ` +
         `id=${id} (replaced ${removed})`,
     );
   }
