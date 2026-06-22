@@ -24,6 +24,7 @@ const SEED_TITLES = [
   "Shopee morning",
   "Shopee evening",
   "Shopee low stock",
+  "Shopee price discrepancy",
   "Lazada morning",
   "Lazada evening",
   "Lazada low stock",
@@ -111,6 +112,20 @@ const JOBS: Job[] = [
       "Pipeline from repo root (run both, one per channel):\n" +
       "  python3 scripts/shopee_low_stock_alert.py --channel C0B2QN88GSH | bun run scripts/post_daily_update.ts\n" +
       "  python3 scripts/shopee_low_stock_alert.py --channel -1004450247696 | bun run scripts/post_daily_update.ts\n" +
+      "Return the result.",
+  },
+  {
+    title: "Shopee price discrepancy",
+    channelId: "C0B2QN88GSH",
+    scheduleHour: 9,
+    scheduleMinute: 0,
+    cronExpression: "0 9,13,17,21 * * *",
+    platform: "slack",
+    messageText:
+      "Run the Shopee price discrepancy alert and post to both Slack and Telegram.\n" +
+      "Pipeline from repo root (run both, one per channel):\n" +
+      "  python3 scripts/shopee_price_discrepancy_alert.py --channel C0B2QN88GSH | bun run scripts/post_daily_update.ts\n" +
+      "  python3 scripts/shopee_price_discrepancy_alert.py --channel -1004450247696 | bun run scripts/post_daily_update.ts\n" +
       "Return the result.",
   },
   {
