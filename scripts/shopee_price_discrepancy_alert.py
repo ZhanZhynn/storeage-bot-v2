@@ -32,8 +32,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 # ── Constants ────────────────────────────────────────────────────────────
-LOOKBACK_HOURS = 6
-DISCREPANCY_THRESHOLD_PCT = 10.0
+LOOKBACK_HOURS = 24
+DISCREPANCY_THRESHOLD_PCT = 30.0
 # ─────────────────────────────────────────────────────────────────────────
 
 MALAYSIA_TZ = timezone(timedelta(hours=8))
@@ -148,6 +148,8 @@ def detect_discrepancies(
                 qty = int(_money(item.get("quantity_purchased")) or 1)
                 item_names.append({"name": name, "sku": sku, "qty": qty})
 
+            fee_breakdown = _compute_fee_breakdown(order_income, selling_price)
+
             flagged.append({
                 "order_sn": order_sn,
                 "selling_price": selling_price,
@@ -155,9 +157,58 @@ def detect_discrepancies(
                 "gap_pct": round(gap_pct, 1),
                 "negative_escrow": negative_escrow,
                 "items": item_names,
+                "fee_breakdown": fee_breakdown,
             })
 
     return flagged
+
+
+def _compute_fee_breakdown(order_income: dict, selling_price: float) -> list[dict]:
+    """Return grouped fee categories sorted by absolute amount descending."""
+    categories = {
+        "Discounts": [
+            "seller_discount", "shopee_discount", "voucher_from_seller",
+            "voucher_from_shopee", "coins",
+        ],
+        "Platform Fees": [
+            "commission_fee", "service_fee", "seller_transaction_fee",
+            "seller_order_processing_fee", "campaign_fee", "fbs_fee",
+            "ads_escrow_top_up_fee_or_technical_support_fee",
+        ],
+        "Seller Shipping Cost": None,  # computed separately
+        "Taxes": [
+            "escrow_tax", "withholding_tax", "cross_border_tax",
+            "sales_tax_on_lvg", "final_escrow_product_gst",
+            "final_escrow_shipping_gst", "final_product_vat_tax",
+            "final_shipping_vat_tax", "shipping_fee_sst",
+            "reverse_shipping_fee_sst", "vat_on_imported_goods",
+            "withholding_vat_tax", "withholding_pit_tax", "th_import_duty",
+        ],
+    }
+
+    result: list[dict] = []
+    for cat_name, fields in categories.items():
+        if cat_name == "Seller Shipping Cost":
+            total = (
+                _money(order_income.get("actual_shipping_fee"))
+                + _money(order_income.get("reverse_shipping_fee"))
+                + _money(order_income.get("final_return_to_seller_shipping_fee"))
+                - _money(order_income.get("buyer_paid_shipping_fee"))
+                - _money(order_income.get("shopee_shipping_rebate"))
+            )
+        else:
+            total = sum(_money(order_income.get(f)) for f in fields)
+        if total == 0:
+            continue
+        pct = (total / selling_price * 100) if selling_price > 0 else 0
+        result.append({
+            "category": cat_name,
+            "amount": round(total, 2),
+            "pct": round(pct, 1),
+        })
+
+    result.sort(key=lambda c: abs(c["amount"]), reverse=True)
+    return result
 
 
 def build_blocks(
@@ -184,6 +235,7 @@ def build_blocks(
         escrow = order["escrow_amount"]
         pct = order["gap_pct"]
         neg = order["negative_escrow"]
+        fees = order.get("fee_breakdown") or []
 
         marker = "\u26a0\ufe0f *NEGATIVE ESCROW* \u2022 " if neg else ""
         lines = [
@@ -196,6 +248,10 @@ def build_blocks(
             qty_str = f" x{item['qty']}" if item["qty"] != 1 else ""
             sku_str = f" (`{item['sku']}`)" if item["sku"] else ""
             lines.append(f"  \u2022 {item['name']}{sku_str}{qty_str}")
+
+        if fees:
+            fee_parts = [f"{f['category']}: {f['pct']:.1f}%" for f in fees]
+            lines.append(f"  _Fees breakdown: {' \u00b7 '.join(fee_parts)}_")
 
         blocks.append({
             "type": "section",
