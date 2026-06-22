@@ -22,27 +22,33 @@ def build_shopee_order_blocks(
     error: str | None = None,
     hours_threshold: int = 24,
     max_pages: int = 5,
+    yesterday_orders: int | None = None,
+    yesterday_revenue: float | None = None,
 ) -> list[dict]:
-    today = datetime.now(MALAYSIA_TZ).strftime("%Y-%m-%d")
+    today = datetime.now(MALAYSIA_TZ).strftime("%b %d, %Y")
     header = (
-        f":sunrise: *Shopee Morning Update* ({today})"
+        f"\U0001f305 *Shopee Morning Update* ({today})"
         if mode == "morning"
-        else f":city_sunset: *Shopee Evening Update* ({today})"
+        else f"\U0001f306 *Shopee Evening Update* ({today})"
     )
 
     lines: list[str] = [header]
     if error:
-        lines.extend(["", f"*:warning: Error:* `{error}`"])
+        lines.extend(["", f"*\u26a0\ufe0f Error:* `{error}`"])
     else:
         lines.extend(
             [
                 "",
-                f"*Pending packages:* {total_pending}",
-                f"*To process:* {to_process}",
-                f"*Already arranged:* {already_arranged}",
-                f"*Near SLA ({hours_threshold}h):* {near_sla_count}",
+                f"\U0001f4e6 *Pending packages:* {total_pending}",
+                f"\u23f3 *To process:* {to_process}",
+                f"\u2705 *Already arranged:* {already_arranged}",
+                f"\u26a0\ufe0f *Near SLA ({hours_threshold}h):* {near_sla_count}",
             ]
         )
+        if yesterday_orders is not None and yesterday_revenue is not None:
+            lines.append(
+                f"\U0001f4b0 *Yesterday:* {yesterday_orders} orders \u00b7 RM {yesterday_revenue:,.2f}"
+            )
 
     text = "\n".join(lines)
 

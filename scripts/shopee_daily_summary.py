@@ -102,6 +102,64 @@ def summarize_near_sla(data: dict) -> tuple[int, str | None]:
     return int(data.get("near_sla_count") or 0), None
 
 
+def fetch_yesterday_revenue() -> tuple[int, float]:
+    orders_data = _run_safe_run(
+        "shopee",
+        [
+            "orders",
+            "get",
+            "--days",
+            "1",
+            "--time-range-field",
+            "create_time",
+            "--max-pages",
+            "5",
+        ],
+    )
+    if not orders_data.get("ok"):
+        print(f"  Failed to fetch yesterday orders: {orders_data.get('error')}", file=sys.stderr)
+        return 0, 0.0
+
+    orders = orders_data.get("orders") or []
+    order_count = len(orders)
+    if order_count == 0:
+        return 0, 0.0
+
+    order_sns = [o.get("order_sn") for o in orders if o.get("order_sn")]
+    if not order_sns:
+        return 0, 0.0
+
+    total_revenue = 0.0
+    batch_size = 20
+    for i in range(0, len(order_sns), batch_size):
+        batch = order_sns[i : i + batch_size]
+        escrow_data = _run_safe_run(
+            "shopee",
+            [
+                "payment",
+                "escrow-batch",
+                "--order-sn-list",
+                ",".join(batch),
+            ],
+        )
+        if not escrow_data.get("ok"):
+            print(f"  Failed to fetch escrow batch {i // batch_size}: {escrow_data.get('error')}", file=sys.stderr)
+            continue
+        for detail in escrow_data.get("escrow_details") or []:
+            ed = detail.get("escrow_detail") or detail
+            if not isinstance(ed, dict):
+                continue
+            order_income = ed.get("order_income") or {}
+            if not isinstance(order_income, dict):
+                continue
+            try:
+                total_revenue += float(order_income.get("escrow_amount") or 0)
+            except (TypeError, ValueError):
+                pass
+
+    return order_count, total_revenue
+
+
 def build_payload(
     *,
     channel: str,
@@ -119,6 +177,12 @@ def build_payload(
         if sla_error:
             error = sla_error
 
+    yesterday_orders: int | None = None
+    yesterday_revenue: float | None = None
+    if mode == "morning":
+        yesterday_orders, yesterday_revenue = fetch_yesterday_revenue()
+        print(f"  Yesterday: {yesterday_orders} orders, RM {yesterday_revenue:,.2f}", file=sys.stderr)
+
     blocks = build_shopee_order_blocks(
         mode=mode,
         channel=channel,
@@ -129,6 +193,8 @@ def build_payload(
         error=error,
         hours_threshold=hours_threshold,
         max_pages=max_pages,
+        yesterday_orders=yesterday_orders,
+        yesterday_revenue=yesterday_revenue,
     )
     today = datetime.now(MALAYSIA_TZ).strftime("%Y-%m-%d")
     text = f"Shopee {mode} update ({today})"
@@ -146,6 +212,8 @@ def build_payload(
             "near_sla_count": near_sla_count,
             "hours_threshold": hours_threshold,
             "max_pages": max_pages,
+            "yesterday_orders": yesterday_orders,
+            "yesterday_revenue": yesterday_revenue,
         },
     }
 

@@ -31,10 +31,10 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PYTHON_BIN = os.path.join(REPO_ROOT, ".venv", "bin", "python")
 
 MORNING_STATUSES = [
-    ("topack", "To Pack", ":package:"),
-    ("toship", "To Ship", ":truck:"),
-    ("pending", "Pending", ":hourglass_flowing_sand:"),
-    ("ready_to_ship", "Ready to Ship", ":white_check_mark:"),
+    ("topack", "To Pack", "\U0001f4e6"),
+    ("toship", "To Ship", "\U0001f69a"),
+    ("pending", "Pending", "\u23f3"),
+    ("ready_to_ship", "Ready to Ship", "\u2705"),
 ]
 
 MAX_RETRIES = 3
@@ -90,15 +90,31 @@ def fetch_orders_summary(days: int, date: str | None = None) -> dict:
     return {"ok": False, "error": last_error}
 
 
-def format_morning_message(status_breakdown: dict, error: str | None) -> str:
-    today = datetime.now(MALAYSIA_TZ).strftime("%Y-%m-%d")
+def fetch_yesterday_summary() -> tuple[int, float]:
+    yesterday = (datetime.now(MALAYSIA_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+    result = fetch_orders_summary(days=0, date=yesterday)
+    if not result.get("ok"):
+        print(f"  Failed to fetch yesterday summary: {result.get('error')}", file=sys.stderr)
+        return 0, 0.0
+    total_orders = int(result.get("total_orders", 0) or 0)
+    total_sales = float(result.get("total_sales", 0.0) or 0.0)
+    return total_orders, total_sales
+
+
+def format_morning_message(
+    status_breakdown: dict,
+    error: str | None,
+    yesterday_orders: int | None = None,
+    yesterday_revenue: float | None = None,
+) -> str:
+    today = datetime.now(MALAYSIA_TZ).strftime("%b %d, %Y")
     if error:
         return (
-            f":warning: *Morning Order Summary Error* :warning:\n\n"
+            "\u26a0\ufe0f *Morning Order Summary Error* \u26a0\ufe0f\n\n"
             f"```Error: {error}```\n\nPlease check the logs for details."
         )
     lines = [
-        f":sunrise: *Good Morning! Here's your Lazada orders summary for {today}* :sunrise:",
+        f"\U0001f305 *Good Morning! Here's your Lazada orders summary for {today}*",
         "",
     ]
     total = 0
@@ -107,10 +123,14 @@ def format_morning_message(status_breakdown: dict, error: str | None) -> str:
         total += count
         lines.append(f"{emoji} *{label}:* {count} orders")
     if total == 0:
-        lines.extend(["", ":wave: All caught up! No pending orders."])
+        lines.extend(["", "\U0001f44b All caught up! No pending orders."])
     else:
-        lines.extend(["", f":muscle: *Total needing attention: {total} orders*"])
-    # lines.extend(["", f":link: <{LAZADA_SELLER_CENTER_URL}|Open Seller Center>"])
+        lines.extend(["", f"\U0001f4aa *Total needing attention: {total} orders*"])
+    if yesterday_orders is not None and yesterday_revenue is not None:
+        lines.extend([
+            "",
+            f"\U0001f4b0 *Yesterday:* {yesterday_orders} orders \u00b7 RM {yesterday_revenue:,.2f}",
+        ])
     return "\n".join(lines)
 
 
@@ -118,20 +138,20 @@ def format_evening_message(total_orders: int, total_sales: float, date: str, err
     date_formatted = datetime.strptime(date, "%Y-%m-%d").strftime("%B %d, %Y")
     if error:
         return (
-            f":warning: *Evening Order Summary Error* :warning:\n\n"
+            "\u26a0\ufe0f *Evening Order Summary Error* \u26a0\ufe0f\n\n"
             f"```Error: {error}```\n\nPlease check the logs for details."
         )
     lines = [
-        f":city_sunset: *Good Evening! Lazada Daily Summary for {date_formatted}* :city_sunset:",
+        f"\U0001f306 *Good Evening! Lazada Daily Summary for {date_formatted}*",
         "",
-        f":shopping_trolley: *Orders created today:* {total_orders} orders",
-        f":money_with_wings: *Total sales:* RM {total_sales:,.2f}",
+        f"\U0001f6d2 *Orders created today:* {total_orders} orders",
+        f"\U0001f4b8 *Total sales:* RM {total_sales:,.2f}",
         "",
     ]
     if total_orders == 0:
-        lines.append(":zzz: No orders today. Rest up for tomorrow!")
+        lines.append("\U0001f4a4 No orders today. Rest up for tomorrow!")
     else:
-        lines.append(":rocket: Keep up the great work! :rocket:")
+        lines.append("\U0001f680 Keep up the great work! \U0001f680")
     return "\n".join(lines)
 
 
@@ -145,7 +165,11 @@ def build_morning_payload(channel: str) -> dict:
     status_breakdown = result.get("status_breakdown", {})
     for status, _, _ in MORNING_STATUSES:
         print(f"  {status}: {status_breakdown.get(status, 0)} orders", file=sys.stderr)
-    text = format_morning_message(status_breakdown, error)
+
+    yesterday_orders, yesterday_revenue = fetch_yesterday_summary()
+    print(f"  Yesterday: {yesterday_orders} orders, RM {yesterday_revenue:,.2f}", file=sys.stderr)
+
+    text = format_morning_message(status_breakdown, error, yesterday_orders, yesterday_revenue)
     return {
         "ok": True,
         "platform": "lazada",
@@ -155,6 +179,8 @@ def build_morning_payload(channel: str) -> dict:
         "summary": {
             "mode": "morning",
             "status_breakdown": status_breakdown,
+            "yesterday_orders": yesterday_orders,
+            "yesterday_revenue": yesterday_revenue,
         },
     }
 
