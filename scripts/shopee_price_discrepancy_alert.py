@@ -2,19 +2,30 @@
 """Shopee price discrepancy alert — detect pricing mistakes in recent escrows.
 
 Compares order_selling_price (total set price) vs escrow_amount (actual
-seller payout) for each recently paid order. Flags orders where the
-percentage gap exceeds a threshold, or where escrow is negative.
+seller payout) for each recently paid order. Flags orders where:
+  - The percentage gap exceeds a threshold, OR
+  - Escrow is negative, OR
+  - Net shipping cost to seller exceeds a RM threshold
 
 Logic:
   1. Fetch orders created within the lookback window
   2. Batch-fetch escrow details for those orders
   3. For each order: compare order_selling_price vs escrow_amount
-  4. Flag if gap > threshold OR escrow_amount is negative
-  5. Build Slack/Telegram alert blocks and output JSON to stdout
+  4. Compute net shipping cost from escrow data
+  5. Flag if gap > threshold OR escrow_amount < 0 OR net shipping > threshold
+  6. Build Slack/Telegram alert blocks and output JSON to stdout
 
 Usage:
+    # Slack
     python3 scripts/shopee_price_discrepancy_alert.py --channel C0B2QN88GSH
     python3 scripts/shopee_price_discrepancy_alert.py --channel C0B2QN88GSH --hours 12 --threshold 30
+
+    # Telegram
+    python3 scripts/shopee_price_discrepancy_alert.py --channel -1004450247696
+    python3 scripts/shopee_price_discrepancy_alert.py --channel -1004450247696 --status COMPLETED
+
+    # Pipe to post_daily_update.ts for delivery
+    python3 scripts/shopee_price_discrepancy_alert.py --channel -1004450247696 --status COMPLETED --hours 24 --threshold 50 --shipping-threshold 5 --time-range-field create_time | bun run scripts/post_daily_update.ts
 
 Stdout contract:
     {"ok": true, "platform": "shopee", "channel": "...", "text": "...", "blocks": [...]}
@@ -34,6 +45,7 @@ from typing import Any
 # ── Constants ────────────────────────────────────────────────────────────
 LOOKBACK_HOURS = 24
 DISCREPANCY_THRESHOLD_PCT = 30.0
+SHIPPING_FEE_THRESHOLD_RM = 5.0
 # ─────────────────────────────────────────────────────────────────────────
 
 MALAYSIA_TZ = timezone(timedelta(hours=8))
@@ -81,21 +93,27 @@ def _money(value: Any) -> float:
     return 0.0
 
 
-def fetch_recent_orders(hours: int, max_pages: int) -> dict:
+def fetch_recent_orders(hours: int, max_pages: int, order_status: str | None = None, time_range_field: str | None = None) -> dict:
     now_ts = int(datetime.now(timezone.utc).timestamp())
     from_ts = now_ts - (hours * 3600)
-    return _run_safe_run(
-        "shopee",
-        [
-            "orders", "get",
-            "--time-from", str(from_ts),
-            "--time-to", str(now_ts),
-            "--time-range-field", "create_time",
-            "--response-optional-fields", "order_status",
-            "--page-size", "50",
-            "--max-pages", str(max_pages),
-        ],
-    )
+    # Use update_time for COMPLETED orders (to catch recently completed),
+    # create_time for everything else — unless overridden by --time-range-field
+    if time_range_field:
+        time_field = time_range_field
+    else:
+        time_field = "update_time" if order_status == "COMPLETED" else "create_time"
+    args = [
+        "orders", "get",
+        "--time-from", str(from_ts),
+        "--time-to", str(now_ts),
+        "--time-range-field", time_field,
+        "--response-optional-fields", "order_status",
+        "--page-size", "50",
+        "--max-pages", str(max_pages),
+    ]
+    if order_status:
+        args.extend(["--order-status", order_status])
+    return _run_safe_run("shopee", args)
 
 
 def fetch_escrow_batch(order_sns: list[str]) -> dict:
@@ -109,6 +127,7 @@ def detect_discrepancies(
     escrow_details: list[dict],
     hours: int,
     threshold_pct: float,
+    shipping_threshold_rm: float,
 ) -> list[dict]:
     flagged: list[dict] = []
     now = datetime.now(MALAYSIA_TZ)
@@ -138,7 +157,18 @@ def detect_discrepancies(
             else 0
         )
 
-        if gap_pct > threshold_pct or negative_escrow:
+        # Net shipping cost to seller (only meaningful when order has shipped)
+        actual_shipping = _money(order_income.get("actual_shipping_fee"))
+        net_shipping = (
+            actual_shipping
+            + _money(order_income.get("reverse_shipping_fee"))
+            + _money(order_income.get("final_return_to_seller_shipping_fee"))
+            - _money(order_income.get("buyer_paid_shipping_fee"))
+            - _money(order_income.get("shopee_shipping_rebate"))
+        )
+        shipping_flag = actual_shipping > 0 and net_shipping > shipping_threshold_rm
+
+        if gap_pct > threshold_pct or negative_escrow or shipping_flag:
             item_names = []
             for item in items:
                 if not isinstance(item, dict):
@@ -156,6 +186,8 @@ def detect_discrepancies(
                 "escrow_amount": escrow_amount,
                 "gap_pct": round(gap_pct, 1),
                 "negative_escrow": negative_escrow,
+                "net_shipping": round(net_shipping, 2),
+                "shipping_flag": shipping_flag,
                 "items": item_names,
                 "fee_breakdown": fee_breakdown,
             })
@@ -235,14 +267,28 @@ def build_blocks(
         escrow = order["escrow_amount"]
         pct = order["gap_pct"]
         neg = order["negative_escrow"]
+        ship_flag = order.get("shipping_flag", False)
+        net_ship = order.get("net_shipping", 0.0)
         fees = order.get("fee_breakdown") or []
 
-        marker = "\u26a0\ufe0f *NEGATIVE ESCROW* \u2022 " if neg else ""
+        markers = []
+        if neg:
+            markers.append("\u26a0\ufe0f *NEGATIVE ESCROW*")
+        if ship_flag:
+            markers.append("\U0001f6a2 *HIGH SHIPPING COST*")
+        marker = " \u2022 ".join(markers) + " \u2022 " if markers else ""
+
         lines = [
             f"{marker}*Order:* `{order_sn}`",
             f"  Selling: RM {selling:,.2f} \u00b7 Escrow: RM {escrow:,.2f} "
             f"({pct:.1f}% gap)",
         ]
+
+        if ship_flag:
+            ship_pct = (net_ship / selling * 100) if selling > 0 else 0
+            lines.append(
+                f"  Net Shipping: RM {net_ship:,.2f} ({ship_pct:.1f}% of selling price)"
+            )
 
         for item in order["items"]:
             qty_str = f" x{item['qty']}" if item["qty"] != 1 else ""
@@ -275,11 +321,14 @@ def build_payload(
     channel: str,
     hours: int,
     threshold_pct: float,
+    shipping_threshold_rm: float,
+    order_status: str | None,
+    time_range_field: str | None,
     max_pages: int,
 ) -> dict:
     now = datetime.now(MALAYSIA_TZ)
 
-    orders_data = fetch_recent_orders(hours, max_pages)
+    orders_data = fetch_recent_orders(hours, max_pages, order_status, time_range_field)
     if not orders_data.get("ok"):
         return {"ok": False, "error": orders_data.get("error", "orders fetch failed")}
 
@@ -298,7 +347,10 @@ def build_payload(
     PAID_STATUSES = {"READY_TO_SHIP", "PROCESSED", "SHIPPED", "COMPLETED", "INVOICE_PENDING"}
     paid_orders = [
         o for o in orders
-        if o.get("order_sn") and o.get("order_status", "") in PAID_STATUSES
+        if o.get("order_sn") and (
+            order_status  # API already filtered server-side
+            or o.get("order_status", "") in PAID_STATUSES
+        )
     ]
     order_sns = [str(o.get("order_sn", "")) for o in paid_orders]
 
@@ -313,7 +365,7 @@ def build_payload(
             if isinstance(d, dict):
                 all_escrow_details.append(d.get("escrow_detail") or d)
 
-    flagged = detect_discrepancies(all_escrow_details, hours, threshold_pct)
+    flagged = detect_discrepancies(all_escrow_details, hours, threshold_pct, shipping_threshold_rm)
 
     if not flagged:
         return {
@@ -324,7 +376,8 @@ def build_payload(
             "blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": (
                 f"\u2705 *Shopee Price Discrepancy Check*\n\n"
                 f"All clear \u2014 {len(order_sns)} orders checked, "
-                f"no orders with >{threshold_pct:.0f}% selling-to-escrow gap.\n"
+                f"no orders with >{threshold_pct:.0f}% selling-to-escrow gap "
+                f"or >RM {shipping_threshold_rm:.0f} net shipping.\n"
                 f"_Last {hours}h_"
             )}}],
         }
@@ -362,6 +415,20 @@ def main() -> int:
         "--threshold", type=float, default=DISCREPANCY_THRESHOLD_PCT,
         help=f"Percentage threshold to flag (default: {DISCREPANCY_THRESHOLD_PCT}%%)",
     )
+    parser.add_argument(
+        "--shipping-threshold", type=float, default=SHIPPING_FEE_THRESHOLD_RM,
+        help=f"Net shipping cost (RM) threshold to flag (default: {SHIPPING_FEE_THRESHOLD_RM})",
+    )
+    parser.add_argument(
+        "--status", default=None,
+        choices=["UNPAID", "READY_TO_SHIP", "PROCESSED", "SHIPPED", "COMPLETED", "IN_CANCEL", "CANCELLED", "INVOICE_PENDING"],
+        help="Filter by order status (default: all paid statuses)",
+    )
+    parser.add_argument(
+        "--time-range-field", default=None,
+        choices=["create_time", "update_time"],
+        help="Time range field for order fetch (default: auto — update_time for COMPLETED, create_time otherwise)",
+    )
     parser.add_argument("--max-pages", type=int, default=5)
 
     args = parser.parse_args()
@@ -371,6 +438,9 @@ def main() -> int:
             channel=args.channel,
             hours=args.hours,
             threshold_pct=args.threshold,
+            shipping_threshold_rm=args.shipping_threshold,
+            order_status=args.status,
+            time_range_field=args.time_range_field,
             max_pages=args.max_pages,
         )
     except Exception as exc:
