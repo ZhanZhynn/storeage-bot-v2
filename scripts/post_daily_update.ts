@@ -20,7 +20,7 @@
 import { readFileSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { WebClient } from "@slack/web-api";
 
 type DailyPayload = {
@@ -29,6 +29,7 @@ type DailyPayload = {
   channel?: string;
   text?: string;
   blocks?: unknown[];
+  excel_path?: string;
   error?: string;
 };
 
@@ -236,6 +237,44 @@ async function postToTelegram(
   return data.result?.message_id?.toString();
 }
 
+async function uploadTelegramFile(
+  botToken: string,
+  chatId: string,
+  filePath: string,
+  caption?: string,
+): Promise<{ messageId: number } | null> {
+  if (!existsSync(filePath)) {
+    console.error(`[post_daily_update] file not found: ${filePath}`);
+    return null;
+  }
+
+  const file = Bun.file(filePath);
+  const formData = new FormData();
+  formData.append("chat_id", chatId);
+  formData.append("document", file, basename(filePath));
+  if (caption) {
+    formData.append("caption", caption);
+  }
+
+  const resp = await fetch(`https://api.telegram.org/bot${botToken}/sendDocument`, {
+    method: "POST",
+    body: formData,
+  });
+
+  const data = (await resp.json()) as {
+    ok: boolean;
+    description?: string;
+    result?: { message_id?: number };
+  };
+
+  if (!data.ok) {
+    console.error(`[post_daily_update] Telegram sendDocument failed: ${data.description ?? "unknown"}`);
+    return null;
+  }
+
+  return { messageId: data.result?.message_id ?? 0 };
+}
+
 async function main(): Promise<number> {
   const raw = (await readStdin()).trim();
   if (!raw) {
@@ -282,6 +321,20 @@ async function main(): Promise<number> {
       console.log(
         `[post_daily_update] posted to Telegram ${payload.channel} (${payload.platform ?? "?"}) message_id=${messageId} | ${tail}`,
       );
+
+      // Upload Excel file if present
+      if (payload.excel_path) {
+        const uploadResult = await uploadTelegramFile(
+          token,
+          payload.channel,
+          payload.excel_path,
+          payload.text,
+        );
+        if (uploadResult) {
+          console.log(`[post_daily_update] uploaded ${payload.excel_path} to Telegram message_id=${uploadResult.messageId}`);
+        }
+      }
+
       return 0;
     } catch (err) {
       console.error(
